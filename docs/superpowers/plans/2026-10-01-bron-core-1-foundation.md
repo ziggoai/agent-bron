@@ -53,7 +53,7 @@ Approved by the human on 2026-10-01:
 
 1. `.claude/settings.json` `"agent": "bron"` makes the main session use `.claude/agents/bron.md`.
 2. `CLAUDE.md` containing `@AGENTS.md` loads `AGENTS.md`.
-3. Codex project `.codex/config.toml` accepts `developer_instructions`, `model`, `[features] memories`, `[mcp_servers.*]` (with `enabled`, `env`, `env_vars`, `tools.<tool>.approval_mode`), and `.codex/hooks.json` uses the same JSON shape as Claude's hooks.
+3. Codex project `.codex/config.toml` accepts `developer_instructions`, `model`, `[features] memories`, `[mcp_servers.*]` (with `enabled`, `env`, `env_vars`, `tools.<tool>.approval_mode`), and `.codex/hooks.json` uses the same JSON shape as Claude's hooks. (verification: the `-c projects."<path>".trust_level` override is ignored by Codex 0.159.x; MCP `approval_mode="prompt"` was not enforced in `exec`, inconclusive. See the CLI verification findings.)
 4. Plain stdout from a SessionStart trigger is added to the model's context in both CLIs.
 5. Claude agent frontmatter `disallowedTools: mcp__<server>, Agent(<name>)` blocks that server and that subagent. **Task 1 (R5): FALSE for the subagent part.** A specifier such as `Agent(otherbot)` in `disallowedTools` removes the whole Agent tool; use an allowlist `tools: Agent(a, b), ...` instead. See the CLI verification findings.
 6. Claude permission rule `Bash(git push *)` matches `git push origin main`.
