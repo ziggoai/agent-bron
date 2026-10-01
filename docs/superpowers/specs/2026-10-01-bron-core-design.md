@@ -43,7 +43,7 @@ The framework starts with one generalist agent, **Bron**. The user can keep Bron
 |---|---|---|
 | 2 | Memory: what is captured, when, and how it is recalled | Folders, the four trigger points, native memory features disabled |
 | 3 | Knowledge base: ingest, wiki, hybrid search (**critical and speed-sensitive**) | `Knowledge/`, `.bron/kb/`, one search tool used the same way in both CLIs |
-| 4 | Projects and Routines: runbooks, run records, scheduling later | Folders and `create-project` / `create-routine` setup skills |
+| 4 | Projects and Routines: runbook content, run workflow, scheduling later | Folders, the routine format (cadence, for_each, period folders, §6.3), the due-routines briefing, and the `create-project` / `create-routine` setup skills |
 | 5 | Learning: corrections become lessons, lessons become skill proposals you approve | Session-end and pre-compaction markers, override rule for skills |
 | 6 | Connections catalogue (Carta, Drive, Gmail…) | `System/Connections/` format, per-agent allowlists |
 | 7 | Team features beyond core (budgets, org views) | Agent format, tickets, runner, mixed vendors |
@@ -75,10 +75,12 @@ Vault/
 │   └── <Project>/
 │       ├── README.md        goal, status, key decisions
 │       └── …                working files and outputs
-├── Routines/              repeating workflows, one folder each
+├── Routines/              repeating workflows, one folder each (§6.3)
 │   └── <Routine>/
-│       ├── Runbook.md       steps, inputs, checks
-│       └── Runs/            one record per run (e.g. 2026-Q3.md)
+│       ├── Runbook.md       steps, inputs, checks, cadence, for_each
+│       └── 2026-Q3/         one folder per period: run notes + outputs
+│           ├── Fund I.md      one note per for_each item
+│           └── Fund II.md
 ├── Tickets/               one note per ticket + Board.base (Bases board view)
 ├── Knowledge/             readable wiki pages (internals: sub-project 3)
 │
@@ -186,6 +188,7 @@ Sync turns each helper into a Claude subagent file and a Codex agent file.
 ```markdown
 ---
 id: T-0042
+kind: task              # task | chat (chat = an @-mention conversation, §7.6)
 status: todo            # backlog | todo | in-progress | blocked | in-review | done | cancelled
 assignee: cfo
 requested_by: bron      # agent name or "you"
@@ -224,7 +227,32 @@ Summary and links to outputs.
   - A ticket can be moved to `cancelled` at any time.
 - **Subtasks** use `parent:`. A parent's Result summarises its children.
 - **Your own work queue.** You can create tickets for any agent, Bron included, as a to-do list.
-- **Board.** `Tickets/Board.base` ships with views by status and by assignee.
+- **Board.** `Tickets/Board.base` ships with views by status and by assignee. Chat tickets are hidden from the board by default and have their own view.
+- **Chat tickets** (`kind: chat`) record one @-mention conversation with an agent in one session. They are closed (`done`) automatically when the session ends.
+
+### 6.3 Routines
+
+A routine is a repeating workflow. The framework supports cadences and repeating once per item (fund, client, entity…). The actual items are user configuration.
+
+`Routines/<Routine>/Runbook.md`:
+
+```markdown
+---
+cadence: quarterly          # monthly | quarterly | annual
+for_each: [Fund I, Fund II, Fund III]   # optional
+due: 45 days after period end           # optional, plain rule
+owner: bron                 # agent that runs it
+---
+
+## Steps
+## Inputs
+## Checks
+```
+
+- **Period folders** sit directly in the routine folder, named by period: `2026-09` (monthly), `2026-Q3` (quarterly), `2026` (annual). There is no `Runs/` folder.
+- **Run notes.** Each period folder holds one run note per `for_each` item (`Fund I.md`, `Fund II.md`…), or a single `Run.md` when `for_each` is not set. Outputs for that period are saved alongside them. A run note records its status (todo | in-progress | done), what was done, checks passed, and links to outputs.
+- **What's due.** `Routines/Board.base` shows what is due and done in the current period, per item. The session-start briefing (§7.3) mentions due and overdue runs, for example "Q3 LP reports: Fund I done, Fund II and III due in 10 days". Nothing runs on its own.
+- `create-routine` sets all of this up from a plain request. The detailed run workflow is sub-project 4.
 
 ## 7. Engine (`System/Core/Engine`)
 
@@ -267,7 +295,8 @@ The trigger configuration never changes after install. Every trigger calls one s
 
 | Point | Claude event | Codex event | Core behaviour (later sub-projects extend it) |
 |---|---|---|---|
-| Session start | SessionStart | SessionStart | Sync check; inject a short briefing (who you are, recent memory summary, open and finished tickets for this agent) |
+| Session start | SessionStart | SessionStart | Sync check; inject a short briefing (who you are, recent memory summary, open and finished tickets for this agent, due and overdue routine runs) |
+| Message sent | UserPromptSubmit | UserPromptSubmit | Detect `@agent` tags and inject routing instructions (§7.6) |
 | Before compression | PreCompact | PreCompact | Write a "save what matters" note to the agent's memory inbox |
 | After each turn | Stop | Stop | Light capture marker (cheap) |
 | Session end | SessionEnd | SessionEnd | Marker only (Codex allows ~1 s). Processing happens at the next session start. |
@@ -305,13 +334,23 @@ Started by the `delegate` skill, `bron run T-0042`, or `bron run --resume T-0042
 
 **Limits** (per ticket, optional in `Agent.md` or the ticket): `max_minutes` (default 30) and Claude's `max_budget_usd` where supported.
 
-### 7.6 Launcher: talk to any agent directly
-`bron chat [agent] [--cli claude|codex]`. The agent defaults to Bron and the CLI defaults to the one in `Settings.md`.
+### 7.6 Talking to agents
 
+**Default: just type.** Every session opened in the vault, in either CLI, is Bron (§7.1). You never choose a model: Bron uses `models.claude` in Claude Code and `models.codex` in Codex. A model you switch to inside the session (e.g. `/model`) wins for that session.
+
+**@-mentions: talk to a team member from any session.**
+1. A message containing `@cfo` (any agent name, case-insensitive) is detected by the message-sent trigger (§7.3), which tells Bron to route it. Messages with no tag go to Bron.
+2. Bron hands the message to the runner as a **chat ticket** (§6.2). The CFO runs on its own model and CLI (`runs_in`), so this works across vendors.
+3. **The CFO's answer is shown in your session word for word, labelled as the CFO.** Bron does not rewrite it, though it may add its own note after it if relevant.
+4. Further `@cfo` messages in the same session resume the CFO's session on the same chat ticket, so follow-ups are fast.
+5. Several agents can be tagged in one message. Each answers separately, in parallel.
+6. An agent you can't reach (missing CLI, not logged in) gets a plain-language explanation instead of an answer.
+
+**Direct session (power option):** `bron chat <agent> [--cli claude|codex]` opens a whole session as that agent. It is faster for long working sessions because nothing is relayed.
 - **Claude:** `claude --agent <name>`.
 - **Codex:** `codex -m <model> -c developer_instructions=<agent instructions> -c mcp_servers…`. Codex has no agent flag, so the launcher passes these settings.
 
-Bron Terminal can call the launcher, for example through an agent picker. That plugin change is a follow-up and is not required for Core.
+Bron Terminal can expose the direct session later, for example through an agent picker. That plugin change is a follow-up and is not required for Core.
 
 ### 7.7 Health check: `bron check`, or "Bron, check yourself"
 It validates:
@@ -492,6 +531,8 @@ Every vault opens looking and working the same way.
   - `blocked` then resume of the same session.
   - Parallel tickets.
   - A stale lock is recovered.
+  - `@cfo` in a Claude Code session and in a Codex session: the CFO's answer arrives word for word, a follow-up resumes the same session, an untagged message goes to Bron, and two tagged agents answer in parallel.
+- **Routines:** `create-routine` with `for_each` produces the right period folder and run notes for monthly, quarterly and annual cadences, and the briefing lists due and overdue runs correctly.
 - **Install tests:** a clean install into a temporary folder, a re-run that repairs, update, and undo, with user files compared byte for byte.
 - **Speed baseline:** measure the time from handoff to the first ticket update, and the time to resume, in each CLI. Record the baseline in the plan and track it on every release.
 
@@ -502,8 +543,10 @@ Every vault opens looking and working the same way.
 3. **Self-configuration:** "Set up a new CFO on Opus 5.5 that reports to you" produces a working CFO after one approval, and the test ticket succeeds.
 4. **Cross-vendor handoff:** Claude Bron hands a ticket to a GPT CFO in Codex and gets the result back, including a `blocked` → resume round trip.
 5. **Updates:** update and undo leave every user file unchanged.
-6. **Clean tree:** the visible vault top level shows only `Projects/`, `Routines/`, `Tickets/`, `Knowledge/`, `System/`, `AGENTS.md` and `CLAUDE.md`.
-7. **Health check:** a deliberately broken setup (a bad reference, a hand-edited generated file, a stale lock) is detected and fixed.
+6. **@-mentions:** in an open session in either CLI, `@cfo <question>` returns the CFO's answer in that session, and untagged messages are answered by Bron, with no model or command to choose.
+7. **Routines:** a quarterly routine set up for three funds shows, at the start of a session, which funds are done and which are due this quarter.
+8. **Clean tree:** the visible vault top level shows only `Projects/`, `Routines/`, `Tickets/`, `Knowledge/`, `System/`, `AGENTS.md` and `CLAUDE.md`.
+9. **Health check:** a deliberately broken setup (a bad reference, a hand-edited generated file, a stale lock) is detected and fixed.
 
 ## 15. Verify during implementation
 
@@ -518,6 +561,8 @@ These came out of research and could not be fully confirmed. The plan tests each
 7. **Plugin data.** Confirm the bundled plugins' `data.json` defaults contain nothing personal.
 8. **Turning off native memory.** Confirm the exact project-level setting that disables Claude Code's auto-memory inside the vault, and that Codex `memories` stays off for this project.
 9. **Default agent in Claude settings.** Confirm that the `agent` setting in project `.claude/settings.json` makes Bron the default session agent.
+10. **@-mentions next to the file picker.** Both CLIs open a file picker on `@`. Confirm a typed `@cfo` reaches the message trigger as plain text in both, and that Claude Code's own `@agent-…` subagent mention doesn't conflict. If needed, accept both `@cfo` and the CLI's suggested form.
+11. **Context injection in Codex.** Confirm the Codex message-sent trigger can inject routing instructions the same way Claude's does.
 
 ## 16. Glossary
 
@@ -526,8 +571,10 @@ These came out of research and could not be fully confirmed. The plan tests each
 | **Team member** | A permanent agent with its own folder in `System/Agents/` |
 | **Helper** | A temporary subagent any team member can use |
 | **Ticket** | A task note in `Tickets/`. The only way agents hand each other work. |
+| **Routine** | A repeating workflow with a cadence, optionally once per fund or other item, filed by period |
 | **Sync** | Bron turning `System/` into each CLI's own hidden setup |
 | **Runner** | The engine part that starts an agent to work a ticket |
-| **Launcher** | `bron chat`: start a conversation as any agent in either CLI |
+| **@-mention** | Tagging `@agent` in any session to talk to that team member; untagged messages go to Bron |
+| **Direct session** | `bron chat <agent>`: a whole session as one agent (power option) |
 | **Health check** | `bron check`: validates the whole setup |
 | **Core** | `System/Core/`, the framework's own files, replaced on update |
