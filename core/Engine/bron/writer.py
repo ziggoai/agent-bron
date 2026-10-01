@@ -40,24 +40,26 @@ class GeneratedWriter:
     def _safe_target(self, rel: str) -> Path:
         """Validate a target path and return it.
 
-        Raises ValueError if the path points outside the vault (via symlink)
+        Raises ValueError if the path goes through a symlink (even inside the vault)
         or if it exists but is not a regular file Bron created.
         """
         target = self.vault.root / rel
-        # Check that the parent directory resolves inside the vault (detects symlink escapes)
+        vault_resolved = self.vault.root.resolve()
+        rel_path = PurePosixPath(rel)
+
+        # Check that target's resolved parent matches vault root + rel's parent (no symlinks in path)
         try:
-            target_resolved = target.resolve()
-            vault_resolved = self.vault.root.resolve()
-            # Check if target's resolved parent is inside vault
-            if vault_resolved not in (target_resolved.parent, *target_resolved.parent.parents):
-                raise ValueError(f"Bron tried to write {rel}, which points outside the vault (through a link); Bron won't write there")
+            target_parent_resolved = target.parent.resolve()
+            expected_parent = vault_resolved / rel_path.parent
+            if target_parent_resolved != expected_parent:
+                raise ValueError(f"Bron tried to write {rel}, which goes through a link; Bron won't write there")
         except (OSError, RuntimeError):
-            raise ValueError(f"Bron tried to write {rel}, which points outside the vault (through a link); Bron won't write there")
+            raise ValueError(f"Bron tried to write {rel}, which goes through a link; Bron won't write there")
 
         # Check that if it exists, it's a regular file (not a folder or symlink)
-        if target.exists() or target.is_symlink():
-            if not target.is_file(follow_symlinks=False):
-                raise ValueError(f"Bron tried to write {rel}, which is a folder or a link, not a file Bron made; move it away and sync again")
+        # Python 3.12 compatible: use is_symlink() and is_file() instead of is_file(follow_symlinks=False)
+        if target.is_symlink() or (target.exists() and not target.is_file()):
+            raise ValueError(f"Bron tried to write {rel}, which is a folder or a link, not a file Bron made; move it away and sync again")
 
         return target
 

@@ -1,8 +1,13 @@
+import hashlib
 import json
 
 import pytest
 
 from bron.writer import GeneratedWriter
+
+
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 def write(vault, files, fingerprint=""):
@@ -111,7 +116,7 @@ def test_symlinked_generated_folder_is_refused(vault):
     (vault.root / ".claude/evil").symlink_to(outside)
 
     # Try to write through the symlink - should raise ValueError
-    with pytest.raises(ValueError, match="outside the vault"):
+    with pytest.raises(ValueError, match="through a link"):
         write(vault, {".claude/evil/file.json": "{}\n"})
 
     # Verify nothing was written outside
@@ -135,7 +140,14 @@ def test_folder_at_a_generated_path_is_refused(vault):
     assert not (vault.root / "CLAUDE.md").exists()
 
 
-# Helper for symlink/folder tests
-def sha256(data: bytes) -> str:
-    import hashlib
-    return hashlib.sha256(data).hexdigest()
+def test_link_inside_the_vault_is_refused(vault):
+    """Symlinks inside the vault should be refused (even pointing to allowed folders)."""
+    # Create a symlink from .claude to System (both inside vault)
+    (vault.root / ".claude").symlink_to(vault.system)
+
+    # Try to write through the in-vault symlink - should raise ValueError
+    with pytest.raises(ValueError, match="through a link"):
+        write(vault, {".claude/settings.json": "{}\n"})
+
+    # Verify nothing was written to System/
+    assert not (vault.system / "settings.json").exists()
