@@ -55,9 +55,9 @@ Approved by the human on 2026-10-01:
 2. `CLAUDE.md` containing `@AGENTS.md` loads `AGENTS.md`.
 3. Codex project `.codex/config.toml` accepts `developer_instructions`, `model`, `[features] memories`, `[mcp_servers.*]` (with `enabled`, `env`, `env_vars`, `tools.<tool>.approval_mode`), and `.codex/hooks.json` uses the same JSON shape as Claude's hooks.
 4. Plain stdout from a SessionStart trigger is added to the model's context in both CLIs.
-5. Claude agent frontmatter `disallowedTools: mcp__<server>, Agent(<name>)` blocks that server and that subagent.
+5. Claude agent frontmatter `disallowedTools: mcp__<server>, Agent(<name>)` blocks that server and that subagent. **Task 1 (R5): FALSE for the subagent part.** A specifier such as `Agent(otherbot)` in `disallowedTools` removes the whole Agent tool; use an allowlist `tools: Agent(a, b), ...` instead. See the CLI verification findings.
 6. Claude permission rule `Bash(git push *)` matches `git push origin main`.
-7. A Codex agent file with `[mcp_servers.<x>] enabled = false` hides server `<x>` from that agent.
+7. A Codex agent file with `[mcp_servers.<x>] enabled = false` hides server `<x>` from that agent. **Task 1 (R4): FALSE.** The agent file needs a transport (`command`) or it is rejected as malformed, and with one, `enabled = false` still left the server visible to the spawned agent. See the CLI verification findings.
 
 ## Review Focus
 
