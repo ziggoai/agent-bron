@@ -14,16 +14,22 @@ def main(event: str, cli: str, stdin=None, stdout=None) -> int:
     stdin = stdin if stdin is not None else sys.stdin
     stdout = stdout if stdout is not None else sys.stdout
     try:
-        payload = _payload(stdin)
         if event in QUICK:
+            payload = _payload(stdin)
             _marker(event, cli, payload)
         elif event == "session-start":
-            stdout.write(_session_start(cli))
+            try:
+                output = _session_start(cli)
+            except Exception as exc:  # noqa: BLE001
+                _log_error(event, cli, exc)
+                output = f"Bron: the startup check failed ({exc.__class__.__name__}). Ask Bron to run `.bron/bin/bron check`.\n"
+            try:
+                stdout.write(output)
+            except Exception:  # noqa: BLE001
+                pass
         # "user-prompt": @-mention routing arrives with tickets in Plan 2.
     except Exception as exc:  # noqa: BLE001 - a trigger must never fail the session
         _log_error(event, cli, exc)
-        if event == "session-start":
-            stdout.write(f"Bron: the startup check failed ({exc.__class__.__name__}). Ask Bron to run `.bron/bin/bron check`.\n")
     return 0
 
 
@@ -69,15 +75,19 @@ def _session_start(cli: str) -> str:
 
     vault = Vault.find()
     notes: list[str] = []
-    if needs_sync(vault):
-        result = run_sync(vault)
-        if not result.ok:
-            notes.append("Bron couldn't apply recent setup changes; the previous setup is still active. Problems:")
-            notes += ["- " + issue.render(vault.root) for issue in result.issues if issue.level == "error"]
-        elif result.report and (result.report.written or result.report.deleted):
-            notes.append("Bron applied recent setup changes. Some take effect from the next session.")
-            if result.report.backup_dir:
-                notes.append(f"A hand-edited generated file was replaced; the edited copy is in {result.report.backup_dir.relative_to(vault.root)}.")
+    try:
+        if needs_sync(vault):
+            result = run_sync(vault)
+            if not result.ok:
+                notes.append("Bron couldn't apply recent setup changes; the previous setup is still active. Problems:")
+                notes += ["- " + issue.render(vault.root) for issue in result.issues if issue.level == "error"]
+            elif result.report and (result.report.written or result.report.deleted):
+                notes.append("Bron applied recent setup changes. Some take effect from the next session.")
+                if result.report.backup_dir:
+                    notes.append(f"A hand-edited generated file was replaced; the edited copy is in {result.report.backup_dir.relative_to(vault.root)}.")
+    except Exception as exc:  # noqa: BLE001
+        _log_error("session-start", cli, exc)
+        notes.append(f"Bron couldn't check the setup ({exc.__class__.__name__}). Ask Bron to run `.bron/bin/bron check`.")
     return build_briefing(vault, cli=cli, notes=notes)
 
 

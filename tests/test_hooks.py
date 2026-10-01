@@ -95,3 +95,42 @@ def test_outside_a_vault_never_fails(tmp_path, monkeypatch):
     assert call("stop")[0] == 0
     code, out = call("session-start")
     assert code == 0 and "startup check failed" in out
+
+
+def test_session_start_does_not_read_stdin(in_vault):
+    class AssertingStdin:
+        def isatty(self):
+            return False
+
+        def read(self):
+            raise AssertionError("read called")
+
+    out = io.StringIO()
+    code = hook("session-start", "claude", stdin=AssertingStdin(), stdout=out)
+    assert code == 0
+    output = out.getvalue()
+    assert output.startswith("# Bron briefing\n")
+    assert "startup check failed" not in output
+
+
+def test_sync_crash_still_gives_the_briefing(in_vault, monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("sync kaput")
+
+    monkeypatch.setattr("bron.sync.run_sync", boom)
+    code, out = call("session-start")
+    assert code == 0
+    assert out.startswith("# Bron briefing\n")
+    assert "couldn't check the setup" in out
+    assert "RuntimeError: sync kaput" in (in_vault.state_dir / "hook-errors.log").read_text()
+
+
+def test_session_start_reports_a_backup_of_hand_edits(in_vault):
+    call("session-start")
+    (in_vault.root / ".claude/settings.json").write_text('{"mine": true}\n', encoding="utf-8")
+    _, out = call("session-start")
+    assert "# Bron briefing\n" in out
+    assert "the edited copy is in .bron/backups/" in out
+    backed_up = list(in_vault.backups_dir.glob("*/.claude/settings.json"))
+    assert len(backed_up) == 1
+    assert backed_up[0].read_text() == '{"mine": true}\n'
