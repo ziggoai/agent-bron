@@ -37,6 +37,30 @@ class GeneratedWriter:
         self.manifest_path = vault.state_dir / MANIFEST
         self.manifest = self._load()
 
+    def _safe_target(self, rel: str) -> Path:
+        """Validate a target path and return it.
+
+        Raises ValueError if the path points outside the vault (via symlink)
+        or if it exists but is not a regular file Bron created.
+        """
+        target = self.vault.root / rel
+        # Check that the parent directory resolves inside the vault (detects symlink escapes)
+        try:
+            target_resolved = target.resolve()
+            vault_resolved = self.vault.root.resolve()
+            # Check if target's resolved parent is inside vault
+            if vault_resolved not in (target_resolved.parent, *target_resolved.parent.parents):
+                raise ValueError(f"Bron tried to write {rel}, which points outside the vault (through a link); Bron won't write there")
+        except (OSError, RuntimeError):
+            raise ValueError(f"Bron tried to write {rel}, which points outside the vault (through a link); Bron won't write there")
+
+        # Check that if it exists, it's a regular file (not a folder or symlink)
+        if target.exists() or target.is_symlink():
+            if not target.is_file(follow_symlinks=False):
+                raise ValueError(f"Bron tried to write {rel}, which is a folder or a link, not a file Bron made; move it away and sync again")
+
+        return target
+
     def _load(self) -> dict:
         try:
             data = json.loads(self.manifest_path.read_text(encoding="utf-8"))
@@ -45,6 +69,16 @@ class GeneratedWriter:
         if not isinstance(data, dict) or not isinstance(data.get("files"), dict):
             return {"files": {}, "fingerprint": ""}
         data.setdefault("fingerprint", "")
+        # Validate manifest keys: keep only entries that pass _check_allowed and have str values
+        validated_files = {}
+        for rel, digest in data.get("files", {}).items():
+            if isinstance(digest, str):
+                try:
+                    _check_allowed(rel)
+                    validated_files[rel] = digest
+                except ValueError:
+                    pass  # silently drop invalid entries
+        data["files"] = validated_files
         return data
 
     def drift(self) -> list[str]:
@@ -58,12 +92,20 @@ class GeneratedWriter:
     def apply(self, files: dict[str, bytes], fingerprint: str = "") -> WriteReport:
         for rel in files:
             _check_allowed(rel)
+        # Validate all incoming targets before writing anything
+        for rel in files:
+            self._safe_target(rel)
+        # Validate all manifest entries to be deleted
+        for rel in self.manifest["files"]:
+            if rel not in files:
+                self._safe_target(rel)
+
         report = WriteReport()
         backup_root = self.vault.backups_dir / f"sync-{time.strftime('%Y%m%d-%H%M%S')}"
         old: dict[str, str] = self.manifest["files"]
         new: dict[str, str] = {}
         for rel, data in sorted(files.items()):
-            target = self.vault.root / rel
+            target = self._safe_target(rel)
             digest = sha256(data)
             if target.is_file():
                 current = target.read_bytes()
@@ -81,7 +123,7 @@ class GeneratedWriter:
         for rel, digest in sorted(old.items()):
             if rel in files:
                 continue
-            target = self.vault.root / rel
+            target = self._safe_target(rel)
             if target.is_file():
                 if sha256(target.read_bytes()) != digest:
                     self._backup(target, rel, backup_root, report)
