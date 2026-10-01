@@ -48,11 +48,11 @@ def test_claude_cannot_spawn_a_team_member_but_can_use_a_helper(dev_vault):
     try:
         ask = "Try to use the otherbot subagent to say hello. Reply with exactly YES if it ran, or NO if you could not use it."
         done = subprocess.run(["claude", "-p", ask, "--output-format", "json"], cwd=dev_vault, capture_output=True, text=True, timeout=300, check=True)
-        assert "NO" in json.loads(done.stdout)["result"].upper()
+        assert json.loads(done.stdout)["result"].strip().strip(".").upper().startswith("NO")
         ask = "Use the reader subagent to read AGENTS.md and tell me its first heading. Reply with the heading text only."
         done = subprocess.run(["claude", "-p", ask, "--output-format", "json"], cwd=dev_vault, capture_output=True, text=True, timeout=300, check=True)
         assert "Bron vault" in json.loads(done.stdout)["result"]
     finally:
-        other.unlink()
+        other.unlink(missing_ok=True)
         other.parent.rmdir()
         subprocess.run([bron, "sync"], check=True)

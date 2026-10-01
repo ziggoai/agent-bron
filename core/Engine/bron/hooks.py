@@ -27,7 +27,9 @@ def main(event: str, cli: str, stdin=None, stdout=None) -> int:
                 stdout.write(output)
             except Exception:  # noqa: BLE001
                 pass
-        # "user-prompt": @-mention routing arrives with tickets in Plan 2.
+        elif event == "user-prompt":
+            # Plan 2 routes @-mentions from the prompt; for now just drain stdin.
+            _payload(stdin)
     except Exception as exc:  # noqa: BLE001 - a trigger must never fail the session
         _log_error(event, cli, exc)
     return 0

@@ -316,7 +316,10 @@ def _connections(cfg: Config) -> None:
         if kind == "mcp-http" and not conn.url:
             f.problem("field.missing", "'url' is missing (needed for mcp-http)")
             continue
-        if not conn.key or conn.key in cfg.connections:
+        if not conn.key:
+            f.problem("connection.bad-name", f"The name '{name}' needs at least one letter or number")
+            continue
+        if conn.key in cfg.connections:
             f.problem("connection.duplicate", f"Another connection already uses the name '{name}'")
             continue
         cfg.connections[conn.key] = conn

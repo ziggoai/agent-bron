@@ -151,3 +151,21 @@ def test_link_inside_the_vault_is_refused(vault):
 
     # Verify nothing was written to System/
     assert not (vault.system / "settings.json").exists()
+
+
+def test_no_temp_files_remain(vault):
+    write(vault, {".claude/settings.json": "{}\n", "AGENTS.md": "rules\n"}, "fp")
+    write(vault, {".claude/settings.json": '{"a": 1}\n', "AGENTS.md": "rules\n"}, "fp2")
+    assert list(vault.root.rglob("*.bron-tmp")) == []
+
+
+def test_failed_write_cleans_its_temp_file(vault, monkeypatch):
+    from pathlib import Path
+
+    def boom(self, target):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "replace", boom)
+    with pytest.raises(OSError):
+        write(vault, {"AGENTS.md": "rules\n"})
+    assert list(vault.root.rglob("*.bron-tmp")) == []

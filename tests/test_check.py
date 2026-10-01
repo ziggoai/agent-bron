@@ -88,3 +88,40 @@ def test_untrusted_codex_vault_is_a_warning(vault, tmp_path, monkeypatch):
     monkeypatch.setattr("bron.check.shutil.which", lambda name: f"/usr/bin/{name}")
     issues = run_checks(load(vault))
     assert any(i.code == "codex.untrusted" and i.level == "warning" for i in issues)
+
+
+def _conn_issues(vault, code):
+    return [i for i in run_checks(load(vault), include_environment=False) if i.code == code]
+
+
+def test_renamed_env_reference_is_an_error(vault):
+    add_connection(vault, "Carta", env={"CARTA_API_KEY": "${CARTA_TOKEN}"})
+    found = _conn_issues(vault, "connection.env-reference")
+    assert len(found) == 1 and found[0].level == "error"
+    assert "set CARTA_API_KEY in your shell or Keychain" in found[0].message
+    assert "${CARTA_API_KEY}" in found[0].message
+
+
+def test_embedded_env_reference_is_an_error(vault):
+    add_connection(vault, "Carta", env={"REGION": "prefix-${X}"})
+    assert len(_conn_issues(vault, "connection.env-reference")) == 1
+
+
+def test_same_name_env_reference_is_fine(vault):
+    add_connection(vault, "Carta", env={"CARTA_TOKEN": "${CARTA_TOKEN}"})
+    assert _conn_issues(vault, "connection.env-reference") == []
+    assert _conn_issues(vault, "connection.secret-in-vault") == []
+
+
+def test_http_connection_env_is_ignored_warning(vault):
+    add_connection(vault, "Web", type="mcp-http", url="https://x.example/mcp", env={"REGION": "us"})
+    found = _conn_issues(vault, "connection.env-ignored")
+    assert len(found) == 1 and found[0].level == "warning"
+    assert "sign in through the CLI" in found[0].message
+
+
+def test_untrusted_message_points_at_codex(vault, tmp_path, monkeypatch):
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    monkeypatch.setattr("bron.check.shutil.which", lambda name: f"/usr/bin/{name}")
+    msg = next(i.message for i in run_checks(load(vault)) if i.code == "codex.untrusted")
+    assert "accept its trust prompt" in msg

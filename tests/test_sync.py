@@ -115,3 +115,12 @@ def test_unsafe_target_stops_sync_without_crashing(vault):
     assert "folder" in " ".join(i.message for i in result.issues if i.code == "sync.failed").lower()
     # Verify that .claude/settings.json was not written (setup wasn't applied)
     assert not (vault.root / ".claude/settings.json").exists()
+
+
+def test_engine_version_change_triggers_sync(vault, monkeypatch):
+    import bron
+
+    run_sync(vault)
+    assert not needs_sync(vault)
+    monkeypatch.setattr(bron, "__version__", "99.0.0")
+    assert needs_sync(vault)

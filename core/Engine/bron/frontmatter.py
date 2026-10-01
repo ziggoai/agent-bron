@@ -39,10 +39,22 @@ def parse(text: str) -> Document:
     raise FrontmatterError("the settings block at the top is missing its closing '---' line")
 
 
+class _Dumper(yaml.SafeDumper):
+    """Block-style mappings; short lists of plain values stay on one line."""
+
+
+def _represent_list(dumper: yaml.SafeDumper, data: list):
+    flow = all(isinstance(v, (str, int, float, bool)) or v is None for v in data)
+    return dumper.represent_sequence("tag:yaml.org,2002:seq", data, flow_style=flow)
+
+
+_Dumper.add_representer(list, _represent_list)
+
+
 def dump(doc: Document) -> str:
     if not doc.meta:
         return doc.body
-    raw = yaml.safe_dump(doc.meta, sort_keys=False, allow_unicode=True, default_flow_style=None, width=1000)
+    raw = yaml.dump(doc.meta, Dumper=_Dumper, sort_keys=False, allow_unicode=True, default_flow_style=False, width=1000)
     return f"{FENCE}\n{raw}{FENCE}\n{doc.body}"
 
 

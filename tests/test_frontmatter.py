@@ -53,3 +53,15 @@ def test_write_creates_folders(tmp_path):
     path = tmp_path / "a" / "b" / "note.md"
     fm.write(path, fm.Document({"k": "v"}, "body\n"))
     assert fm.read(path).meta == {"k": "v"}
+
+
+def test_dump_is_block_style_at_top_level():
+    text = fm.dump(fm.Document({"name": "bron", "description": "x"}, ""))
+    assert text.startswith("---\nname: bron\ndescription: x\n---\n")
+
+
+def test_dump_lists_round_trip():
+    doc = fm.Document({"name": "bron", "helpers": ["reader", "researcher"]}, "Body\n")
+    text = fm.dump(doc)
+    assert "helpers: [reader, researcher]" in text
+    assert fm.parse(text) == doc

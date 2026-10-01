@@ -93,7 +93,17 @@ def _helpers(cfg: Config) -> list[Issue]:
 def _connections(cfg: Config) -> list[Issue]:
     out: list[Issue] = []
     for conn in cfg.connections.values():
+        if conn.type == "mcp-http" and conn.env:
+            out.append(Issue("warning", "connection.env-ignored", f"The connection '{conn.name}' is an http connection, so 'env' isn't used; sign in through the CLI instead.", conn.path))
         for name, value in conn.env.items():
+            if "${" in value and value != f"${{{name}}}":
+                out.append(Issue(
+                    "error",
+                    "connection.env-reference",
+                    f"The connection '{conn.name}' sets {name} to '{value}'. Bron can only pass a variable through under its own name: write it as ${{{name}}} and set {name} in your shell or Keychain.",
+                    conn.path,
+                ))
+                continue
             if any(word in name.upper() for word in SECRET_WORDS) and not value.startswith("${"):
                 out.append(Issue(
                     "error",
@@ -111,7 +121,7 @@ def _environment(cfg: Config) -> list[Issue]:
         if shutil.which(cli) is None:
             out.append(Issue("warning", "cli.missing", f"{CLI_NAMES[cli]} isn't installed (or isn't on PATH), but your setup uses it"))
     if shutil.which("codex") is not None and not codex_trusts(cfg.vault.root):
-        out.append(Issue("warning", "codex.untrusted", "Codex doesn't trust this vault yet, so Codex sessions here ignore Bron's setup. Re-run the Bron installer to fix it."))
+        out.append(Issue("warning", "codex.untrusted", "Codex doesn't trust this vault yet, so Codex sessions here ignore Bron's setup. Open Codex in this vault once and accept its trust prompt."))
     return out
 
 

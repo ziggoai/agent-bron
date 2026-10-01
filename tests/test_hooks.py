@@ -134,3 +134,23 @@ def test_session_start_reports_a_backup_of_hand_edits(in_vault):
     backed_up = list(in_vault.backups_dir.glob("*/.claude/settings.json"))
     assert len(backed_up) == 1
     assert backed_up[0].read_text() == '{"mine": true}\n'
+
+
+def test_user_prompt_drains_large_input(in_vault):
+    assert call("user-prompt", payload={"prompt": "x" * 200_000}) == (0, "")
+
+
+def test_user_prompt_reads_stdin(in_vault):
+    class Stdin:
+        read_called = False
+
+        def isatty(self):
+            return False
+
+        def read(self):
+            self.read_called = True
+            return "{}"
+
+    stdin = Stdin()
+    assert hook("user-prompt", "claude", stdin=stdin, stdout=io.StringIO()) == 0
+    assert stdin.read_called

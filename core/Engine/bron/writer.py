@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
@@ -117,9 +119,7 @@ class GeneratedWriter:
                 if old.get(rel) != sha256(current):
                     self._backup(target, rel, backup_root, report)
             target.parent.mkdir(parents=True, exist_ok=True)
-            tmp = target.with_name(target.name + ".bron-tmp")
-            tmp.write_bytes(data)
-            tmp.replace(target)
+            _atomic_write(target, data)
             report.written.append(rel)
             new[rel] = digest
         for rel, digest in sorted(old.items()):
@@ -134,9 +134,7 @@ class GeneratedWriter:
                 self._prune(target.parent)
         self.manifest = {"files": new, "fingerprint": fingerprint}
         self.vault.state_dir.mkdir(parents=True, exist_ok=True)
-        tmp = self.manifest_path.with_name(MANIFEST + ".bron-tmp")
-        tmp.write_text(json.dumps(self.manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        tmp.replace(self.manifest_path)
+        _atomic_write(self.manifest_path, (json.dumps(self.manifest, indent=2, sort_keys=True) + "\n").encode("utf-8"))
         if report.backed_up:
             report.backup_dir = backup_root
         return report
@@ -155,6 +153,17 @@ class GeneratedWriter:
             except OSError:
                 return
             folder = folder.parent
+
+
+def _atomic_write(target: Path, data: bytes) -> None:
+    """Write via a uniquely named temp file in the same folder, so concurrent syncs never collide."""
+    tmp = target.with_name(f"{target.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.bron-tmp")
+    try:
+        tmp.write_bytes(data)
+        tmp.replace(target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _check_allowed(rel: str) -> None:

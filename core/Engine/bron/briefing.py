@@ -20,7 +20,7 @@ def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None) ->
     if settings.user_name:
         lines.append(f"You're working with {settings.user_name}" + (f" at {settings.company}" if settings.company else "") + ".")
     else:
-        lines.append("First-run setup isn't done yet (no name in System/Settings.md). Offer to run it before anything else.")
+        lines.append("First-run setup isn't done yet (no name in System/Settings.md). Ask the user for their name and company and offer to add them to System/Settings.md.")
     if notes:
         lines += ["", *notes]
     summary = vault.memory_dir / "Summary.md"

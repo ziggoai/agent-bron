@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 
+import bron
 from . import gen_claude, gen_codex
 from .agents_md import render_agents_md
 from .check import has_errors, run_checks
@@ -18,7 +19,7 @@ AGENTS_MD_TARGET = 8 * 1024
 
 def fingerprint(vault: Vault) -> str:
     """Cheap signature of every source file sync reads (size + modification time), excluding memory."""
-    digest = hashlib.sha256(str(vault.root).encode("utf-8"))
+    digest = hashlib.sha256(f"{bron.__version__}\0{vault.root}".encode("utf-8"))
     paths = [vault.settings_file, vault.root / MARKER]
     for folder in (
         vault.agents_dir,

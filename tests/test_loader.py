@@ -120,3 +120,12 @@ def test_unclosed_quote_in_args_is_a_problem_not_a_crash(vault):
     assert cfg is not None  # load() returns successfully, doesn't crash
     assert any(i.code == "field.type" and "unclosed quote" in i.message for i in cfg.issues)
     assert cfg.connections["broken"].args == []
+
+
+def test_connection_name_without_letters_is_bad_name(vault):
+    from vaultkit import add_connection
+
+    add_connection(vault, "!!!")
+    cfg = load(vault)
+    assert any(i.code == "connection.bad-name" and "'!!!' needs at least one letter or number" in i.message for i in cfg.issues)
+    assert not any(i.code == "connection.duplicate" for i in cfg.issues)
