@@ -15,13 +15,13 @@
 | Plan | Delivers | Written |
 |---|---|---|
 | **1. Foundation (this plan)** | CLI verification, file formats, loader, health check, safe writer, sync for both CLIs, triggers, session briefing, dev vault, live parity smoke test | now |
-| 2. Team | Tickets, locks, runner (both CLIs, mixed vendors, resume), per-agent launch settings, `@`-mentions, chat tickets, notifications, `bron chat`, routines and boards, importing "always allow" approvals; health check adds stale locks and "CLI logged in" | after Plan 1 lands, using its verification results |
+| 2. Team | Tickets, locks, runner (both CLIs, mixed vendors, resume), per-agent launch settings, `@`-mentions, chat tickets, notifications, `bron chat`, routines and boards, importing "always allow" approvals; registering native connectors (claude.ai / Codex) by name so per-agent rules and ticket runs can use them; health check adds stale locks and "CLI logged in" | after Plan 1 lands, using its verification results |
 | 3. Self-configuration | Setup skills (onboarding, create/edit/remove agent, add-connection, create-project, create-routine, create-skill, delegate), full manual | after Plan 2 |
 | 4. Distribution | `install.sh`, Codex trust, `bron` on PATH, Obsidian bundle, updates and rollback, migrations; health check adds "Codex triggers approved" | after Plan 3 |
 
 ### Deviations from the spec, decided while planning
 
-These need the human's sign-off along with the plan:
+Approved by the human on 2026-10-01:
 
 1. **Team members are not written as Codex agent files.** A `.codex/agents/<name>.toml` file would let Codex spawn a team member as a native subagent, which breaks the spec's rule that team members only take work through tickets. Codex team members are launched with flags instead (Plan 2). Helpers still become `.codex/agents/*.toml`.
 2. **Project-level permissions and connections follow the default agent (Bron).** Both CLIs' project settings describe the session agent. Other agents get their own settings when the runner or launcher starts them (Plan 2).
