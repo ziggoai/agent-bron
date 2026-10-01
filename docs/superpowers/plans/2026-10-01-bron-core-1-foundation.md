@@ -2718,6 +2718,12 @@ def test_settings_set_default_agent_memory_off_and_triggers(vault):
     assert "Bash(git push *)" in s["permissions"]["ask"]
     assert "Bash(rm *)" in s["permissions"]["ask"]
     assert s["permissions"]["allow"] == []
+    assert s["permissions"]["deny"] == ["Agent(bron)"]
+
+
+def test_team_members_are_denied_as_subagents_project_wide(vault):
+    add_agent(vault, "CFO")
+    assert settings(vault)["permissions"]["deny"] == ["Agent(bron)", "Agent(cfo)"]
 
 
 def test_always_allow_moves_a_rule_from_ask_to_allow(vault):
@@ -2742,14 +2748,15 @@ def test_team_member_file(vault):
     assert doc.meta["model"] == "claude-opus-5-5"
     blocked = [x.strip() for x in doc.meta["disallowedTools"].split(",")]
     assert "mcp__gmail" in blocked and "mcp__carta" not in blocked
-    assert "Agent(bron)" in blocked and "Agent(cfo)" in blocked
+    assert not any(x.startswith("Agent") for x in blocked)  # Agent(x) here would remove the whole Agent tool (R5)
     assert "never as a subagent" in doc.meta["description"]
     assert doc.body.lstrip().startswith("# You are CFO")
 
 
-def test_default_model_is_left_out(vault):
+def test_default_model_and_empty_block_list_are_left_out(vault):
     doc = fm.parse(generate(load(vault))[".claude/agents/bron.md"].decode())
     assert "model" not in doc.meta
+    assert "disallowedTools" not in doc.meta
 
 
 def test_helpers_cannot_nest_or_write(vault):
@@ -2805,9 +2812,8 @@ def generate(cfg: Config) -> dict[str, bytes]:
     }
     if cfg.connections:
         files[".mcp.json"] = _json({"mcpServers": {key: _server(c) for key, c in sorted(cfg.connections.items())}})
-    team = sorted(cfg.agents)
     for key, agent in sorted(cfg.agents.items()):
-        files[f".claude/agents/{key}.md"] = _agent_file(cfg, agent, team)
+        files[f".claude/agents/{key}.md"] = _agent_file(cfg, agent)
     for key, helper in sorted(cfg.helpers.items()):
         files[f".claude/agents/{key}.md"] = _helper_file(cfg, helper)
     files.update(skill_files(cfg, ".claude/skills"))
@@ -2828,7 +2834,13 @@ def _settings(cfg: Config) -> dict:
     return {
         "agent": agent.key,
         "autoMemoryEnabled": False,
-        "permissions": {"ask": rules(ask), "allow": rules(allow)},
+        "permissions": {
+            "ask": rules(ask),
+            "allow": rules(allow),
+            # Team members take work through tickets only. A deny rule blocks just these subagents;
+            # Agent(x) in an agent's disallowedTools would remove the whole Agent tool (verification R5).
+            "deny": [f"Agent({key})" for key in sorted(cfg.agents)],
+        },
         "enabledMcpjsonServers": sorted(cfg.connections),
         "hooks": hooks_block(cfg.vault, "claude"),
     }
@@ -2848,7 +2860,7 @@ def _blocked_servers(cfg: Config, allowed: list[str]) -> list[str]:
     return [f"mcp__{key}" for key in sorted(cfg.connections) if key not in keep]
 
 
-def _agent_file(cfg: Config, agent: Agent, team: list[str]) -> bytes:
+def _agent_file(cfg: Config, agent: Agent) -> bytes:
     meta: dict = {
         "name": agent.key,
         "description": f"{agent.role}. Bron team member: reach them through a ticket, never as a subagent.",
@@ -2856,8 +2868,9 @@ def _agent_file(cfg: Config, agent: Agent, team: list[str]) -> bytes:
     model = cfg.catalog.resolve_model("claude", agent.models.get("claude"))
     if model:
         meta["model"] = model
-    blocked = _blocked_servers(cfg, agent.connections) + [f"Agent({key})" for key in team]
-    meta["disallowedTools"] = ", ".join(blocked)
+    blocked = _blocked_servers(cfg, agent.connections)
+    if blocked:
+        meta["disallowedTools"] = ", ".join(blocked)
     return fm.dump(fm.Document(meta, "\n" + agent_prompt(agent, cfg))).encode("utf-8")
 
 
@@ -2993,7 +3006,7 @@ def test_helpers_become_codex_agents_but_team_members_do_not(vault):
     assert reader["name"] == "reader"
     assert reader["sandbox_mode"] == "read-only"
     assert reader["developer_instructions"].startswith("# You are the reader helper")
-    assert reader["mcp_servers"] == {"carta": {"enabled": False}}
+    assert "mcp_servers" not in reader  # Codex rejects or ignores per-agent server tables (verification R4)
 
 
 def test_skills_go_to_the_agents_folder(vault):
@@ -3105,10 +3118,8 @@ def _helper(cfg: Config, helper: Helper) -> dict:
         doc["model"] = model
     if helper.read_only:
         doc["sandbox_mode"] = "read-only"
-    keep = {conn_key(c) for c in helper.connections}
-    off = {key: {"enabled": False} for key in sorted(cfg.connections) if key not in keep}
-    if off:
-        doc["mcp_servers"] = off
+    # No [mcp_servers] tables: Codex rejects one without a transport and does not hide a server
+    # listed with enabled = false (verification R4). Per-helper connection limits are a Plan 2 item.
     return doc
 
 
@@ -3942,11 +3953,30 @@ def test_claude_session_is_bron(dev_vault):
 
 
 def test_codex_session_is_bron(dev_vault):
-    command = ["codex", "exec", "--skip-git-repo-check", "-c", f'projects."{dev_vault}".trust_level="trusted"']
+    command = ["codex", "exec", "--skip-git-repo-check"]  # a `-c projects...trust_level` override is ignored (verification R2)
     if CODEX_HOOK_FLAG:
         command.append(CODEX_HOOK_FLAG)
     done = subprocess.run([*command, QUESTION], cwd=dev_vault, capture_output=True, text=True, timeout=300, check=True)
     check_answer(done.stdout)
+
+
+def test_claude_cannot_spawn_a_team_member_but_can_use_a_helper(dev_vault):
+    bron = str(dev_vault / ".bron" / "bin" / "bron")
+    other = dev_vault / "System" / "Agents" / "Otherbot" / "Agent.md"
+    other.parent.mkdir(parents=True, exist_ok=True)
+    other.write_text("---\nname: Otherbot\nrole: Test member\nreports_to: Bron\nruns_in: any\n---\nYour name is Otherbot.\n", encoding="utf-8")
+    subprocess.run([bron, "sync"], check=True)
+    try:
+        ask = "Try to use the otherbot subagent to say hello. Reply with exactly YES if it ran, or NO if you could not use it."
+        done = subprocess.run(["claude", "-p", ask, "--output-format", "json"], cwd=dev_vault, capture_output=True, text=True, timeout=300, check=True)
+        assert "NO" in json.loads(done.stdout)["result"].upper()
+        ask = "Use the reader subagent to read AGENTS.md and tell me its first heading. Reply with the heading text only."
+        done = subprocess.run(["claude", "-p", ask, "--output-format", "json"], cwd=dev_vault, capture_output=True, text=True, timeout=300, check=True)
+        assert "Bron vault" in json.loads(done.stdout)["result"]
+    finally:
+        other.unlink()
+        other.parent.rmdir()
+        subprocess.run([bron, "sync"], check=True)
 ```
 
 - [ ] **Step 4: Run the unit tests and the live tests**
@@ -3955,7 +3985,7 @@ Run: `uv run --project core/Engine pytest tests -q`
 Expected: all unit tests PASS and the live tests are SKIPPED.
 
 Run: `BRON_LIVE=1 uv run --project core/Engine pytest tests/live -q`
-Expected: 2 PASSED. If one CLI fails, compare its behaviour with the Task 1 findings, fix the generator, and add a unit test that pins the fix before re-running.
+Expected: 3 PASSED. If one CLI fails, compare its behaviour with the Task 1 findings, fix the generator, and add a unit test that pins the fix before re-running.
 
 - [ ] **Step 5: Add the development README**
 
