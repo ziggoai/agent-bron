@@ -86,7 +86,11 @@ class _Fields:
         if value is None:
             return []
         if isinstance(value, str):
-            return shlex.split(value)
+            try:
+                return shlex.split(value)
+            except ValueError:
+                self.problem("field.type", f"'{key}' has an unclosed quote")
+                return []
         if isinstance(value, list):
             return [str(v) for v in value]
         self.problem("field.type", f"'{key}' should be a list of command arguments")

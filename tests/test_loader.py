@@ -112,3 +112,11 @@ def test_missing_settings_is_an_error_with_safe_defaults(vault):
     assert any(i.code == "settings.missing" for i in cfg.issues)
     assert cfg.settings.default_agent == "Bron"
     assert cfg.settings.max_parallel == 3
+
+
+def test_unclosed_quote_in_args_is_a_problem_not_a_crash(vault):
+    add_connection(vault, "Broken", args="--name 'foo")
+    cfg = load(vault)
+    assert cfg is not None  # load() returns successfully, doesn't crash
+    assert any(i.code == "field.type" and "unclosed quote" in i.message for i in cfg.issues)
+    assert cfg.connections["broken"].args == []
