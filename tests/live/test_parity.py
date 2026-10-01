@@ -22,7 +22,7 @@ def dev_vault(tmp_path_factory) -> Path:
 
 def check_answer(text: str) -> None:
     assert "Bron" in text
-    assert "# Bron briefing" in text or "Bron briefing" in text
+    assert "Bron briefing" in text or "in the user's Bron vault" in text, text
     assert "reader" in text.lower()
 
 
