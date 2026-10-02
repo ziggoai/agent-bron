@@ -23,6 +23,7 @@ def generate(cfg: Config) -> dict[str, bytes]:
         files[".mcp.json"] = _json({"mcpServers": {key: _server(c) for key, c in sorted(vault_servers.items())}})
     for key, agent in sorted(cfg.agents.items()):
         files[f".claude/agents/{key}.md"] = _agent_file(cfg, agent)
+        files[f".claude/bron/agents/{key}.settings.json"] = _json(_agent_permissions(cfg, agent))
     for key, helper in sorted(cfg.helpers.items()):
         files[f".claude/agents/{key}.md"] = _helper_file(cfg, helper)
     files.update(skill_files(cfg, ".claude/skills"))
@@ -102,3 +103,9 @@ def _helper_file(cfg: Config, helper: Helper) -> bytes:
 
 def _json(data: dict) -> bytes:
     return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def _agent_permissions(cfg: Config, agent: Agent) -> dict:
+    """Passed with --settings when this agent runs a ticket or a direct session; merges with the project file."""
+    ask, allow = cfg.catalog.permissions_for(agent)
+    return {"permissions": {"ask": rules(ask, cfg), "allow": rules(allow, cfg)}}
