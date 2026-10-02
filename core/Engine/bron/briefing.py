@@ -68,6 +68,14 @@ def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None, ch
         lines.append("Ticket updates couldn't be loaded this time.")
     if not ticket_run:
         try:
+            from .approvals import take_notice
+
+            notice = take_notice(vault)
+        except Exception:  # noqa: BLE001
+            notice = ""
+        if notice:
+            lines += ["", notice + " Tell the user in one line."]
+        try:
             from .routines import briefing_lines, today as routines_today
 
             due = briefing_lines(vault, cfg, key, today or routines_today())

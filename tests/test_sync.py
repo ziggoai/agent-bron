@@ -133,14 +133,14 @@ def test_two_syncs_at_once_never_back_up_each_others_files(vault, monkeypatch):
         return files
 
     class RacingWriter(sync.GeneratedWriter):
-        def apply(self, files, fingerprint=""):
+        def apply(self, files, fingerprint="", accept=frozenset()):
             try:
                 barrier.wait(timeout=1)  # without a sync lock both writers have read the old manifest by now
             except threading.BrokenBarrierError:
                 pass
             if threading.current_thread().name == "second":
                 time.sleep(0.3)
-            return super().apply(files, fingerprint)
+            return super().apply(files, fingerprint, accept)
 
     monkeypatch.setattr(sync, "plan_files", plan)
     monkeypatch.setattr(sync, "GeneratedWriter", RacingWriter)

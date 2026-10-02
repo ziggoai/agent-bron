@@ -93,7 +93,8 @@ class GeneratedWriter:
                 changed.append(rel)
         return changed
 
-    def apply(self, files: dict[str, bytes], fingerprint: str = "") -> WriteReport:
+    def apply(self, files: dict[str, bytes], fingerprint: str = "", accept: frozenset[str] | set[str] = frozenset()) -> WriteReport:
+        """`accept`: generated files whose on-disk change was already taken care of (no backup needed)."""
         for rel in files:
             _check_allowed(rel)
         # Validate all incoming targets before writing anything
@@ -116,7 +117,7 @@ class GeneratedWriter:
                 if current == data:
                     new[rel] = digest
                     continue
-                if old.get(rel) != sha256(current):
+                if old.get(rel) != sha256(current) and rel not in accept:
                     self._backup(target, rel, backup_root, report)
             target.parent.mkdir(parents=True, exist_ok=True)
             _atomic_write(target, data)

@@ -66,6 +66,13 @@ def _settings(cfg: Config) -> dict:
     }
 
 
+def project_allow(cfg: Config) -> list[str]:
+    """The permissions.allow list sync writes to .claude/settings.json."""
+    if cfg.default_agent is None:
+        return []
+    return _settings(cfg)["permissions"]["allow"]
+
+
 def _server(conn: Connection) -> dict:
     if conn.type == "mcp-http":
         return {"type": "http", "url": conn.url}

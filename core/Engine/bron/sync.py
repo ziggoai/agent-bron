@@ -84,10 +84,23 @@ def run_sync(vault: Vault, *, dry_run: bool = False) -> SyncResult:
 
 
 def _sync(vault: Vault, *, dry_run: bool) -> SyncResult:
+    from .approvals import import_approvals, remember_generated
+
     cfg = load(vault)
     issues = run_checks(cfg, include_environment=False)
     if has_errors(issues):
         return SyncResult(False, issues)
+    approvals = None
+    if not dry_run:
+        # Claude Code saves "don't ask again" into a file sync regenerates: move those choices first.
+        approvals = import_approvals(vault, cfg)
+        if approvals.entries:
+            cfg = load(vault)
+            issues = run_checks(cfg, include_environment=False)
+            if has_errors(issues):
+                return SyncResult(False, issues)
+        if approvals.problem:
+            issues = issues + [Issue("warning", "approvals.import", approvals.problem)]
     try:
         files = plan_files(cfg)
     except (OSError, KeyError, ValueError) as exc:
@@ -95,10 +108,20 @@ def _sync(vault: Vault, *, dry_run: bool) -> SyncResult:
     issues += output_issues(files)
     if has_errors(issues) or dry_run:
         return SyncResult(not has_errors(issues), issues)
+    accept: set[str] = set()
+    if approvals is not None and approvals.keep_settings is not None:
+        files[".claude/settings.json"] = approvals.keep_settings  # keep the user's click until it can be saved
+    elif approvals is not None and approvals.only_allow_changed:
+        accept.add(".claude/settings.json")
     try:
-        report = GeneratedWriter(vault).apply(files, fingerprint(vault))
+        report = GeneratedWriter(vault).apply(files, fingerprint(vault), accept=accept)
     except (OSError, ValueError) as exc:
         return SyncResult(False, issues + [Issue("error", "sync.failed", f"Bron couldn't write the CLI setup: {exc}")])
+    if approvals is not None and approvals.keep_settings is None and ".claude/settings.json" in files:
+        try:
+            remember_generated(vault, files[".claude/settings.json"])
+        except OSError:
+            pass
     return SyncResult(True, issues, report)
 
 
