@@ -60,6 +60,16 @@ def test_a_follow_up_in_the_same_session_continues_the_chat(team):
     assert loaded.thread[-1].endswith("you: and next quarter?")
 
 
+def test_a_chat_closed_by_a_session_end_continues_when_the_same_session_returns(team):
+    first, _ = chat(team)
+    set_state(team, first.id, "in-review")
+    close_session_chats(team, "claude:s1")
+    again, follow_up = chat(team, message="and next quarter?")
+    assert follow_up is True and again.id == first.id
+    loaded = load_ticket(first.path)
+    assert loaded.status == "todo" and loaded.thread[-1].endswith("you: and next quarter?")
+
+
 def test_a_running_chat_or_another_sessions_chat_is_not_continued(team):
     first, _ = chat(team)
     set_state(team, first.id, "in-progress")

@@ -12,6 +12,9 @@ from .vault import Vault
 # '@' not preceded by a letter, digit, '.', '@' or '/', so emails and URL paths aren't tags.
 _TAG = re.compile(r"(?<![\w.@/])@([A-Za-z][\w-]*)")
 CONTINUABLE = ("blocked", "in-review")  # a chat whose agent has answered (or is waiting for an OK)
+# A chat the session's end (or 12 quiet hours) marked done is picked up again when the same session comes back
+# (e.g. `claude --resume`, or one-shot `claude -p` runs that share a session), so the agent keeps the conversation.
+RESUMABLE = (*CONTINUABLE, "done")
 STALE_HOURS = 12
 TITLE_MAX = 60
 
@@ -40,7 +43,7 @@ def open_chat(vault: Vault, session: str, agent_key: str) -> Ticket | None:
         return None
     tickets, _ = list_tickets(vault)
     for ticket in reversed(tickets):
-        if ticket.kind == "chat" and ticket.assignee == agent_key and ticket.status in CONTINUABLE and _session_of(ticket) == session:
+        if ticket.kind == "chat" and ticket.assignee == agent_key and ticket.status in RESUMABLE and _session_of(ticket) == session:
             return ticket
     return None
 
@@ -57,7 +60,7 @@ def start_chat(vault: Vault, *, agent: Agent, requester: str, session: str, mess
         try:
             with editing(vault, existing.id) as ticket:
                 # Re-check status under the ticket's lock: a run may have started it (leave the file untouched).
-                if ticket.status not in CONTINUABLE:
+                if ticket.status not in RESUMABLE:
                     raise _StaleChat
                 add_message(ticket, "you", message)
                 # Back to todo without a Thread line: `ticket wait` then waits for the new run.
