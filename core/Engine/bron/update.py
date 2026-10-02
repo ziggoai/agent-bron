@@ -50,4 +50,11 @@ def run_update(vault: Vault) -> tuple[int, str]:
         headline = f"Updated Bron from version {before} to {after}."
     else:
         headline = f"Bron is already on the latest version ({after}); its setup was refreshed."
-    return 0, f"{headline} Your own files were kept.\n{tail}\nStart a new session so every change applies."
+    scan_note = ""
+    if vault.bron_command.is_file():
+        try:
+            scanned = subprocess.run([str(vault.bron_command), "connections", "scan"], capture_output=True, text=True, timeout=300)
+            scan_note = "\n" + scanned.stdout.strip() if scanned.stdout.strip() else ""
+        except (OSError, subprocess.TimeoutExpired):
+            scan_note = "\nConnectors weren't re-checked this time."
+    return 0, f"{headline} Your own files were kept.\n{tail}{scan_note}\nStart a new session so every change applies."

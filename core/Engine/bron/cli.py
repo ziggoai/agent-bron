@@ -19,6 +19,8 @@ def main(argv: list[str] | None = None) -> int:
     p_hook.add_argument("--cli", choices=CLIS, required=True)
     sub.add_parser("version", help="show the framework version")
     sub.add_parser("update", help="update the framework from the Bron project this vault came from")
+    p_conn = sub.add_parser("connections", help="find the connectors set up in Claude Code and Codex")
+    p_conn.add_argument("action", choices=["scan"])
     args = parser.parse_args(argv)
 
     if args.command == "hook":
@@ -44,6 +46,15 @@ def main(argv: list[str] | None = None) -> int:
         code, message = run_update(vault)
         print(message)
         return code
+    if args.command == "connections":
+        from .scan import scan
+        from .sync import run_sync
+
+        print(scan(vault).render())
+        result = run_sync(vault)
+        if not result.ok:
+            print("The setup couldn't be refreshed yet; run `bron check` for details.")
+        return 0
     return _sync(vault, dry_run=args.dry_run)
 
 
