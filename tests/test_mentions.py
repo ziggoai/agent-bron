@@ -36,6 +36,13 @@ def test_tags_are_found_case_insensitively_once_each(team):
 
 def test_emails_urls_unknown_names_and_self_tags_are_not_tags(team):
     assert names("mail someone@example.com or see x.com/@cfo", team) == []
+
+
+def test_file_mentions_are_not_tags_but_punctuation_is_fine(team):
+    assert names("see @cfo/notes.md and @cfo.md", team) == []
+    assert names("ask @cfo.", team) == ["CFO"]
+    assert names("@cfo, can you check?", team) == ["CFO"]
+    assert names("@coo... maybe", team) == ["COO"]
     assert names("@nobody @bron hi", team) == []
     assert names("@cfo hi", team, self_key="cfo") == []
 

@@ -126,3 +126,17 @@ def test_fixtures_are_small_and_contain_nothing_personal():
         lowered = raw.lower()
         for word in ("atl-", "carta", "affinity", "notion"):
             assert word not in lowered, (cli, word)
+
+
+def test_a_compaction_summary_is_not_part_of_the_chat(tmp_path):
+    summary = {**user("This session is being continued from a previous conversation..."), "isCompactSummary": True}
+    path = write_jsonl(tmp_path / "c.jsonl", [user("Q1?"), reply("Fine."), summary, user("And Q2?"), reply("Better.")])
+    assert messages("claude", path) == [("user", "Q1?"), ("assistant", "Fine."), ("user", "And Q2?"), ("assistant", "Better.")]
+
+
+def test_a_codex_message_whose_content_is_not_a_list_is_skipped(tmp_path):
+    odd = {"type": "response_item", "payload": {"type": "message", "role": "user", "content": 5}}
+    text = {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": "plain"}}
+    ok = {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Hi."}]}}
+    path = write_jsonl(tmp_path / "x.jsonl", [odd, text, ok])
+    assert messages("codex", path) == [("assistant", "Hi.")]

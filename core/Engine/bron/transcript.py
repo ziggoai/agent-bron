@@ -14,8 +14,8 @@ _INJECTED = ("<", "# AGENTS.md instructions", "Base directory for this skill")
 
 
 def _claude_text(entry: dict) -> tuple[str, str] | None:
-    if entry.get("type") not in ("user", "assistant") or entry.get("isMeta") or entry.get("isSidechain"):
-        return None
+    if entry.get("type") not in ("user", "assistant") or entry.get("isMeta") or entry.get("isSidechain") or entry.get("isCompactSummary"):
+        return None  # isCompactSummary: the summary Claude Code writes when it compacts a long chat, not something the user typed
     message = entry.get("message")
     if not isinstance(message, dict):
         return None
@@ -36,14 +36,10 @@ def _codex_text(entry: dict) -> tuple[str, str] | None:
     payload = entry.get("payload")
     if entry.get("type") != "response_item" or not isinstance(payload, dict) or payload.get("type") != "message":
         return None
-    role = payload.get("role")
-    if role not in ("user", "assistant"):
+    role, content = payload.get("role"), payload.get("content")
+    if role not in ("user", "assistant") or not isinstance(content, list):
         return None
-    parts = [
-        str(c.get("text") or "")
-        for c in payload.get("content") or []
-        if isinstance(c, dict) and c.get("type") in ("input_text", "output_text")
-    ]
+    parts = [str(c.get("text") or "") for c in content if isinstance(c, dict) and c.get("type") in ("input_text", "output_text")]
     kept = [p for p in parts if p.strip() and not (role == "user" and p.lstrip().startswith(_INJECTED))]
     text = "\n".join(kept).strip()
     return (role, text) if text else None

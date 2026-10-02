@@ -132,3 +132,44 @@ def test_session_start_closes_stale_chats(team):
     os.utime(path, (long_ago, long_ago))
     assert hook("session-start", "claude", stdin=io.StringIO(""), stdout=io.StringIO()) == 0
     assert ticket(vault, "T-0001").status == "done"
+
+
+# ---- final review: routing never breaks on odd input ----
+
+def test_an_odd_codex_transcript_line_still_routes_without_history(team, tmp_path):
+    vault, started = team
+    path = tmp_path / "rollout.jsonl"
+    path.write_text(json.dumps({"type": "response_item", "payload": {"type": "message", "role": "user", "content": 5}}) + "\n", encoding="utf-8")
+    out = send({"prompt": "@coo hi", "session_id": "s1", "transcript_path": str(path)}, cli="codex")
+    assert out.startswith("@COO is answering this message")
+    assert ticket(vault, "T-0001").context == "(no earlier chat available)"
+
+
+def test_a_transcript_that_blows_up_still_routes_without_history(team, monkeypatch):
+    vault, started = team
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("bad transcript")
+
+    monkeypatch.setattr("bron.transcript.recent_exchanges", boom)
+    out = send({"prompt": "@cfo hi", "session_id": "s1", "transcript_path": "/x"})
+    assert out.startswith("@CFO is answering this message")
+    assert ticket(vault, "T-0001").context == "(no earlier chat available)"
+
+
+def test_one_agent_failing_never_drops_the_others(team, monkeypatch):
+    vault, started = team
+    from bron import mentions
+
+    real = mentions.start_chat
+
+    def flaky(vault, *, agent, **kwargs):
+        if agent.key == "cfo":
+            raise RuntimeError("odd ticket")
+        return real(vault, agent=agent, **kwargs)
+
+    monkeypatch.setattr("bron.mentions.start_chat", flaky)
+    out = send({"prompt": "@cfo @coo thoughts?", "session_id": "s1"})
+    assert "@COO is answering this message" in out
+    assert "Couldn't pass the message to @CFO (odd ticket); tell the user." in out
+    assert [tid for tid, _ in started] == ["T-0001"]

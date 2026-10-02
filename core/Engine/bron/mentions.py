@@ -9,8 +9,9 @@ from .model import Agent, slug
 from .tickets import Ticket, TicketError, add_message, editing, list_tickets, new_ticket, set_status
 from .vault import Vault
 
-# '@' not preceded by a letter, digit, '.', '@' or '/', so emails and URL paths aren't tags.
-_TAG = re.compile(r"(?<![\w.@/])@([A-Za-z][\w-]*)")
+# '@' not preceded by a letter, digit, '.', '@' or '/', so emails and URL paths aren't tags; and the name not followed
+# by '/' or '.' plus a letter, so file mentions (@cfo/notes.md, @cfo.md) aren't either. "@cfo." and "@cfo," still are.
+_TAG = re.compile(r"(?<![\w.@/])@([A-Za-z][\w-]*)(?![\w/-]|\.\w)")
 CONTINUABLE = ("blocked", "in-review")  # a chat whose agent has answered (or is waiting for an OK)
 STALE_HOURS = 12
 _BRON_CLOSES = (" · bron: status → done: chat ended", f" · bron: status → done: chat ended (no activity for {STALE_HOURS} hours)")
@@ -133,7 +134,7 @@ def route(vault: Vault, *, cli: str, prompt: str, session_id: str, transcript_pa
     """Start every agent the message tags and tell the session's agent what to do ('' when nothing is tagged)."""
     from . import runner
     from .loader import load
-    from .transcript import recent_exchanges
+    from . import transcript
 
     cfg = load(vault)
     self_key = slug(os.environ.get("BRON_AGENT") or cfg.settings.default_agent)
@@ -147,20 +148,24 @@ def route(vault: Vault, *, cli: str, prompt: str, session_id: str, transcript_pa
     started: list[tuple[Agent, Ticket]] = []
     failed: list[str] = []
     for agent in agents:
+        # One agent's problem never drops the others' routing.
         try:
             if context is None and open_chat(vault, session, agent.key) is None:
-                context = recent_exchanges(cli, transcript_path, prompt, assistant=speaker)
+                try:
+                    context = transcript.recent_exchanges(cli, transcript_path, prompt, assistant=speaker)
+                except Exception:  # noqa: BLE001 - an odd transcript only costs the earlier chat
+                    context = transcript.NO_HISTORY
             ticket, follow_up = start_chat(vault, agent=agent, requester=requester, session=session, message=prompt, context=context or "")
-        except (TicketError, OSError) as exc:
+        except Exception as exc:  # noqa: BLE001
             failed.append(f"Couldn't pass the message to @{agent.name} ({exc}); tell the user.")
             continue
         try:
             runner.start_background(vault, ticket.id, caller_cli=cli, resume=follow_up)
-        except OSError as exc:
+        except Exception as exc:  # noqa: BLE001
             try:
                 with editing(vault, ticket.id) as current:
                     set_status(current, "blocked", "runner", f"Bron couldn't start {agent.name} ({exc})")
-            except (TicketError, OSError):
+            except Exception:  # noqa: BLE001
                 pass
             failed.append(f"Couldn't start @{agent.name} ({exc}); tell the user.")
             continue
