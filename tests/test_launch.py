@@ -196,3 +196,20 @@ def test_the_default_agents_always_allow_does_not_reach_team_members(vault):
     assert "Bash(git push *)" not in cfo["ask"]
     bron = json.loads(files[".claude/bron/agents/bron.settings.json"])["permissions"]
     assert "Bash(rm *)" not in bron["ask"] and "Bash(rm *)" in bron["allow"]
+
+
+def test_codex_runs_may_use_the_agents_own_connectors_without_asking(vault):
+    # A background run has nobody to approve a connector tool, so Codex would refuse it (verified live with Carta).
+    native(vault, "Carta", claude="claude_ai_Carta", codex="carta")
+    native(vault, "Gmail", claude="claude_ai_Gmail", codex="gmail")
+    native(vault, "Notion", claude="claude_ai_Notion", codex="notion")
+    add_agent(vault, "CFO", runs_in="codex", connections=["Carta", "Gmail"], ask_before=["send-email"])
+    codex_config(servers=["carta", "gmail", "notion"])
+    cfg = load(vault)
+    for argv in (run_spec(cfg, cfg.agents["cfo"], "codex", "Go").argv, run_spec(cfg, cfg.agents["cfo"], "codex", "Go", session="th-1").argv):
+        flags = configs(argv)
+        assert 'mcp_servers.carta.default_tools_approval_mode="approve"' in flags
+        assert 'mcp_servers.gmail.default_tools_approval_mode="approve"' in flags
+        assert any(f.startswith("mcp_servers.gmail.disabled_tools=") for f in flags)  # its ask-first tools stay out
+        assert not any("notion.default_tools_approval_mode" in f for f in flags)  # not its connector
+    assert not any("default_tools_approval_mode" in f for f in configs(chat_spec(cfg, cfg.agents["cfo"], "codex").argv))

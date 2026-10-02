@@ -101,6 +101,15 @@ def _codex_ask_flags(cfg: "Config", agent: Agent) -> list[str]:
     ]
 
 
+def _codex_approve_flags(cfg: "Config", agent: Agent) -> list[str]:
+    """Background runs can't ask either way: Codex would refuse every connector tool that wants an approval.
+    The agent may use its own connectors; its ask-before tools are hidden by _codex_ask_flags."""
+    keep = allowed_keys(cfg, agent.connections)
+    defined = codex_defined_servers(cfg.vault)
+    servers = {codex_switchable(conn, defined) for key, conn in cfg.connections.items() if key in keep}
+    return [flag for server in sorted(s for s in servers if s) for flag in ("-c", f'mcp_servers.{server}.default_tools_approval_mode="approve"')]
+
+
 def codex_flags(cfg: "Config", agent: Agent, *, with_instructions: bool = True) -> list[str]:
     flags: list[str] = []
     if with_instructions:
@@ -129,7 +138,7 @@ def run_spec(cfg: "Config", agent: Agent, cli: str, prompt: str, *, session: str
         allowed = ",".join(["Bash", *allowed_claude_servers(cfg, agent.connections)])
         argv += ["--output-format", "json", "--permission-mode", "acceptEdits", "--allowedTools", allowed]
     else:
-        asks = _codex_ask_flags(cfg, agent)
+        asks = _codex_approve_flags(cfg, agent) + _codex_ask_flags(cfg, agent)
         if session:
             # The thread keeps its instructions (verification X2); connection limits are per invocation.
             flags = codex_flags(cfg, agent, with_instructions=False)

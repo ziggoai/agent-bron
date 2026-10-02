@@ -36,4 +36,5 @@ When you choose "Yes, and don't ask again" in Claude Code, Claude Code saves the
 ## Codex notes
 
 - Codex can't ask before a native connector's tool in an interactive session, so an ask-before on a native connector isn't prompted there. Bron still enforces it in background ticket runs (the tool is switched off and the agent asks through the ticket) and in Claude Code.
+- In a background ticket or chat run nobody can approve a connector tool, so Bron lets the agent use its own connectors without asking (in both CLIs); only the tools on its ask-before list are kept away. Put any connector action that changes or sends something on the agent's ask-before list.
 - All Codex sessions in the vault share one set of shell rules: a shell command any agent asks before is asked for every agent in Codex, and a shell "always allow" only applies in Codex when every agent allows it.
