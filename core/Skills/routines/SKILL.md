@@ -11,7 +11,7 @@ Put free text in single quotes; if the text contains a single quote, write it to
 
 ## Start a period (when the briefing says "can start", and only after the user says yes)
 1. Read the runbook. For each list that is a sentence (a source), get the items from that source (for example Carta), grouped the way the runbook says, and show the user the full lists. Wait for their yes or corrections.
-2. Write each confirmed list to `.bron/tmp/<name>.txt`, one item per line, as `Group: item` when grouped (for example `Fund I: Company A`).
+2. Write each confirmed list to `.bron/tmp/<name>.txt` (create the `.bron/tmp` folder if it doesn't exist), one item per line, as `Group: item` when grouped (for example `Fund I: Company A`).
 3. Run `.bron/bin/bron routine start '<Routine>' --list <name>=.bron/tmp/<name>.txt` with one `--list` per list from a source (add `--period <period>` for a period other than the latest one that ended).
 4. Tell the user in one line what was set up and when it's due.
 

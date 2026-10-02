@@ -2,7 +2,6 @@ from datetime import date
 
 import yaml
 
-from bron import frontmatter as fm
 from bron.briefing import build_briefing
 from bron.check import run_checks
 from bron.cli import main
@@ -96,3 +95,21 @@ def test_the_routines_skill_and_manual_are_published(vault):
     assert "routines" in cfg.skills
     index = (vault.core_manual / "index.md").read_text(encoding="utf-8")
     assert "](routines.md)" in index and (vault.core_manual / "routines.md").is_file()
+
+
+def test_refresh_survives_a_damaged_tracking_note(vault, monkeypatch, capsys):
+    monkeypatch.chdir(vault.root)
+    add_routine(vault)
+    _, path = started(vault)
+    path.write_text("---\nstatus: [unclosed\n---\nbody\n", encoding="utf-8")
+    assert main(["routine", "refresh"]) == 0
+    assert "Portco Monitoring 2026-Q3: its Tracking note can't be read (Routines/Portco Monitoring/2026-Q3/Tracking.md)" in capsys.readouterr().out
+
+
+def test_start_reads_a_latin1_list_file(vault, monkeypatch, capsys):
+    monkeypatch.chdir(vault.root)
+    add_routine(vault)
+    (vault.root / "companies.txt").write_bytes("Fund I: Société A\n".encode("latin-1"))
+    assert main(["routine", "start", "Portco Monitoring", "--period", "2026-Q3", "--list", "companies=companies.txt"]) == 0
+    tracking = vault.routines_dir / "Portco Monitoring" / "2026-Q3" / "Tracking.md"
+    assert "Société A" in tracking.read_text(encoding="utf-8")

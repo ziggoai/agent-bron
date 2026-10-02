@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from . import frontmatter as fm
+
 
 def add_parser(sub) -> None:
     parser = sub.add_parser("routine", help="routines: repeating work tracked per period")
@@ -33,7 +35,11 @@ def handle(args, vault) -> int:
             chosen = [routines.find_runbook(runbooks, args.name)] if args.name else runbooks
             for runbook in chosen:
                 for path in routines.tracking_notes(runbook):
-                    state = routines.refresh_tracking(path, runbook)
+                    try:
+                        state = routines.refresh_tracking(path, runbook)
+                    except (fm.FrontmatterError, OSError, UnicodeDecodeError):
+                        print(f"{runbook.name} {path.parent.name}: its Tracking note can't be read (Routines/{runbook.folder.name}/{path.parent.name}/{routines.TRACKING})")
+                        continue
                     print(f"{runbook.name} {path.parent.name} [{state.status}] {state.progress}")
             return 0
         runbook = routines.find_runbook(runbooks, args.name)
@@ -43,7 +49,12 @@ def handle(args, vault) -> int:
             name, sep, file = spec.partition("=")
             if not sep or not name.strip() or not file.strip():
                 raise routines.RoutineError(f"--list needs NAME=FILE, like companies=companies.txt (got '{spec}')")
-            lists[name.strip()] = routines.parse_list_items(Path(file.strip()).read_text(encoding="utf-8"))
+            raw = Path(file.strip()).read_bytes()
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                text = raw.decode("latin-1")
+            lists[name.strip()] = routines.parse_list_items(text)
         path = routines.start_period(vault, runbook, period, lists)
     except routines.RoutineError as exc:
         print(exc)
