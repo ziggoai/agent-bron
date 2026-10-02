@@ -40,7 +40,7 @@ Out of scope: `create-routine` and the other setup skills (Plan 3); step-by-step
 
 ### 3.4 Starting the run
 - The trigger creates or updates the chat ticket, then starts the run detached (`bron run <id> [--resume] --caller-cli <cli>`, in its own process group, surviving the trigger's exit). The trigger must finish well within its 10 s timeout; it never waits for the run.
-- A chat run is recorded as **shown** (Plan 2a `shown` flag): the session agent displays it, so it is not announced again in a later message.
+- A chat run is recorded normally; `bron ticket wait` marks the reply as seen once it has printed it, so it isn't announced again (a reply nobody printed appears in the next message).
 - Several tags in one message start one run per agent, in parallel (subject to `max_parallel`).
 - The chat run prompt differs from the task prompt: the agent is talking to the user directly; its final reply is shown to the user word for word; it uses ticket commands only to ask for approval ("Needs your OK: …") or when it truly can't answer.
 

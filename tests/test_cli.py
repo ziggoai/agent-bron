@@ -54,7 +54,7 @@ def test_dry_run(run, vault):
 
 
 def test_version(run):
-    assert run("version")[:2] == (0, "0.4.0\n")
+    assert run("version")[:2] == (0, "0.4.1\n")
 
 
 def test_outside_a_vault(monkeypatch, tmp_path, capsys):
