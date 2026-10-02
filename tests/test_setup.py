@@ -6,7 +6,7 @@ import pytest
 from bron import frontmatter as fm
 from bron.loader import load
 from bron.model import Issue
-from bron.setup import Change, SetupError, apply, preview, problems
+from bron.setup import STILL_BROKEN, Change, SetupError, apply, preview, problems, record, run
 from bron.sync import SyncResult, run_sync
 from vaultkit import add_agent, add_connection
 
@@ -196,20 +196,157 @@ def test_a_failed_refresh_after_rollback_says_to_run_sync(vault, monkeypatch):
     assert "Nothing was changed" not in str(caught.value)
 
 
+def click(vault, *rules):
+    """A "don't ask again" click in Claude Code: it adds allow rules to .claude/settings.json."""
+    settings = vault.root / ".claude" / "settings.json"
+    data = json.loads(settings.read_text(encoding="utf-8"))
+    data.setdefault("permissions", {}).setdefault("allow", []).extend(rules)
+    settings.write_text(json.dumps(data, indent=4), encoding="utf-8")
+
+
 def test_clicks_imported_before_the_change_survive_a_rollback(vault, monkeypatch):
     add_connection(vault, "Gmail", type="native", claude="claude_ai_Gmail")
     assert run_sync(vault).ok
-    settings = vault.root / ".claude" / "settings.json"
-    data = json.loads(settings.read_text(encoding="utf-8"))
-    data.setdefault("permissions", {}).setdefault("allow", []).append("mcp__claude_ai_Gmail__reply")
-    settings.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    click(vault, "mcp__claude_ai_Gmail__reply")
     bron = vault.agents_dir / "Bron" / "Agent.md"
-    change = Change(summary=["x"], writes={"System/Agents/Bron/Agent.md": bron.read_text() + "\nMore.\n"})
+    build = lambda cfg: Change(summary=["x"], writes={"System/Agents/Bron/Agent.md": bron.read_text() + "\nMore.\n"})  # noqa: E731
     fail_first_sync(monkeypatch, not_ok, real=True, on_call=1)  # call 0 is the catch-up sync, call 1 the sync after the change
     with pytest.raises(SetupError, match="Nothing was changed"):
-        apply(vault, change)
+        run(vault, build, preview_only=False)
     assert "mcp:Gmail:reply" in load(vault).agents["bron"].always_allow
     assert "mcp:Gmail:reply" in bron.read_text()
+
+
+def test_a_change_built_before_a_click_was_imported_is_refused_not_written(vault):
+    add_connection(vault, "Gmail", type="native", claude="claude_ai_Gmail")
+    assert run_sync(vault).ok
+    click(vault, "mcp__claude_ai_Gmail__reply")
+    bron = vault.agents_dir / "Bron" / "Agent.md"
+    stale = Change(summary=["x"], writes={"System/Agents/Bron/Agent.md": bron.read_text() + "\nMore.\n"})
+    with pytest.raises(SetupError, match="Something changed System/Agents/Bron/Agent.md while Bron was preparing this; nothing was changed — try again."):
+        apply(vault, stale)  # the catch-up sync imports the click into the very file the change would overwrite
+    assert "mcp:Gmail:reply" in bron.read_text() and "More." not in bron.read_text()
+
+
+def test_run_builds_from_the_setup_after_catching_up(vault):
+    assert run_sync(vault).ok
+    click(vault, "Bash(git push:*)")
+    seen = []
+
+    def build(cfg):
+        seen.append(list(cfg.agents["bron"].always_allow))
+        bron = cfg.agents["bron"].path
+        return Change(summary=["x"], writes={"System/Agents/Bron/Agent.md": bron.read_text() + "\nMore.\n"}, done="Done it.")
+
+    assert run(vault, build, preview_only=False) == ["Done it."]
+    assert seen == [["shell:git push"]]
+    assert "shell:git push" in load(vault).agents["bron"].always_allow
+
+
+def test_a_preview_through_run_writes_nothing_even_with_a_click_pending(vault):
+    assert run_sync(vault).ok
+    click(vault, "Bash(git push:*)")
+    before = whole_vault(vault)
+    assert run(vault, lambda cfg: Change(summary=["New agent: COO."], writes={"System/Agents/COO/Agent.md": agent_text("COO")}), preview_only=True) == ["New agent: COO."]
+    assert whole_vault(vault) == before
+
+
+def test_a_file_changed_between_build_and_apply_is_refused(vault, monkeypatch):
+    assert run_sync(vault).ok
+    bron = vault.agents_dir / "Bron" / "Agent.md"
+    from bron import setup as setup_module
+
+    real_preview = setup_module.preview
+
+    def preview_then_someone_edits(vault, change):
+        lines = real_preview(vault, change)
+        bron.write_text(bron.read_text() + "\nEdited in Obsidian meanwhile.\n", encoding="utf-8")
+        return lines
+
+    monkeypatch.setattr("bron.setup.preview", preview_then_someone_edits)
+    build = lambda cfg: Change(summary=["x"], writes={"System/Agents/Bron/Agent.md": cfg.agents["bron"].path.read_text() + "\nMore.\n", "System/Agents/COO/Agent.md": agent_text("COO")})  # noqa: E731
+    with pytest.raises(SetupError, match="Something changed System/Agents/Bron/Agent.md"):
+        run(vault, build, preview_only=False)
+    assert "Edited in Obsidian meanwhile." in bron.read_text() and "More." not in bron.read_text()
+    assert not (vault.agents_dir / "COO").exists()
+
+
+def test_a_recorded_folder_that_changed_is_refused(vault):
+    add_agent(vault, "CFO")
+    assert run_sync(vault).ok
+    change = Change(summary=["x"], moves=[("System/Agents/CFO", "System/Archive/Agents/CFO")])
+    record(vault, change)
+    (vault.agents_dir / "CFO" / "Agent.md").write_text(agent_text("CFO", role="Changed"), encoding="utf-8")
+    with pytest.raises(SetupError, match="Something changed System/Agents/CFO"):
+        apply(vault, change)
+    assert (vault.agents_dir / "CFO" / "Agent.md").is_file() and not (vault.system / "Archive").exists()
+
+
+def test_setup_commands_take_turns(vault, monkeypatch):
+    import threading
+
+    assert run_sync(vault).ok
+    inside, overlap = [], []
+    lock = threading.Lock()
+
+    def build(n):
+        def inner(cfg):
+            with lock:
+                inside.append(n)
+                if len(inside) > 1:
+                    overlap.append(n)
+            import time
+
+            time.sleep(0.2)
+            with lock:
+                inside.remove(n)
+            return Change(summary=[f"{n}"], writes={f"Projects/P{n}/README.md": "x\n"})
+        return inner
+
+    threads = [threading.Thread(target=run, args=(vault, build(n)), kwargs={"preview_only": False}) for n in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert overlap == [] and (vault.root / "Projects" / "P0").is_dir() and (vault.root / "Projects" / "P1").is_dir()
+
+
+def test_an_existing_problem_doesnt_block_a_change_and_is_reported(vault):
+    add_agent(vault, "Broken", reports_to="Ghost")
+    assert not run_sync(vault).ok
+    lines = run(vault, lambda cfg: Change(summary=["x"], writes={"Projects/Audit/README.md": "# Audit\n"}, done="Done it."), preview_only=False)
+    assert lines[:2] == ["Done it.", STILL_BROKEN]
+    assert any("Ghost" in line for line in lines[2:]) and all(line.startswith("- ") for line in lines[2:])
+    assert (vault.root / "Projects" / "Audit" / "README.md").is_file()
+
+
+def test_a_change_that_fixes_the_existing_problem_syncs_again(vault):
+    add_agent(vault, "Broken", reports_to="Ghost")
+    assert not run_sync(vault).ok
+    fixed = agent_text("Broken", reports_to="Bron")
+    assert run(vault, lambda cfg: Change(summary=["x"], writes={"System/Agents/Broken/Agent.md": fixed}, done="Done it."), preview_only=False) == ["Done it."]
+    assert run_sync(vault).ok and (vault.root / ".claude" / "agents" / "broken.md").is_file()
+
+
+def test_a_new_problem_after_the_change_still_rolls_back_when_the_setup_was_already_broken(vault, monkeypatch):
+    add_agent(vault, "Broken", reports_to="Ghost")
+    before = whole_vault(vault)
+    from bron import setup as setup_module
+
+    real_sync = setup_module.run_sync
+    calls = []
+
+    def wrapper(vault, **kwargs):
+        calls.append(1)
+        result = real_sync(vault, **kwargs)
+        if len(calls) == 2:  # the sync after the change: the old problem plus a new one
+            return SyncResult(False, result.issues + [Issue("error", "sync.failed", "disk full")])
+        return result
+
+    monkeypatch.setattr("bron.setup.run_sync", wrapper)
+    with pytest.raises(SetupError, match=r"\(disk full\)\. Nothing was changed"):
+        run(vault, lambda cfg: Change(summary=["x"], writes={"Projects/Audit/README.md": "# Audit\n"}), preview_only=False)
+    assert whole_vault(vault) == before
 
 
 def test_a_write_onto_a_folder_is_refused_and_existing_folders_stay(vault):

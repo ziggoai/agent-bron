@@ -32,19 +32,18 @@ def add_parser(sub) -> None:
     create = commands.add_parser("create", help="create a routine from a drafted runbook")
     create.add_argument("--name", required=True)
     create.add_argument("--file", required=True, help="the drafted Runbook.md")
-    create.add_argument("--preview", action="store_true")
+    create.add_argument("--preview", action="store_true", help="show what would change, without changing anything")
+    create.add_argument("--show-files", action="store_true", help="with --preview: also show the exact file text")
 
 
 def handle(args, vault) -> int:
     from . import routines
 
     if args.routine_command == "create":
-        from .loader import load
         from .setup_cli import read_file, run_change
         from .work_setup import create_routine
 
-        cfg = load(vault)
-        return run_change(vault, lambda: create_routine(cfg, args.name, read_file(args.file)), args)
+        return run_change(vault, lambda cfg: create_routine(cfg, args.name, read_file(args.file)), args)
 
     runbooks, issues = routines.load_runbooks(vault)
     try:

@@ -132,3 +132,41 @@ def test_rename_refuses_a_busy_agent_and_mentions_skills(team):
     skill.write_text("---\nname: tally\ndescription: Count things\n---\nCount.\n", encoding="utf-8")
     change = rename_agent(load(team), "Analyst", "Scout")
     assert "Its own skills are renamed to scout-tally." in change.summary
+
+
+def test_retire_and_rename_refuse_while_a_ticket_they_would_rewrite_is_being_worked_on(team):
+    asked = new_ticket(team, title="Ask", assignee="analyst", request="x", requested_by="cfo")
+    with editing(team, asked.id) as current:
+        current.status = "in-progress"
+    before = asked.path.read_text(encoding="utf-8")
+    with pytest.raises(SetupError, match=f"{asked.id} is being worked on right now; try again once it's finished."):
+        retire_agent(load(team), "CFO")
+    with pytest.raises(SetupError, match=f"{asked.id} is being worked on right now"):
+        rename_agent(load(team), "CFO", "Finance")
+    assert asked.path.read_text(encoding="utf-8") == before and (team.agents_dir / "CFO").is_dir()
+
+
+def test_retire_refuses_while_a_run_holds_the_ticket(team):
+    import os
+
+    from bron.locks import acquire, release
+
+    queued = new_ticket(team, title="Q3", assignee="cfo", request="x", requested_by="bron")
+    assert acquire(team, queued.id, "run-1", pid=os.getpid(), waiting=True)
+    with pytest.raises(SetupError, match=f"{queued.id} is being worked on right now"):
+        retire_agent(load(team), "CFO")
+    release(team, queued.id, "run-1")
+    retire_agent(load(team), "CFO")
+
+
+def test_retire_through_the_command_reports_an_unrelated_existing_problem(team, monkeypatch, capsys):
+    add_agent(team, "Broken", reports_to="Ghost")
+    monkeypatch.chdir(team.root)
+    assert main(["project", "new", "Audit"]) == 0
+    out = capsys.readouterr().out
+    assert "Bron's setup still has problems from before" in out and "Ghost" in out
+    assert (team.root / "Projects" / "Audit" / "README.md").is_file()
+    assert main(["agent", "retire", "Analyst"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("Retired Analyst.") and "still has problems from before" in out and "Ghost" in out
+    assert (team.system / "Archive" / "Agents" / "Analyst" / "Agent.md").is_file()

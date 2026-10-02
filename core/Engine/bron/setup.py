@@ -1,18 +1,23 @@
 """Setup changes: previewed on a copy of System/, then applied in one step that can't leave a broken setup."""
 from __future__ import annotations
 
+import hashlib
 import shutil
 import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+from typing import Callable
 
 from .check import has_errors, run_checks
-from .loader import load
+from .loader import Config, load
 from .model import Issue
+from .statefile import locked
 from .sync import needs_sync, output_issues, plan_files, run_sync
 from .vault import Vault
+
+STILL_BROKEN = "Bron's setup still has problems from before, so Claude Code and Codex keep their previous setup until they're fixed:"
 
 _IGNORE = shutil.ignore_patterns(".venv", "__pycache__", "*.pyc", ".pytest_cache")
 
@@ -28,6 +33,8 @@ class Change:
     moves: list[tuple[str, str]] = field(default_factory=list)  # vault-relative (from, to), files or folders
     folders: list[str] = field(default_factory=list)  # vault-relative folders to create
     done: str = "Done."
+    # vault-relative path -> what it held when the change was built (None: it didn't exist; a folder: a digest)
+    based_on: dict[str, bytes | None] = field(default_factory=dict)
 
 
 def _key(issue: Issue, root: Path) -> tuple[str, str, str]:
@@ -38,6 +45,11 @@ def _key(issue: Issue, root: Path) -> tuple[str, str, str]:
         except ValueError:
             where = str(issue.path)
     return issue.code, issue.message, where
+
+
+def _render(issue: Issue, root: Path) -> str:
+    where = _key(issue, root)[2]
+    return issue.message + (f" ({where})" if where else "")
 
 
 def _errors(root: Path) -> list[Issue]:
@@ -125,12 +137,7 @@ def _problems(vault: Vault, change: Change) -> list[str]:
         for rel, text in change.writes.items():
             if inside(rel):
                 _write(root / rel, text)
-        found = []
-        for issue in _errors(root):
-            key = _key(issue, root)
-            if key not in before:
-                found.append(issue.message + (f" ({key[2]})" if key[2] else ""))
-        return found
+        return [_render(issue, root) for issue in _errors(root) if _key(issue, root) not in before]
 
 
 def preview(vault: Vault, change: Change) -> list[str]:
@@ -140,18 +147,78 @@ def preview(vault: Vault, change: Change) -> list[str]:
     return list(change.summary)
 
 
+def _state(path: Path) -> bytes | None:
+    """What a path holds now: a file's bytes, a digest of a folder's files, or None when it doesn't exist."""
+    try:
+        if path.is_dir() and not path.is_symlink():
+            digest = hashlib.sha256()
+            for item in sorted(p for p in path.rglob("*") if p.is_file()):
+                digest.update(item.relative_to(path).as_posix().encode("utf-8") + b"\0" + item.read_bytes() + b"\0")
+            return b"folder:" + digest.hexdigest().encode("ascii")
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise SetupError(f"Bron couldn't read {path.name} ({exc.__class__.__name__}).") from None
+
+
+def record(vault: Vault, change: Change) -> None:
+    """Remember what every file the change writes, and every folder it moves, holds right now."""
+    _validate(vault, change)
+    for rel in [src for src, _ in change.moves] + list(change.writes):
+        if rel not in change.based_on:
+            change.based_on[rel] = _state(vault.root / rel)
+
+
+def _unchanged(vault: Vault, change: Change) -> None:
+    for rel, seen in change.based_on.items():
+        if _state(vault.root / rel) != seen:
+            raise SetupError(f"Something changed {rel} while Bron was preparing this; nothing was changed — try again.")
+
+
+def _catch_up(vault: Vault) -> set[tuple[str, str, str]]:
+    """Bring pending approvals and generated files up to date. Returns the errors the setup already has."""
+    if not needs_sync(vault):
+        return set()
+    try:
+        first = run_sync(vault)
+    except Exception as exc:  # noqa: BLE001
+        raise SetupError(f"Bron's setup couldn't be refreshed before the change ({exc}). Nothing was changed.") from None
+    if first.ok:
+        return set()
+    # Problems the setup already has don't stop a change (it may be the one that fixes them).
+    return {_key(issue, vault.root) for issue in first.issues if issue.level == "error"}
+
+
+def run(vault: Vault, build: Callable[[Config], Change], *, preview_only: bool) -> list[str]:
+    """Build a change from the setup as it is now, then preview or apply it; one setup command at a time.
+
+    Under the lock: catch up on pending approvals (not for a preview, which writes nothing), load, build,
+    record what the change is based on, preview, then apply, which refuses if a recorded file changed meanwhile.
+    """
+    with locked(vault.state_dir / "setup.json"):
+        before = None if preview_only else _catch_up(vault)
+        change = build(load(vault))
+        record(vault, change)
+        lines = preview(vault, change)
+        if preview_only:
+            return lines
+        return _apply(vault, change, before)
+
+
 def apply(vault: Vault, change: Change) -> list[str]:
     """Make the change, refresh the setup, and undo everything if any step fails."""
+    if not change.based_on:
+        record(vault, change)
     preview(vault, change)
-    if needs_sync(vault):
+    return _apply(vault, change, None)
+
+
+def _apply(vault: Vault, change: Change, before: set[tuple[str, str, str]] | None) -> list[str]:
+    if before is None:
         # Pending approvals and generated files are brought up to date first, so the backups below include them.
-        try:
-            first = run_sync(vault)
-        except Exception as exc:  # noqa: BLE001
-            raise SetupError(f"Bron's setup couldn't be refreshed before the change ({exc}). Nothing was changed.") from None
-        if not first.ok:
-            reasons = "; ".join(i.message for i in first.issues if i.level == "error") or "unknown problem"
-            raise SetupError(f"Bron's setup couldn't be refreshed before the change ({reasons}). Nothing was changed.")
+        before = _catch_up(vault)
+    _unchanged(vault, change)
     root = vault.root
     backup = vault.backups_dir / f"setup-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
     moved: list[tuple[str, str]] = []
@@ -179,11 +246,16 @@ def apply(vault: Vault, change: Change) -> list[str]:
                 created_files.append(path)
             _write(path, text, created_dirs)
         result = run_sync(vault)
+        leftover: list[Issue] = []
         if not result.ok:
-            reasons = "; ".join(i.message for i in result.issues if i.level == "error") or "unknown problem"
-            raise SetupError(f"Bron's setup couldn't be refreshed after the change ({reasons}).")
+            errors = [i for i in result.issues if i.level == "error"]
+            new = [i for i in errors if _key(i, root) not in before]
+            if new or not errors:
+                reasons = "; ".join(i.message for i in new) or "unknown problem"
+                raise SetupError(f"Bron's setup couldn't be refreshed after the change ({reasons}).")
+            leftover = errors  # only problems the setup had before: the change stands
     except BaseException as exc:
-        failures, refreshed = _rollback(vault, backup, saved, created_files, created_dirs, moved)
+        failures, refreshed = _rollback(vault, backup, saved, created_files, created_dirs, moved, before)
         if isinstance(exc, (KeyboardInterrupt, SystemExit)):
             raise
         message = str(exc) if isinstance(exc, SetupError) else f"The change failed ({exc.__class__.__name__}: {exc})."
@@ -195,10 +267,13 @@ def apply(vault: Vault, change: Change) -> list[str]:
         if not refreshed:
             raise SetupError(f"{message} Your files were put back, but the setup files for Claude Code and Codex couldn't be refreshed. Run `.bron/bin/bron sync` to fix that.") from None
         raise SetupError(f"{message} Nothing was changed.") from None
+    if leftover:
+        return [change.done, STILL_BROKEN] + [f"- {_render(issue, root)}" for issue in leftover]
     return [change.done]
 
 
-def _rollback(vault: Vault, backup: Path, saved: list[str], created_files: list[Path], created_dirs: list[Path], moved: list[tuple[str, str]]) -> tuple[list[str], bool]:
+def _rollback(vault: Vault, backup: Path, saved: list[str], created_files: list[Path], created_dirs: list[Path], moved: list[tuple[str, str]],
+              before: set[tuple[str, str, str]]) -> tuple[list[str], bool]:
     """Undo as much as possible, step by step. Returns what couldn't be undone and whether the setup was refreshed."""
     root = vault.root
     failures: list[str] = []
@@ -236,7 +311,10 @@ def _rollback(vault: Vault, backup: Path, saved: list[str], created_files: list[
         attempt(f"couldn't move {dst} back to {src}", back)
     remove_folders(final=True)
     try:
-        refreshed = bool(run_sync(vault).ok)
+        result = run_sync(vault)
+        # Back as it was: refreshed, or failing only on the problems the setup already had.
+        errors = [i for i in result.issues if i.level == "error"]
+        refreshed = bool(result.ok) or (bool(errors) and all(_key(i, root) in before for i in errors))
     except Exception:  # noqa: BLE001
         refreshed = False
     return failures, refreshed

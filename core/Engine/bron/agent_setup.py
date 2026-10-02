@@ -114,6 +114,22 @@ def resolve_connections(cfg: Config, names) -> list[str]:
     return out
 
 
+def _resolve_removals(cfg: Config, agent: Agent, names) -> list[str]:
+    """Connections to take off an agent: its own entries match even when the connection itself is gone."""
+    own = {conn_key(c): c for c in agent.connections if c.strip().lower() != ALL}
+    out: list[str] = []
+    for raw in names:
+        name = raw.strip()
+        if name and name.lower() != ALL and conn_key(name) in own and conn_key(name) not in cfg.connections:
+            if own[conn_key(name)] not in out:
+                out.append(own[conn_key(name)])
+            continue
+        for found in resolve_connections(cfg, [raw]):
+            if found not in out:
+                out.append(found)
+    return out
+
+
 def safety_defaults(cfg: Config, connections: list[str]) -> list[str]:
     """Always ask before deleting and pushing; plus every send/share/post group that touches these connections."""
     keys = set(cfg.connections) if ALL in connections else {conn_key(c) for c in connections}
@@ -277,7 +293,7 @@ def set_agent(cfg: Config, name: str, *, role=None, reports_to=None, models=None
             new_models[runs_in] = "default"
             changes["models"] = {cli: new_models[cli] for cli in CLIS if cli in new_models}
     added = resolve_connections(cfg, add_connections)
-    removed = resolve_connections(cfg, remove_connections)
+    removed = _resolve_removals(cfg, agent, remove_connections)
     conns = _merge(agent.connections, added)
     gone = {conn_key(r) for r in removed if r != ALL}
     conns = [c for c in conns if conn_key(c) not in gone and not (c.lower() == ALL and ALL in removed)]
@@ -295,7 +311,8 @@ def set_agent(cfg: Config, name: str, *, role=None, reports_to=None, models=None
     dropped = {norm(a) for a in remove_ask}
     asks = [a for a in asks if norm(a) not in dropped]
     if asks != list(agent.ask_before):
-        _check_asks(cfg, asks)
+        had_asks = {norm(a) for a in agent.ask_before}
+        _check_asks(cfg, [a for a in asks if norm(a) not in had_asks])  # entries already there aren't this change's problem
         changes["ask_before"] = asks
         lines.append("Asks you before: " + describe_asks(asks))
     boss_change = None
@@ -341,6 +358,24 @@ def _open_tickets(cfg: Config):
     return [t for t in tickets if t.status in OPEN]
 
 
+def _refuse_busy(cfg: Config, tickets) -> None:
+    """Refuse to rewrite a ticket that a run may be settling right now (in progress, or held by a run's lock)."""
+    from .locks import is_stale, read_lock
+
+    busy = []
+    for ticket in tickets:
+        try:
+            lock = read_lock(cfg.vault, ticket.id)
+        except (OSError, ValueError):
+            lock = None
+        if ticket.status == "in-progress" or (lock is not None and not is_stale(lock, cfg.settings.max_minutes)):
+            busy.append(ticket.id)
+    if len(busy) == 1:
+        raise SetupError(f"{busy[0]} is being worked on right now; try again once it's finished.")
+    if busy:
+        raise SetupError(f"{', '.join(busy)} are being worked on right now; try again once they're finished.")
+
+
 def rename_agent(cfg: Config, name: str, new_name: str) -> Change:
     from .routines import load_runbooks
     from .tickets import add_message, render
@@ -378,7 +413,9 @@ def rename_agent(cfg: Config, name: str, new_name: str) -> Change:
     for rb in owned:
         change.writes[rel(cfg, rb.path)] = _edit(cfg, rb.path, {"owner": new_name})
     moved = 0
-    for ticket in _open_tickets(cfg):
+    tickets = _open_tickets(cfg)
+    _refuse_busy(cfg, [t for t in tickets if t.assignee == agent.key or slug(t.requested_by) == agent.key])
+    for ticket in tickets:
         touched = False
         if ticket.assignee == agent.key:
             ticket.assignee, touched = slug(new_name), True
@@ -426,7 +463,9 @@ def retire_agent(cfg: Config, name: str, hand_to: str = "") -> Change:
     handed: list[str] = []
     chats = 0
     followed = 0
-    for ticket in _open_tickets(cfg):
+    tickets = _open_tickets(cfg)
+    _refuse_busy(cfg, [t for t in tickets if t.assignee == agent.key or slug(t.requested_by) == agent.key])
+    for ticket in tickets:
         mine_now = ticket.assignee == agent.key
         asked = slug(ticket.requested_by) == agent.key
         if not (mine_now or asked):

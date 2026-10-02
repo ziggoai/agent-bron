@@ -173,3 +173,40 @@ def test_all_and_any_are_reserved_names(team):
     for bad in ("all", "Any"):
         with pytest.raises(SetupError, match="reserved"):
             create_agent(load(team), name=bad, role="x")
+
+
+def click(vault, *rules):
+    import json
+
+    settings = vault.root / ".claude" / "settings.json"
+    data = json.loads(settings.read_text(encoding="utf-8"))
+    data.setdefault("permissions", {}).setdefault("allow", []).extend(rules)
+    settings.write_text(json.dumps(data, indent=4), encoding="utf-8")
+
+
+def test_a_click_just_before_a_setup_command_is_kept(team, monkeypatch, capsys):
+    from bron.sync import run_sync
+
+    assert run_sync(team).ok
+    click(team, "Bash(git push:*)")
+    monkeypatch.chdir(team.root)
+    assert main(["agent", "set", "Bron", "--role", "Chief of staff"]) == 0
+    bron = load(team).agents["bron"]
+    assert "shell:git push" in bron.always_allow and bron.role == "Chief of staff"
+
+
+def test_a_connection_whose_file_is_gone_can_still_be_removed(team, monkeypatch, capsys):
+    from bron.sync import run_sync
+
+    add_connection(team, "Timey")
+    add_agent(team, "COO", connections=["Timey", "Carta"], ask_before=["delete-files", "mcp:Timey:get_time"])
+    assert run_sync(team).ok
+    (team.connections_dir / "Timey.md").unlink()
+    assert not run_sync(team).ok
+    monkeypatch.chdir(team.root)
+    assert main(["agent", "set", "COO", "--remove-connection", "timey", "--remove-ask", "mcp:Timey:get_time"]) == 0
+    assert capsys.readouterr().out == "Updated COO.\n"
+    assert meta(team, "COO")["connections"] == ["Carta"] and meta(team, "COO")["ask_before"] == ["delete-files"]
+    assert run_sync(team).ok
+    with pytest.raises(SetupError, match="There's no connection called 'Nope'"):
+        set_agent(load(team), "COO", remove_connections=["Nope"])

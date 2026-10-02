@@ -92,7 +92,7 @@ def add_work_parsers(sub) -> None:
     put.add_argument("--default-cli")
     put.add_argument("--tone")
     put.add_argument("--preferences")
-    _preview_flags(put, files=False)
+    _preview_flags(put)
 
 
 def add_connection_parser(commands) -> None:
@@ -106,35 +106,36 @@ def add_connection_parser(commands) -> None:
 
 
 def run_change(vault, build, args) -> int:
-    """Build the change; with --preview print its summary, otherwise apply it."""
-    from .setup import SetupError, apply, preview
+    """Build the change from the setup as it is now; with --preview print its summary, otherwise apply it."""
+    from .setup import SetupError, run
 
+    built = []
+
+    def builder(cfg):
+        built.append(build(cfg))
+        return built[-1]
+
+    preview = bool(getattr(args, "preview", False))
     try:
-        change = build()
-        if getattr(args, "preview", False):
-            for line in preview(vault, change):
-                print(line)
-            if getattr(args, "show_files", False):
-                for path, text in change.writes.items():
-                    print(f"\n--- {path}")
-                    print(text, end="" if text.endswith("\n") else "\n")
-            return 0
-        for line in apply(vault, change):
-            print(line)
-        return 0
+        lines = run(vault, builder, preview_only=preview)
     except SetupError as exc:
         print(exc)
         return 1
+    for line in lines:
+        print(line)
+    if preview and getattr(args, "show_files", False):
+        for path, text in built[-1].writes.items():
+            print(f"\n--- {path}")
+            print(text, end="" if text.endswith("\n") else "\n")
+    return 0
 
 
 def handle(args, vault) -> int:
     from . import agent_setup as agents
-    from .loader import load
 
-    cfg = load(vault)
     if args.command == "agent":
         if args.agent_command == "create":
-            return run_change(vault, lambda: agents.create_agent(
+            return run_change(vault, lambda cfg: agents.create_agent(
                 cfg,
                 name=args.name,
                 role=args.role,
@@ -148,7 +149,7 @@ def handle(args, vault) -> int:
                 defaults=not args.no_defaults,
             ), args)
         if args.agent_command == "set":
-            return run_change(vault, lambda: agents.set_agent(
+            return run_change(vault, lambda cfg: agents.set_agent(
                 cfg,
                 args.name,
                 role=args.role,
@@ -163,23 +164,23 @@ def handle(args, vault) -> int:
                 defaults=not args.no_defaults,
             ), args)
         if args.agent_command == "rename":
-            return run_change(vault, lambda: agents.rename_agent(cfg, args.name, args.new_name), args)
+            return run_change(vault, lambda cfg: agents.rename_agent(cfg, args.name, args.new_name), args)
         if args.agent_command == "retire":
-            return run_change(vault, lambda: agents.retire_agent(cfg, args.name, args.hand_to), args)
+            return run_change(vault, lambda cfg: agents.retire_agent(cfg, args.name, args.hand_to), args)
         if args.agent_command == "restore":
-            return run_change(vault, lambda: agents.restore_agent(cfg, args.name), args)
+            return run_change(vault, lambda cfg: agents.restore_agent(cfg, args.name), args)
     from . import work_setup as work
 
     if args.command == "project":
-        return run_change(vault, lambda: work.new_project(cfg, args.name, args.goal), args)
+        return run_change(vault, lambda cfg: work.new_project(cfg, args.name, args.goal), args)
     if args.command == "skill":
-        return run_change(vault, lambda: work.new_skill(cfg, args.name, args.description, read_file(args.file), args.agent), args)
+        return run_change(vault, lambda cfg: work.new_skill(cfg, args.name, args.description, read_file(args.file), args.agent), args)
     if args.command == "settings":
-        return run_change(vault, lambda: work.set_settings(
+        return run_change(vault, lambda cfg: work.set_settings(
             cfg, user_name=args.name, user_role=args.role, company=args.company, default_cli=args.default_cli, tone=args.tone, preferences=args.preferences,
         ), args)
     if args.command == "connections":
-        return run_change(vault, lambda: work.add_connection(
+        return run_change(vault, lambda cfg: work.add_connection(
             cfg, name=args.name, command=args.connector_command, args=args.args, url=args.url, description=args.description,
         ), args)
     raise SystemExit(f"bron: unknown setup command {args.command}")
