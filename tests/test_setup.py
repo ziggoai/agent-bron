@@ -1,10 +1,14 @@
+import json
+import shutil
+
 import pytest
 
 from bron import frontmatter as fm
+from bron.loader import load
 from bron.model import Issue
 from bron.setup import Change, SetupError, apply, preview, problems
 from bron.sync import SyncResult, run_sync
-from vaultkit import add_agent
+from vaultkit import add_agent, add_connection
 
 
 def agent_text(name, **extra):
@@ -14,6 +18,36 @@ def agent_text(name, **extra):
 
 def snapshot(vault):
     return {p.relative_to(vault.root).as_posix(): p.read_bytes() for p in vault.system.rglob("*") if p.is_file() and ".venv" not in p.parts and "__pycache__" not in p.parts}
+
+
+def fail_first_sync(monkeypatch, fail, *, real=True, on_call=0):
+    """Make one sync inside apply fail (default: the first call); every other call is the real sync."""
+    from bron import setup as setup_module
+
+    real_sync = setup_module.run_sync
+    calls = []
+
+    def wrapper(vault, **kwargs):
+        calls.append(1)
+        if len(calls) - 1 == on_call:
+            if real:
+                real_sync(vault, **kwargs)
+            return fail(real_sync, vault)
+        return real_sync(vault, **kwargs)
+
+    monkeypatch.setattr("bron.setup.run_sync", wrapper)
+
+
+def not_ok(real, vault):
+    return SyncResult(False, [Issue("error", "sync.failed", "disk full")])
+
+
+def whole_vault(vault):
+    return {p.relative_to(vault.root).as_posix(): p.read_bytes() for p in vault.root.rglob("*") if p.is_file() and ".bron" not in p.relative_to(vault.root).parts and ".venv" not in p.parts and "__pycache__" not in p.parts}
+
+
+def folders(vault):
+    return sorted(p.relative_to(vault.root).as_posix() for p in vault.system.rglob("*") if p.is_dir() and ".venv" not in p.parts and "__pycache__" not in p.parts)
 
 
 def test_preview_writes_nothing_and_returns_the_summary(vault):
@@ -66,7 +100,7 @@ def test_a_failed_sync_restores_everything(vault, monkeypatch):
         writes={"System/Agents/Finance/Agent.md": agent_text("Finance"), "System/Agents/Bron/Agent.md": bron.read_text() + "\nMore.\n", "System/Agents/New/Agent.md": agent_text("New")},
         folders=["System/Agents/New/Memory"],
     )
-    monkeypatch.setattr("bron.setup.run_sync", lambda vault: SyncResult(False, [Issue("error", "sync.failed", "disk full")]))
+    fail_first_sync(monkeypatch, lambda real, vault: SyncResult(False, [Issue("error", "sync.failed", "disk full")]), real=False)
     with pytest.raises(SetupError, match="Nothing was changed"):
         apply(vault, change)
     assert snapshot(vault) == before
@@ -77,11 +111,143 @@ def test_an_unexpected_error_mid_apply_also_restores(vault, monkeypatch):
     assert run_sync(vault).ok
     before = snapshot(vault)
 
-    def boom(vault):
+    def boom(real, vault):
         raise OSError("no space left")
 
-    monkeypatch.setattr("bron.setup.run_sync", boom)
+    fail_first_sync(monkeypatch, boom, real=False)
     change = Change(summary=["x"], writes={"System/Agents/COO/Agent.md": agent_text("COO")})
     with pytest.raises(SetupError, match="no space left.*Nothing was changed"):
         apply(vault, change)
     assert snapshot(vault) == before
+
+
+def test_rollback_keeps_going_and_names_what_it_could_not_restore(vault, monkeypatch):
+    add_agent(vault, "CFO")
+    assert run_sync(vault).ok
+    bron = vault.agents_dir / "Bron" / "Agent.md"
+    change = Change(
+        summary=["x"],
+        moves=[("System/Agents/CFO", "System/Agents/Finance")],
+        writes={"System/Agents/Finance/Agent.md": agent_text("Finance"), "System/Agents/Bron/Agent.md": bron.read_text() + "\nMore.\n", "System/Agents/New/Agent.md": agent_text("New")},
+    )
+    fail_first_sync(monkeypatch, not_ok, real=False, on_call=0)
+    real_copy = shutil.copy2
+    backups = str(vault.backups_dir)
+
+    def copy(src, dst, *args, **kwargs):
+        if str(src).startswith(backups):
+            raise OSError("disk went away")
+        return real_copy(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr("bron.setup.shutil.copy2", copy)
+    with pytest.raises(SetupError) as caught:
+        apply(vault, change)
+    message = str(caught.value)
+    assert "System/Agents/Bron/Agent.md" in message and ".bron/backups/setup-" in message and "Nothing was changed" not in message
+    assert (vault.agents_dir / "CFO").is_dir() and not (vault.agents_dir / "Finance").exists() and not (vault.agents_dir / "New").exists()
+
+
+def test_a_move_and_a_write_at_its_old_place_both_go_back(vault, monkeypatch):
+    add_agent(vault, "CFO")
+    assert run_sync(vault).ok
+    before, tree = whole_vault(vault), folders(vault)
+    change = Change(
+        summary=["x"],
+        moves=[("System/Agents/CFO", "System/Archive/Agents/CFO")],
+        writes={"System/Agents/CFO/Agent.md": agent_text("CFO", role="Other")},
+    )
+    fail_first_sync(monkeypatch, not_ok, real=False)
+    with pytest.raises(SetupError, match="Nothing was changed"):
+        apply(vault, change)
+    assert whole_vault(vault) == before and folders(vault) == tree
+    assert not (vault.system / "Archive" / "Agents" / "CFO").exists()
+    assert not (vault.system / "Archive").exists()
+
+
+def test_the_generated_setup_goes_back_too(vault, monkeypatch):
+    add_agent(vault, "CFO")
+    assert run_sync(vault).ok
+    before = whole_vault(vault)
+    change = Change(summary=["x"], writes={"System/Agents/COO/Agent.md": agent_text("COO")}, folders=["System/Agents/COO/Memory"])
+    fail_first_sync(monkeypatch, not_ok, real=True)
+    with pytest.raises(SetupError, match="Nothing was changed"):
+        apply(vault, change)
+    assert whole_vault(vault) == before
+
+
+def test_a_failed_refresh_after_rollback_says_to_run_sync(vault, monkeypatch):
+    assert run_sync(vault).ok
+    change = Change(summary=["x"], writes={"System/Agents/COO/Agent.md": agent_text("COO")})
+    from bron import setup as setup_module
+
+    real_sync = setup_module.run_sync
+    calls = []
+
+    def wrapper(vault, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            real_sync(vault, **kwargs)
+            return SyncResult(False, [Issue("error", "sync.failed", "disk full")])
+        return SyncResult(False, [Issue("error", "sync.failed", "still full")])
+
+    monkeypatch.setattr("bron.setup.run_sync", wrapper)
+    with pytest.raises(SetupError, match=r"bron sync") as caught:
+        apply(vault, change)
+    assert "Nothing was changed" not in str(caught.value)
+
+
+def test_clicks_imported_before_the_change_survive_a_rollback(vault, monkeypatch):
+    add_connection(vault, "Gmail", type="native", claude="claude_ai_Gmail")
+    assert run_sync(vault).ok
+    settings = vault.root / ".claude" / "settings.json"
+    data = json.loads(settings.read_text(encoding="utf-8"))
+    data.setdefault("permissions", {}).setdefault("allow", []).append("mcp__claude_ai_Gmail__reply")
+    settings.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    bron = vault.agents_dir / "Bron" / "Agent.md"
+    change = Change(summary=["x"], writes={"System/Agents/Bron/Agent.md": bron.read_text() + "\nMore.\n"})
+    fail_first_sync(monkeypatch, not_ok, real=True, on_call=1)  # call 0 is the catch-up sync, call 1 the sync after the change
+    with pytest.raises(SetupError, match="Nothing was changed"):
+        apply(vault, change)
+    assert "mcp:Gmail:reply" in load(vault).agents["bron"].always_allow
+    assert "mcp:Gmail:reply" in bron.read_text()
+
+
+def test_a_write_onto_a_folder_is_refused_and_existing_folders_stay(vault):
+    add_agent(vault, "CFO")
+    assert run_sync(vault).ok
+    before, tree = whole_vault(vault), folders(vault)
+    change = Change(summary=["x"], writes={"System/Agents/CFO": "text"}, folders=["System/Agents/CFO/Memory"])
+    with pytest.raises(SetupError, match="is a folder"):
+        preview(vault, change)
+    with pytest.raises(SetupError, match="is a folder"):
+        apply(vault, change)
+    assert whole_vault(vault) == before and folders(vault) == tree
+
+
+def test_moves_must_have_a_source_and_a_free_target(vault):
+    add_agent(vault, "CFO")
+    with pytest.raises(SetupError, match="doesn't exist"):
+        preview(vault, Change(summary=["x"], moves=[("System/Agents/Nope", "System/Archive/Agents/Nope")]))
+    with pytest.raises(SetupError, match="already exists"):
+        preview(vault, Change(summary=["x"], moves=[("System/Agents/CFO", "System/Agents/Bron")]))
+    with pytest.raises(SetupError, match="doesn't exist"):
+        preview(vault, Change(summary=["x"], moves=[("Projects/Nope", "Archive/Nope")]))
+
+
+@pytest.mark.parametrize("bad", ["/etc/passwd", "../outside.md", "System/../../outside.md", ""])
+def test_paths_outside_the_vault_are_refused(vault, bad):
+    change = Change(summary=["x"], writes={bad: "x"})
+    with pytest.raises(SetupError, match="outside the vault"):
+        preview(vault, change)
+    with pytest.raises(SetupError, match="outside the vault"):
+        apply(vault, change)
+    with pytest.raises(SetupError, match="outside the vault"):
+        preview(vault, Change(summary=["x"], moves=[("System/Agents/Bron", bad)]))
+
+
+def test_each_apply_gets_its_own_backup_folder(vault):
+    assert run_sync(vault).ok
+    bron = vault.agents_dir / "Bron" / "Agent.md"
+    for n in range(2):
+        apply(vault, Change(summary=["x"], writes={"System/Agents/Bron/Agent.md": bron.read_text() + f"\nRound {n}.\n"}))
+    assert len(list(vault.backups_dir.glob("setup-*"))) == 2
