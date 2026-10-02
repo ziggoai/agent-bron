@@ -45,6 +45,7 @@ class ScanReport:
     updated: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
     needs_sign_in: list[str] = field(default_factory=list)
+    not_set_up: int = 0  # found, but not usable yet (needs authentication, not configured, failing)
     opened_for: str = ""
     notes: list[str] = field(default_factory=list)
 
@@ -56,6 +57,8 @@ class ScanReport:
             lines.append("Updated: " + ", ".join(self.updated))
         if not self.created and not self.updated:
             lines.append("No changes to System/Connections.")
+        if self.not_set_up:
+            lines.append(f"Not set up yet (available to connect in claude.ai or the CLI): {self.not_set_up}")
         if self.needs_sign_in:
             lines.append("Needs you to sign in again: " + ", ".join(self.needs_sign_in))
         if self.missing:
@@ -68,6 +71,8 @@ class ScanReport:
 
 def _status(text: str) -> str:
     low = text.lower()
+    if "not configured" in low:
+        return "not configured"
     if "auth" in low:
         return "needs sign-in"
     if "connected" in low and "fail" not in low:
@@ -187,6 +192,12 @@ def apply_found(vault: Vault, found: list[Found], *, scanned_claude: bool, scann
                     if not has_conflict:
                         existing = candidate
 
+        # Only connectors that work now get a file (connected in Claude Code, or enabled in Codex);
+        # the rest are only counted. Registered connectors are always kept up to date.
+        if existing is None and item.status != "connected" and not item.codex:
+            report.not_set_up += 1
+            continue
+
         # Determine the name and key to use
         use_name = item.name
         use_key = conn_key(use_name)
@@ -221,6 +232,8 @@ def apply_found(vault: Vault, found: list[Found], *, scanned_claude: bool, scann
                 fm.write(existing.path, doc)
                 report.updated.append(existing.name)
             seen_keys.add(existing.key)
+            if item.status == "needs sign-in":
+                report.needs_sign_in.append(existing.name)
         else:
             # Create new file
             if not use_key:
@@ -240,9 +253,6 @@ def apply_found(vault: Vault, found: list[Found], *, scanned_claude: bool, scann
             report.created.append(use_name)
             used_keys.add(use_key)
             seen_keys.add(use_key)
-
-        if item.status == "needs sign-in":
-            report.needs_sign_in.append(use_name)
 
     # Mark missing connectors (skip seen_keys to avoid marking found connectors as missing)
     for key, conn in natives.items():

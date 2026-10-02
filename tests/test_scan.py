@@ -65,10 +65,11 @@ def test_scan_writes_one_file_per_connector_and_reports(vault):
     assert (carta.type, carta.claude, carta.codex, carta.status) == ("native", "claude_ai_Carta", "carta", "connected")
     assert (vault.connections_dir / "Booking.com.md").is_file()
     assert "Carta" in report.created
-    assert "HubSpot" in report.needs_sign_in
+    assert not (vault.connections_dir / "HubSpot.md").exists()  # needs authentication: not set up yet
     text = report.render()
     assert "7 in Claude Code, 2 in Codex" in text
-    assert "Needs you to sign in again: HubSpot, supabase" in text
+    assert "Not set up yet (available to connect in claude.ai or the CLI): 2" in text
+    assert "Needs you to sign in again" not in text
 
 
 def test_scan_is_idempotent_and_keeps_user_edits(vault):
@@ -119,7 +120,7 @@ def test_scan_gives_the_default_agent_all_connections(vault):
 def test_same_name_twice_in_one_scan_creates_one_file(vault):
     from bron.scan import Found
 
-    apply_found(vault, [Found(name="Notion", claude="claude_ai_Notion"), Found(name="notion", codex="notion")], scanned_claude=True, scanned_codex=True)
+    apply_found(vault, [Found(name="Notion", claude="claude_ai_Notion", status="connected"), Found(name="notion", codex="notion")], scanned_claude=True, scanned_codex=True)
     assert [p.name for p in vault.connections_dir.glob("*.md")] == ["Notion.md"]
 
 
@@ -176,7 +177,7 @@ def test_same_name_different_origin_creates_separate_files(vault):
 
     # Two connectors with same name but different origins
     found = [
-        Found(name="Google Drive", claude="claude_ai_Google_Drive", origin="claude.ai"),
+        Found(name="Google Drive", claude="claude_ai_Google_Drive", origin="claude.ai", status="connected"),
         Found(name="google-drive", codex="google-drive", origin="small-business"),
     ]
 
@@ -200,7 +201,7 @@ def test_idempotent_scan_with_different_origins(vault):
 
     # First scan with two different origins
     found1 = [
-        Found(name="Google Drive", claude="claude_ai_Google_Drive", origin="claude.ai"),
+        Found(name="Google Drive", claude="claude_ai_Google_Drive", origin="claude.ai", status="connected"),
         Found(name="google-drive", codex="google-drive", origin="small-business"),
     ]
     report1 = apply_found(vault, found1, scanned_claude=True, scanned_codex=True)
@@ -208,7 +209,7 @@ def test_idempotent_scan_with_different_origins(vault):
 
     # Second scan with same data
     found2 = [
-        Found(name="Google Drive", claude="claude_ai_Google_Drive", origin="claude.ai"),
+        Found(name="Google Drive", claude="claude_ai_Google_Drive", origin="claude.ai", status="connected"),
         Found(name="google-drive", codex="google-drive", origin="small-business"),
     ]
     report2 = apply_found(vault, found2, scanned_claude=True, scanned_codex=True)
@@ -224,7 +225,7 @@ def test_broken_file_not_overwritten_with_numbered_name(vault):
 
     from bron.scan import Found
 
-    found = [Found(name="Carta", claude="claude_ai_Carta", origin="claude.ai")]
+    found = [Found(name="Carta", claude="claude_ai_Carta", origin="claude.ai", status="connected")]
     report = apply_found(vault, found, scanned_claude=True, scanned_codex=True)
 
     # Should not create Carta 2.md
@@ -379,3 +380,31 @@ claude.ai Google Drive: https://drivemcp.googleapis.com/mcp/v1 - ✔ Connected
     assert files2 == files1, "Files changed on second scan"
     assert len(report2.created) == 0
     assert len(report2.updated) == 0
+
+
+MIXED = """Checking MCP server health…
+
+claude.ai Carta: https://mcp.app.carta.com/mcp - ✔ Connected
+claude.ai HubSpot: https://mcp.hubspot.com/anthropic - ! Needs authentication
+claude.ai Gmail: https://gmail.mcp.claude.com/mcp - ! Needs authentication
+plugin:operations:gmail:  (HTTP) - - Not configured
+plugin:small-business:ringex-chat: https://mcp.labs.example/chat (HTTP) - ✘ Failed to connect — Protected resource https://a does not match expected https://b (or origin)
+"""
+HUBSPOT_IN_CODEX = '[{"name": "hubspot", "enabled": true, "transport": {"type": "streamable_http", "url": "https://mcp.hubspot.com/anthropic"}}]'
+
+
+def test_scan_registers_only_connectors_that_work_now(vault):
+    found = names(parse_claude_list(MIXED))
+    assert found["gmail"].status == "not configured"
+    assert found["Gmail"].status == "needs sign-in"
+    assert found["ringex-chat"].status == "error"
+    report = scan(vault, claude_text=MIXED, codex_text=HUBSPOT_IN_CODEX)
+    assert sorted(p.stem for p in vault.connections_dir.glob("*.md")) == ["Carta", "HubSpot"]  # HubSpot works in Codex
+    text = report.render()
+    assert "Not set up yet (available to connect in claude.ai or the CLI): 3" in text
+    assert "Needs you to sign in again" not in text
+    # Once registered, a connector that now needs sign-in is updated and reported.
+    later = MIXED.replace("Carta: https://mcp.app.carta.com/mcp - ✔ Connected", "Carta: https://mcp.app.carta.com/mcp - ! Needs authentication")
+    report = scan(vault, claude_text=later, codex_text="[]")
+    assert load(vault).connections["carta"].status == "needs sign-in"
+    assert "Needs you to sign in again: Carta, HubSpot" in report.render()

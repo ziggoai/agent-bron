@@ -2,10 +2,10 @@
 
 Each file in `System/Connections/` is one outside tool an agent can use.
 
-- **Native connectors** (`type: native`) are the ones already set up in Claude Code (including claude.ai connectors and plugins) or in Codex. Bron finds them with `.bron/bin/bron connections scan` (also run after every update) and writes one file each:
+- **Native connectors** (`type: native`) are the ones already set up in Claude Code (including claude.ai connectors and plugins) or in Codex. Bron finds them with `.bron/bin/bron connections scan` (also run after every update) and writes one file for each connector that works now (connected in Claude Code, or enabled in Codex). Connectors that still need signing in or setting up are only counted; scan again after connecting them.
   - `claude:` the name Claude Code uses (tools appear as `mcp__<claude>__<tool>`)
   - `codex:` the name in Codex's own settings
-  - `status:` connected, needs sign-in, available or not found
+  - `status:` connected, needs sign-in, available, not configured, error or not found
   Bron only ever changes those lines; edit the description or add notes freely.
 - **Vault connections** (`type: mcp-stdio` or `mcp-http`) are servers Bron defines itself for both CLIs.
 
