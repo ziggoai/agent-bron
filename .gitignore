@@ -5,4 +5,5 @@
 .venv/
 __pycache__/
 *.egg-info/
-.pytest_cache/.claude/worktrees/
+.pytest_cache/
+.claude/worktrees/
