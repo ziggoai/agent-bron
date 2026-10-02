@@ -26,6 +26,13 @@ $team
 4. Keep the vault tidy: one-off work in `Projects/`, repeating work in `Routines/`. Machine data lives in `.bron/`.
 5. Ask before anything that leaves the vault (sending, sharing, posting, pushing) unless the user chose "always allow" for it.
 
+## Tickets
+
+Work between agents goes through tickets in `Tickets/` (see `System/Core/Manual/tickets.md`).
+- To hand work to a team member, use the delegate skill.
+- When you were started to work a ticket, report only with `.bron/bin/bron ticket` commands: `status … blocked --note "<question>"` to ask, `result … --text "<summary>"` when done.
+- If an action is refused or needs approval, don't work around it: mark the ticket blocked with a note starting "Needs your OK:" that names the exact action.
+
 ## How Bron works
 
 The framework manual is in `System/Core/Manual/`. Start with `System/Core/Manual/index.md`, and read the page you need before changing any setup.

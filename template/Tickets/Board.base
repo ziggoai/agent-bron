@@ -1,0 +1,52 @@
+filters:
+  and:
+    - file.inFolder("Tickets")
+    - 'file.ext == "md"'
+
+properties:
+  file.name:
+    displayName: Ticket
+  requested_by:
+    displayName: "From"
+
+views:
+  - type: table
+    name: "By status"
+    filters:
+      and:
+        - 'kind != "chat"'
+    groupBy:
+      property: status
+      direction: ASC
+    order:
+      - file.name
+      - status
+      - assignee
+      - requested_by
+      - priority
+      - due
+      - project
+
+  - type: table
+    name: "By assignee"
+    filters:
+      and:
+        - 'kind != "chat"'
+        - 'status != "done"'
+        - 'status != "cancelled"'
+    groupBy:
+      property: assignee
+      direction: ASC
+    order:
+      - file.name
+      - status
+      - priority
+      - due
+
+  - type: table
+    name: "Chats"
+    filters: 'kind == "chat"'
+    order:
+      - file.name
+      - assignee
+      - status
