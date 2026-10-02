@@ -347,6 +347,9 @@ def rename_agent(cfg: Config, name: str, new_name: str) -> Change:
     if slug(new_name) == agent.key:
         raise SetupError(f"That's the same name as {agent.name}.")
     new_name = check_name(cfg, new_name)
+    busy = [t.id for t in _open_tickets(cfg) if t.assignee == agent.key and t.status == "in-progress"]
+    if busy:
+        raise SetupError(f"{agent.name} is working on {', '.join(busy)} right now; rename it once that's finished.")
     old_folder, new_folder = f"System/Agents/{agent.path.parent.name}", f"System/Agents/{new_name}"
     if (cfg.vault.root / new_folder).exists():
         raise SetupError(f"The folder {new_folder} already exists.")
@@ -386,6 +389,9 @@ def rename_agent(cfg: Config, name: str, new_name: str) -> Change:
     change.summary = [f"Rename {agent.name} to {new_name}."]
     if also:
         change.summary.append("Also updates: " + ", ".join(also) + ".")
+    skills = sorted(f.parent.name for f in (agent.path.parent / "Skills").glob("*/SKILL.md"))
+    if skills:
+        change.summary.append("Its own skills are renamed to " + ", ".join(f"{slug(new_name)}-{x}" for x in skills) + ".")
     if owned:
         change.summary.append(f"Routines it owns: {', '.join(rb.name for rb in owned)}.")
     if moved:
@@ -416,13 +422,25 @@ def retire_agent(cfg: Config, name: str, hand_to: str = "") -> Change:
     owner = boss.name if boss is not None else (cfg.default_agent.name if cfg.default_agent else "")
     change = Change(done=f"Retired {agent.name}. Its files are in {archive}; say 'bring back {agent.name}' to restore it.")
     handed: list[str] = []
-    for ticket in mine:
-        if ticket.kind == "chat":
+    chats = 0
+    followed = 0
+    for ticket in _open_tickets(cfg):
+        mine_now = ticket.assignee == agent.key
+        asked = slug(ticket.requested_by) == agent.key
+        if not (mine_now or asked):
+            continue
+        if mine_now and ticket.kind == "chat":
             set_status(ticket, "done", "bron", f"chat ended ({agent.name} retired)")
+            chats += 1
         else:
-            ticket.assignee = target.key
-            add_message(ticket, "bron", f"handed over from {agent.name} to {target.name} ({agent.name} retired)")
-            handed.append(ticket.id)
+            if mine_now:
+                ticket.assignee = target.key
+                add_message(ticket, "bron", f"handed over from {agent.name} to {target.name} ({agent.name} retired)")
+                handed.append(ticket.id)
+            if asked:
+                ticket.requested_by = target.key
+                add_message(ticket, "bron", f"requested by {agent.name}, now followed up by {target.name} ({agent.name} retired)")
+                followed += 1
         change.writes[rel(cfg, ticket.path)] = render(ticket)
     team_lists: list[str] = []
     reports: list[str] = []
@@ -451,7 +469,11 @@ def retire_agent(cfg: Config, name: str, hand_to: str = "") -> Change:
         change.summary.append(f"{', '.join(reports)} will report to {new_boss}.")
     if owned:
         change.summary.append(f"Routines it owned move to {owner}: {', '.join(rb.name for rb in owned)}.")
-    change.summary.append(f"Its files move to {archive}; you can bring it back later.")
+    if chats:
+        change.summary.append(f"Its {chats} open chat{'s' if chats != 1 else ''} will be ended.")
+    if followed:
+        change.summary.append(f"Tickets it asked others for now report back to {target.name}: {followed}.")
+    change.summary.append(f"Its files move to {archive}; you can bring it back later (it rejoins its boss's team; other team lists stay as they are now).")
     return change
 
 
@@ -481,5 +503,6 @@ def restore_agent(cfg: Config, name: str) -> Change:
         chief = cfg.agents[boss_key]
         change.writes[rel(cfg, chief.path)] = _edit(cfg, chief.path, {"can_assign_to": _merge(chief.can_assign_to, [folder.name])})
         change.summary.append(f"{chief.name} can hand it work again.")
+    change.summary.append("Other team lists it was on aren't restored; ask if you want it added back.")
     change.summary.append("Tickets and routines it had before stay with whoever took them over.")
     return change

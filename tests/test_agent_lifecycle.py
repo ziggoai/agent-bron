@@ -104,3 +104,31 @@ def test_the_lifecycle_commands(team, monkeypatch, capsys):
     assert main(["agent", "restore", "Analyst"]) == 0
     assert main(["agent", "rename", "Analyst", "Researcher One"]) == 0
     assert (team.agents_dir / "Researcher One" / "Agent.md").is_file()
+
+
+def test_retire_repoints_requests_and_explains_chats_and_bring_back(team):
+    asked = new_ticket(team, title="Ask", assignee="analyst", request="x", requested_by="cfo")
+    new_ticket(team, title="Chat", assignee="cfo", request="hi", requested_by="bron", kind="chat", status="in-review")
+    change = retire_agent(load(team), "CFO")
+    text = "\n".join(change.summary)
+    assert "Its 1 open chat will be ended." in text
+    assert "Tickets it asked others for now report back to Bron: 1." in text
+    assert "you can bring it back later (it rejoins its boss's team; other team lists stay as they are now)." in text
+    apply(team, change)
+    ticket = load_ticket(asked.path)
+    assert ticket.requested_by == "bron" and "requested by CFO, now followed up by Bron (CFO retired)" in "\n".join(ticket.thread)
+    restored = restore_agent(load(team), "CFO")
+    assert "Other team lists it was on aren't restored; ask if you want it added back." in restored.summary
+
+
+def test_rename_refuses_a_busy_agent_and_mentions_skills(team):
+    busy = new_ticket(team, title="Q3", assignee="cfo", request="x", requested_by="bron")
+    with editing(team, busy.id) as current:
+        current.status = "in-progress"
+    with pytest.raises(SetupError, match="rename it once"):
+        rename_agent(load(team), "CFO", "Finance")
+    skill = team.agents_dir / "Analyst" / "Skills" / "tally" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: tally\ndescription: Count things\n---\nCount.\n", encoding="utf-8")
+    change = rename_agent(load(team), "Analyst", "Scout")
+    assert "Its own skills are renamed to scout-tally." in change.summary
