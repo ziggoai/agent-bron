@@ -70,7 +70,7 @@ def test_claude_run_where_the_agent_reports_through_the_ticket(team):
     call = fake.calls[0]
     assert call["argv"][0] == "claude" and call["argv"][call["argv"].index("--agent") + 1] == "cfo"
     assert call["env"] == {"BRON_AGENT": "CFO", "BRON_TICKET": "T-0001"}
-    assert "Read the ticket first: Tickets/T-0001 Q3 report.md" in call["argv"][2]
+    assert "Draft it." in call["argv"][2]
     assert call["timeout"] == 30 * 60
     loaded = load_ticket(ticket.path)
     assert loaded.result == "Draft in Projects/Q3.md"
@@ -88,7 +88,7 @@ def test_pinned_agent_runs_in_its_own_cli_and_a_silent_agent_still_gets_a_result
     assert outcome.cli == "codex" and fake.calls[0]["argv"][:2] == ["codex", "exec"]
     loaded = load_ticket(ticket.path)
     assert loaded.status == "in-review" and loaded.result == "The answer is 42."
-    assert any("didn't report through the ticket" in e for e in loaded.thread)
+    assert any("pinned: status → in-review: result added" in e for e in loaded.thread)
     assert read_json(team.state_dir / "runs.json", {})["T-0001"]["session"] == "th-1"
 
 
@@ -492,3 +492,66 @@ def test_a_codex_error_followed_by_a_completed_turn_is_not_a_failure():
     ]
     assert parse_codex("\n".join(json.dumps(e) for e in events), "") == ("th-1", "42", [], "")
     assert parse_codex(json.dumps({"type": "error", "message": "stream closed"}), "")[3] == "stream closed"
+
+
+# ---- faster handoffs ----
+
+def test_the_prompt_carries_the_request_and_context_so_the_agent_needs_no_lookup(team):
+    ticket = new_ticket(team, title="Q3 report", assignee="cfo", request="Draft it.", context="Fund III closed in May.", requested_by="bron")
+    fake = FakeCLI(team, Execution(0, claude_json(), ""))
+    run_ticket(team, ticket.id, caller_cli="claude", run=fake, which=found)
+    prompt = fake.calls[0]["argv"][2]
+    assert "Draft it." in prompt and "Fund III closed in May." in prompt
+    assert "Read the ticket first" not in prompt
+    assert "Your final reply becomes the ticket's Result" in prompt
+    assert "don't look around the vault" in prompt
+
+
+def test_a_final_reply_becomes_the_result_in_the_agents_own_name(team):
+    ticket = ticket_for(team, "pinned")
+    run_ticket(team, ticket.id, caller_cli="claude", run=FakeCLI(team, Execution(0, codex_jsonl(text="The answer is 42."), "")), which=found)
+    loaded = load_ticket(ticket.path)
+    assert loaded.status == "in-review" and loaded.result == "The answer is 42."
+    assert any(e.endswith("pinned: status → in-review: result added") for e in loaded.thread)
+    assert not any("didn't report" in e for e in loaded.thread)
+
+
+def test_the_outcome_includes_the_result_for_whoever_is_waiting(team):
+    ticket = ticket_for(team)
+    outcome = run_ticket(team, ticket.id, caller_cli="claude", run=FakeCLI(team, Execution(0, claude_json(result="Q3 is drafted."), "")), which=found)
+    assert outcome.message.startswith("T-0001 is now in-review (CFO)")
+    assert "Result:\nQ3 is drafted." in outcome.message
+
+
+def test_a_run_someone_waited_for_is_not_announced_again(team):
+    shown = ticket_for(team)
+    run_ticket(team, shown.id, caller_cli="claude", run=FakeCLI(team, Execution(0, claude_json(), "")), which=found, shown=True)
+    assert take(team, "bron", "bron") == []
+    unseen = ticket_for(team)
+    run_ticket(team, unseen.id, caller_cli="claude", run=FakeCLI(team, Execution(0, claude_json(), "")), which=found)
+    assert [u["id"] for u in take(team, "bron", "bron")] == [unseen.id]
+
+
+def test_run_wait_and_ticket_new_run_wait_for_the_answer(team, monkeypatch, capsys):
+    from bron.runner import RunOutcome
+
+    monkeypatch.chdir(team.root)
+    calls = []
+
+    def fake_run(vault, tid, **kwargs):
+        calls.append((tid, kwargs))
+        return RunOutcome(tid, "in-review", "codex", f"{tid} is now in-review (CFO)\nResult:\nHello.")
+
+    monkeypatch.setattr("bron.runner.run_ticket", fake_run)
+    live = ticket_for(team)
+    assert main(["run", live.id, "--wait", "--caller-cli", "claude"]) == 0
+    assert calls[-1] == (live.id, {"caller_cli": "claude", "resume": False, "shown": True})
+    assert "Result:\nHello." in capsys.readouterr().out
+
+    code = main(["ticket", "new", "--to", "CFO", "--from", "Bron", "--title", "Hi", "--request", "Say hi.", "--run", "--caller-cli", "codex"])
+    out = capsys.readouterr().out
+    assert code == 0 and out.startswith("Created T-0002") and "Result:\nHello." in out
+    assert calls[-1] == ("T-0002", {"caller_cli": "codex", "resume": False, "shown": True})
+
+    assert main(["run", live.id]) == 0
+    assert calls[-1][1]["shown"] is False

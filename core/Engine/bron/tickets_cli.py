@@ -23,6 +23,8 @@ def add_parser(sub) -> None:
     new.add_argument("--parent", default="")
     new.add_argument("--priority", default="normal")
     new.add_argument("--due", default="")
+    new.add_argument("--run", action="store_true", help="start it straight away and wait for the answer (like `bron run <id> --wait`)")
+    new.add_argument("--caller-cli", choices=["claude", "codex"], help="with --run: the CLI asking")
 
     show = commands.add_parser("show", help="print a ticket")
     show.add_argument("id")
@@ -115,8 +117,14 @@ def handle(args, vault) -> int:
                 priority=args.priority,
                 due=args.due,
             )
-            print(f"Created {ticket.id}: {ticket.path.relative_to(vault.root)}")
-            return 0
+            print(f"Created {ticket.id}: {ticket.path.relative_to(vault.root)}", flush=True)
+            if not args.run:
+                return 0
+            from . import runner
+
+            outcome = runner.run_ticket(vault, ticket.id, caller_cli=args.caller_cli, resume=False, shown=True)
+            print(outcome.message)
+            return 1 if outcome.status == "error" else 0
         if command == "list":
             tickets, problems = list_tickets(vault)
             wanted = slug(args.for_agent) if args.for_agent else ""

@@ -23,24 +23,27 @@ from .vault import Vault
 NEEDS_OK = "Needs your OK:"
 APPROVAL_SIGNAL = "approval required by policy"
 
-TASK_PROMPT = """You are {agent}, working ticket {id} in this Bron vault: "{title}".
-Read the ticket first: {path}
+TASK_PROMPT = """You are {agent}, working ticket {id} in this Bron vault: "{title}" (file: {path}).
 
-Do the work it asks for. Save any files you produce in the project or routine folder the ticket links to (or in Projects/Unsorted/ if it links none) and mention them in your result.
+## Request
+{request}
 
-Report only through the ticket, with these commands, run from the vault folder:
+## Context
+{context}
+
+Do the work it asks for. Everything you need should be above: don't look around the vault or read files unless the request needs them. Save any files you produce in the project or routine folder the ticket links to (or in Projects/Unsorted/ if it links none) and mention them in your answer.
+
+Your final reply becomes the ticket's Result: when you're finished, just reply with the answer (short, plus links to any files you made). Use a ticket command only to stop and ask, run from the vault folder:
 - To ask a question you need answered: .bron/bin/bron ticket status {id} blocked --as {key} --note '<your question>'   (then stop and wait)
-- When you're finished: .bron/bin/bron ticket result {id} --as {key} --text '<a short summary, plus links to any files you made>'
-Put the text in single quotes; if the text contains a single quote, write it to a file and use `--file` (result) or `--note-file` (status).
-
-If an action is refused or needs approval (sending, sharing, deleting, pushing, or anything on your ask-before list), don't look for a way around it. Run
-.bron/bin/bron ticket status {id} blocked --as {key} --note '{needs_ok} <the exact action, with every detail needed to do it>'
-and stop."""
+- If an action is refused or needs approval (sending, sharing, deleting, pushing, or anything on your ask-before list), don't look for a way around it. Run
+  .bron/bin/bron ticket status {id} blocked --as {key} --note '{needs_ok} <the exact action, with every detail needed to do it>'
+  and stop.
+Put the text in single quotes; if the text contains a single quote, write it to a file and use `--file` (result) or `--note-file` (status)."""
 
 RESUME_PROMPT = """New messages on ticket {id} since your last turn:
 {messages}
 
-Continue working the ticket with the same rules as before: report through `.bron/bin/bron ticket` commands (text in single quotes, or `--file` / `--note-file` when it contains one), and mark it blocked with '{needs_ok} …' for anything that needs approval."""
+Continue working the ticket with the same rules as before: your final reply becomes the Result; to ask a question, mark it blocked with `.bron/bin/bron ticket status` (text in single quotes, or `--note-file` when it contains one), and mark it blocked with '{needs_ok} …' for anything that needs approval."""
 
 
 @dataclass
@@ -224,8 +227,7 @@ def _settle(ticket, agent, result: Execution, text: str, denials: list[str], log
             why = _first_line(failure, text, result.stderr) or f"exit code {result.returncode}"
             set_status(ticket, "blocked", "runner", f"The run failed: {why}; see {log}")
         elif text.strip():
-            add_message(ticket, "runner", f"{agent.name} didn't report through the ticket; its final answer was saved as the result.")
-            set_result(ticket, text, "runner")
+            set_result(ticket, text, agent.key)
         else:
             set_status(ticket, "blocked", "runner", f"The run ended without an answer (exit code {result.returncode}); see {log}")
         return
@@ -293,7 +295,10 @@ def run_ticket(
     which=shutil.which,
     sleep=time.sleep,
     now=time.time,
+    shown: bool = False,
 ) -> RunOutcome:
+    """Have the assignee work the ticket. `shown`: the caller is waiting and will show the outcome itself,
+    so the requester isn't told about it again in a later message."""
     cfg = load(vault)
     try:
         tid = load_ticket(find_ticket(vault, ticket_id)).id
@@ -339,6 +344,8 @@ def run_ticket(
                 key=agent.key,
                 title=ticket.title,
                 path=ticket.path.relative_to(vault.root),
+                request=ticket.request or "(none)",
+                context=ticket.context or "(none)",
                 needs_ok=NEEDS_OK,
             )
         asks = ask_line(cfg, agent)
@@ -365,9 +372,10 @@ def run_ticket(
             return RunOutcome(tid, "error", cli, f"{tid} couldn't be read after the run: {exc}")
         entry["thread_len"] = len(ticket.thread)
         _remember(vault, tid, entry)
-        record(vault, ticket)
+        record(vault, ticket, shown=shown)
         note = f": {ticket.thread[-1].split(': ', 1)[-1]}" if ticket.status == "blocked" else ""
-        return RunOutcome(tid, ticket.status, cli, f"{tid} is now {ticket.status} ({agent.name}){note}")
+        answer = f"\nResult:\n{ticket.result}" if ticket.status == "in-review" and ticket.result else ""
+        return RunOutcome(tid, ticket.status, cli, f"{tid} is now {ticket.status} ({agent.name}){note}{answer}")
     except BaseException as exc:
         _rescue(vault, tid, exc, log)
         if isinstance(exc, (KeyboardInterrupt, SystemExit)):

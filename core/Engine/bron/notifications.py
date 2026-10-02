@@ -12,7 +12,8 @@ FILE = "notifications.jsonl"
 SEEN = "notifications-seen.json"
 
 
-def record(vault: Vault, ticket) -> None:
+def record(vault: Vault, ticket, *, shown: bool = False) -> None:
+    """Note a ticket update for its requester. `shown`: the requester already saw it (it waited for the run)."""
     entry = {
         "id": ticket.id,
         "title": ticket.title,
@@ -21,6 +22,8 @@ def record(vault: Vault, ticket) -> None:
         "requested_by": ticket.requested_by,
         "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
+    if shown:
+        entry["shown"] = True
     append_line(vault.state_dir / FILE, json.dumps(entry, ensure_ascii=False))
 
 
@@ -37,7 +40,7 @@ def take(vault: Vault, agent_key: str, default_key: str) -> list[dict]:
                 entry = json.loads(line)
             except ValueError:
                 continue
-            if not isinstance(entry, dict):
+            if not isinstance(entry, dict) or entry.get("shown"):
                 continue
             requester = entry.get("requested_by") or "you"
             if slug(str(requester)) == slug(agent_key) or (slug(str(requester)) == "you" and agent_key == default_key):

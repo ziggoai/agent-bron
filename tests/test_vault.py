@@ -36,7 +36,7 @@ def test_paths_and_version(vault):
     assert vault.core_manual == vault.root / "System" / "Core" / "Manual"
     assert vault.state_dir == vault.root / ".bron" / "state"
     assert vault.bron_command == vault.root / ".bron" / "bin" / "bron"
-    assert vault.version() == "0.2.1"
+    assert vault.version() == "0.2.2"
 
 
 def test_engine_version_matches_core_version():

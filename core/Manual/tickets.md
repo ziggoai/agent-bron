@@ -15,8 +15,8 @@ The body has four parts: **Request** (what to do), **Context** (what they need t
 
 ## Commands (from the vault folder)
 Put free text in single quotes; if the text contains a single quote, write it to a file and use `--file` (result) or `--note-file` (status).
-- `.bron/bin/bron ticket new --to <Agent> --from <requester> --title '…' --request '…' [--context '…'] [--project '…']` (or `--request-file` / `--context-file`)
-- `.bron/bin/bron run <id> [--resume] [--background] [--caller-cli claude|codex]`: the assignee works it, in its own CLI and model
+- `.bron/bin/bron ticket new --to <Agent> --from <requester> --title '…' --request '…' [--context '…'] [--project '…'] [--run --caller-cli claude|codex]` (or `--request-file` / `--context-file`); `--run` starts it straight away and waits for the answer
+- `.bron/bin/bron run <id> [--resume] [--wait | --background] [--caller-cli claude|codex]`: the assignee works it, in its own CLI and model. `--wait` prints the answer when it's ready; `--background` returns straight away and the update arrives in the requester's next message
 - `.bron/bin/bron ticket say <id> '<text>' --as <name>`
 - `.bron/bin/bron ticket status <id> <status> [--note '…' | --note-file <path>] --as <name>` (`--note-file -` reads standard input)
 - `.bron/bin/bron ticket result <id> --text '…' | --file <path> --as <name>`
@@ -24,6 +24,8 @@ Put free text in single quotes; if the text contains a single quote, write it to
 - `.bron/bin/bron ticket list [--for <agent>] [--open]`
 
 ## How a run works
-The assignee works in the background, in the CLI its `runs_in` names (or the requester's CLI). It may read and write files in the vault and run ordinary commands. Anything on its `ask_before` list is refused while it works alone; the ticket becomes blocked with "Needs your OK: <action>". The requester shows you the action, does it after your yes, and resumes the ticket, which continues the same conversation. Updates appear in the requester's next message or session.
+The assignee works in the CLI its `runs_in` names (or the requester's CLI). The ticket's request and context are in its instructions, and its final reply becomes the Result, so a simple request takes one step (about 10–20 seconds). It may read and write files in the vault and run ordinary commands. Anything on its `ask_before` list is refused while it works alone; the ticket becomes blocked with "Needs your OK: <action>". The requester shows you the action, does it after your yes, and resumes the ticket, which continues the same conversation.
+
+The requester normally waits for the answer and shows it to you as soon as it's ready: in Claude Code it runs the command as a background task, which wakes it when the answer arrives (you can keep talking meanwhile); in Codex it waits for the command. For long work you don't want to wait for, it uses `--background`, and the update appears in its next message or session.
 
 `Tickets/Board.base` shows the tickets by status and by assignee.
