@@ -55,3 +55,55 @@ def test_pinned_agent_without_a_model_for_its_cli_is_a_warning(vault):
     issues = [i for i in run_checks(load(vault), include_environment=False) if i.code == "agent.model-missing"]
     assert [i.level for i in issues] == ["warning"]
     assert "COO" in issues[0].message and "Claude Code" in issues[0].message
+
+
+def test_unpinned_agent_without_models_has_no_model_missing_warning(vault):
+    add_agent(vault, "Assistant", runs_in="any", models={})
+    issues = [i for i in run_checks(load(vault), include_environment=False) if i.code == "agent.model-missing"]
+    assert issues == []
+
+
+def test_pinned_agent_with_a_model_for_its_cli_has_no_warning(vault):
+    add_agent(vault, "COO", runs_in="claude", models={"claude": "claude-opus-4"})
+    issues = [i for i in run_checks(load(vault), include_environment=False) if i.code == "agent.model-missing"]
+    assert issues == []
+
+
+def test_sync_is_run_before_launching(launched, vault, monkeypatch):
+    from bron.sync import run_sync as original_run_sync
+
+    sync_called = []
+
+    def fake_run_sync(v):
+        sync_called.append(True)
+        return original_run_sync(v)
+
+    monkeypatch.setattr("bron.sync.run_sync", fake_run_sync)
+    with pytest.raises(SystemExit):
+        main(["chat"])
+    assert sync_called
+    assert (vault.root / ".claude" / "bron" / "agents" / "bron.settings.json").exists()
+
+
+def test_chat_fails_if_sync_is_not_ok(launched, monkeypatch, capsys):
+    from dataclasses import dataclass
+
+    @dataclass
+    class FailedResult:
+        ok: bool = False
+
+    monkeypatch.setattr("bron.sync.run_sync", lambda v: FailedResult())
+    assert main(["chat"]) == 1
+    output = capsys.readouterr().out
+    assert "Bron's setup has problems" in output
+    assert "bron check" in output
+
+
+def test_chat_execvpe_oserror(launched, capsys, monkeypatch):
+    def fake_exec(file, argv, env):
+        raise OSError("Permission denied")
+
+    monkeypatch.setattr("os.execvpe", fake_exec)
+    assert main(["chat"]) == 1
+    output = capsys.readouterr().out
+    assert "Couldn't start Claude Code" in output

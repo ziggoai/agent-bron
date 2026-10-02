@@ -155,13 +155,21 @@ def _chat(vault, name: str, cli: str | None) -> int:
     from .launch import chat_spec
     from .loader import load
     from .model import CLI_NAMES, slug
+    from .sync import needs_sync, run_sync
 
     cfg = load(vault)
     key = slug(name) if name else (cfg.default_agent.key if cfg.default_agent else "")
     agent = cfg.agents.get(key)
     if agent is None:
-        names = ", ".join(a.name for a in cfg.agents.values())
-        print(f"bron: There's no agent called '{name}'. Agents: {names}")
+        if key:
+            names = ", ".join(a.name for a in cfg.agents.values())
+            print(f"bron: There's no agent called '{name}'. Agents: {names}")
+        else:
+            if cfg.agents:
+                names = ", ".join(a.name for a in cfg.agents.values())
+                print(f"bron: No default agent is set in System/Settings.md. Agents: {names}")
+            else:
+                print("bron: No agents are set up yet.")
         return 1
     pinned = agent.runs_in if agent.runs_in in CLIS else None
     if cli and pinned and cli != pinned:
@@ -171,7 +179,16 @@ def _chat(vault, name: str, cli: str | None) -> int:
     if shutil.which(chosen) is None:
         print(f"bron: {CLI_NAMES[chosen]} isn't installed on this Mac.")
         return 1
+    if needs_sync(vault):
+        result = run_sync(vault)
+        if not result.ok:
+            print(f"bron: Bron's setup has problems, so {agent.name} can't start; run `.bron/bin/bron check`.")
+            return 1
     spec = chat_spec(cfg, agent, chosen)
     os.chdir(vault.root)
-    os.execvpe(spec.argv[0], spec.argv, {**os.environ, **spec.env})
+    try:
+        os.execvpe(spec.argv[0], spec.argv, {**os.environ, **spec.env})
+    except OSError as exc:
+        print(f"bron: Couldn't start {CLI_NAMES[chosen]} ({exc}).")
+        return 1
     return 0  # not reached
