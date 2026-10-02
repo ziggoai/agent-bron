@@ -20,12 +20,15 @@ _LIMITS = {"user_name": 100, "user_role": 100, "company": 100, "tone": 400, "pre
 _SECRET_MSG = "That looks like a password or key. Keep it in the tool's own sign-in or settings, not in Bron's files."
 _FLAG = re.compile(r"^--?([A-Za-z0-9_-]+)(=.*)?$")
 _SECRET_WORDS = {"token", "secret", "password", "passwd"}  # anywhere in a flag's name: --auth-token, --clientSecret
-_SECRET_LAST = {"key", "apikey"}  # the last part of a flag's name: --api-key, --apiKey, --key (not --key-file)
-_HARMLESS_LAST = {"file", "path", "name", "scheme", "type", "id"}  # --token-file, --secret-name, --auth-scheme, --key-id
+_SECRET_LAST = {"key", "apikey", "auth", "credentials", "passphrase", "pat", "bearer", "pw"}  # the last part of a flag's name: --api-key, --apiKey, --key (not --key-file)
+_HARMLESS_LAST = {"file", "path", "name", "scheme", "type", "id", "limit", "endpoint", "url", "env", "count"}  # --token-file, --secret-name, --auth-scheme, --key-id
 _KEY_FILES = {"public", "ssh", "private"}  # --ssh-key ~/.ssh/id_ed25519 is a file, not a key
 _NOT_SECRET_KEYS = {"sort", "order", "group", "primary", "partition"}  # --sort-key name
 _SECRET_ASSIGN = re.compile(r"^(--?[A-Za-z0-9_-]+=)?[A-Za-z0-9_]*(key|token|secret|password)[A-Za-z0-9_]*=.+", re.I)
-_SECRET_HEADER = re.compile(r"^[\w=. -]*(api[-_ ]?key|token|secret|authorization)[\w=. -]*:\s*\S", re.I)
+_SECRET_HEADER = re.compile(r"^([\w=. -]*(?:api[-_ ]?key|token|secret|authorization)[\w=. -]*):\s*\S", re.I)
+_URL_PASSWORD = re.compile(r"^\w[\w+.-]*://[^/\s]*:[^/\s@]*@")
+_URL_QUERY_SECRET = re.compile(r"://[^\s]*[?&](?:api[_-]?key|token|secret|password|key)=([^&#\s]+)", re.I)
+_PLACEHOLDER = re.compile(r"^\$\{?[\w:]+\}?$")  # ${API_KEY}, $API_KEY, ${env:API_KEY}
 _SECRET_VALUE = re.compile(r"(^|=)(sk-|ghp_|xox)", re.I)
 _BEARER = re.compile(r"^bearer(\s|$)", re.I)
 
@@ -42,8 +45,10 @@ def _secret_flag(token: str, following: str | None) -> bool:
         return False
     parts = _flag_words(flag.group(1))
     value = flag.group(2)[1:] if flag.group(2) else following
-    if not parts or value is None or value == "":
+    if not parts or value is None or value == "" or _PLACEHOLDER.match(value):
         return False
+    if parts[-1] == "user":
+        return ":" in value  # a plain user name is fine; user:password is not
     if parts[-1] in _HARMLESS_LAST:
         return False
     if parts[-1] == "key":
@@ -54,12 +59,29 @@ def _secret_flag(token: str, following: str | None) -> bool:
     return bool(set(parts) & _SECRET_WORDS or parts[-1] in _SECRET_LAST)
 
 
+def _secret_header(token: str) -> bool:
+    match = _SECRET_HEADER.match(token)
+    if not match:
+        return False
+    words = _flag_words(re.sub(r"[ .]+", "-", match.group(1).split("=")[-1]))
+    return not (words and words[-1] in _HARMLESS_LAST)  # 'X-Token-Type: foo' is not a credential
+
+
+def _secret_url(token: str) -> bool:
+    """A web address that carries a password or a key, as a bare argument or after '--flag='."""
+    if _URL_PASSWORD.search(token) or _URL_PASSWORD.search(token.split("=", 1)[-1]):
+        return True
+    return any(not _PLACEHOLDER.match(v) for v in _URL_QUERY_SECRET.findall(token))
+
+
 def _looks_secret(tokens: list[str]) -> bool:
     for i, tok in enumerate(tokens):
         has_next = i + 1 < len(tokens)
         if _secret_flag(tok, tokens[i + 1] if has_next else None):
             return True
-        if _SECRET_ASSIGN.match(tok) or _SECRET_VALUE.search(tok) or _SECRET_HEADER.match(tok):
+        if _SECRET_VALUE.search(tok) or _secret_header(tok) or _secret_url(tok):
+            return True
+        if _SECRET_ASSIGN.match(tok) and not _PLACEHOLDER.match(tok.rsplit("=", 1)[1]):
             return True
         if _BEARER.match(tok) and (tok.strip().lower() != "bearer" or has_next):
             return True

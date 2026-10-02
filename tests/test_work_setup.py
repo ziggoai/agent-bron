@@ -277,3 +277,54 @@ def test_a_command_path_with_spaces_is_kept_whole(vault, tmp_path):
     other = add_connection(load(vault), name="Spacey2", command=str(tmp_path / "Not There" / "server"))
     apply(vault, other)
     assert fm.read(vault.connections_dir / "Spacey2.md").meta["command"] == str(tmp_path / "Not")
+
+
+@pytest.mark.parametrize("args", [
+    "postgresql://user:pass@localhost/db",
+    "--connection-string postgresql://u:p@h/db",
+    "--dburl mysql://root:secret@h/db",
+    "--dburl=mysql://root:secret@h/db",
+    "https://example.com/mcp?api_key=abc123",
+    "--endpoint https://example.com/x?token=abc123",
+    "--base https://example.com/x?a=1&apikey=abc123",
+    "--base https://example.com/x?password=abc123",
+    "--base https://example.com/x?key=abc123",
+    "--user admin:abc123",
+    "--basic-auth abc123",
+    "--auth abc123",
+    "--credentials abc123",
+    "--passphrase abc123",
+    "--pat abc123",
+    "--bearer abc123",
+    "--pw abc123",
+])
+def test_credentials_in_urls_and_auth_flags_are_refused(vault, args):
+    with pytest.raises(SetupError, match="looks like a password or key") as err:
+        add_connection(load(vault), name="Secretive", command="uvx", args="tool " + args)
+    assert "abc123" not in str(err.value)
+
+
+def test_credentials_in_a_command_url_are_refused(vault):
+    with pytest.raises(SetupError, match="looks like a password or key"):
+        add_connection(load(vault), name="Secretive", command="uvx tool postgresql://u:p@h/db")
+
+
+@pytest.mark.parametrize("args", [
+    "--api-key ${API_KEY}",
+    "--api-key=$API_KEY",
+    "--api-key ${env:API_KEY}",
+    "API_KEY=${API_KEY}",
+    "--env API_KEY=${API_KEY}",
+    "--env=MY_TOKEN=$MY_TOKEN",
+    "--user admin",
+    "--token-limit 100",
+    "--token-endpoint https://auth.example.com/token",
+    "--api-key-env MY",
+    "--max-count 5 --token-count 3",
+    "--header 'X-Token-Type: foo'",
+    "postgresql://localhost/db",
+    "https://example.com/x?page=2&sort=name",
+    "https://example.com/x?token=${TOKEN}",
+])
+def test_placeholders_and_harmless_words_are_accepted(vault, args):
+    add_connection(load(vault), name="Harmless", command="uvx", args="tool " + args)
