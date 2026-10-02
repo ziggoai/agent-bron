@@ -30,8 +30,9 @@ class Imported:
     agent: str = ""
     kept: list[str] = field(default_factory=list)  # Claude-only rules moved to settings.local.json
     problem: str = ""
-    keep_settings: bytes | None = None  # on failure: keep .claude/settings.json exactly as it is
-    only_allow_changed: bool = False  # .claude/settings.json differs from Bron's copy only in permissions.allow
+    keep_rules: list[str] = field(default_factory=list)  # on failure: clicks in .claude/settings.json to add back
+    only_allow_changed: bool = False  # .claude/settings.json only gained rules in permissions.allow since Bron wrote it
+    settings_bytes: bytes | None = None  # .claude/settings.json as the import read it
 
 
 def to_entry(rule: str, cfg) -> str | None:
@@ -142,35 +143,68 @@ def _write_json(path: Path, data: dict) -> None:
     tmp.replace(path)
 
 
-def import_approvals(vault: Vault, cfg) -> Imported:
+def project_clicks(vault: Vault, cfg) -> tuple[bytes | None, list[str], bool]:
+    """Read .claude/settings.json: (its bytes, the allow rules Bron didn't write there, whether it only gained allow rules)."""
     from .gen_claude import project_allow
 
-    out = Imported()
-    agent = cfg.default_agent
-    claude_dir = vault.root / ".claude"
-    if agent is None or not claude_dir.is_dir():
-        return out
-    out.agent = agent.name
-    settings_path, local_path = claude_dir / "settings.json", claude_dir / "settings.local.json"
-    disk = _load(settings_path)
+    settings_path = vault.root / ".claude" / "settings.json"
+    try:
+        raw = settings_path.read_bytes() if settings_path.is_file() else None
+    except OSError:
+        raw = None
+    try:
+        disk = json.loads(raw.decode("utf-8")) if raw is not None else None
+    except ValueError:
+        disk = None
+    disk = disk if isinstance(disk, dict) else None
     last = _load(vault.state_dir / LAST)
     if last is not None:
         known = set(_allow(last))
     else:
         # No record yet (first sync after an upgrade): a file still exactly as Bron wrote it holds no clicks.
         recorded = GeneratedWriter(vault).manifest["files"].get(".claude/settings.json")
-        unchanged = settings_path.is_file() and recorded == sha256(settings_path.read_bytes())
+        unchanged = raw is not None and recorded == sha256(raw)
         known = set(_allow(disk)) if unchanged else set(project_allow(cfg))
-    if disk is not None and last is not None:
-        out.only_allow_changed = _without_allow(disk) == _without_allow(last)
+    # A click only adds rules: anything else (a rule removed by hand included) is a hand edit, backed up by sync.
+    only_allow_changed = (
+        disk is not None and last is not None and _without_allow(disk) == _without_allow(last) and set(_allow(last)) <= set(_allow(disk))
+    )
+    return raw, [r for r in _allow(disk) if r not in known], only_allow_changed
+
+
+def with_allow_rules(generated: bytes, rules: list[str]) -> bytes:
+    """Bron's generated .claude/settings.json plus extra permissions.allow rules (clicks that couldn't be imported yet)."""
+    data = json.loads(generated.decode("utf-8"))
+    permissions = data.setdefault("permissions", {})
+    allow = permissions.setdefault("allow", [])
+    allow += [r for r in dict.fromkeys(rules) if r not in allow]
+    return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def local_settings_readable(vault: Vault) -> bool:
+    """False when .claude/settings.local.json exists but isn't a settings file Bron can read."""
+    try:
+        _load(vault.root / ".claude" / "settings.local.json", strict=True)
+    except ValueError:
+        return False
+    return True
+
+
+def import_approvals(vault: Vault, cfg) -> Imported:
+    out = Imported()
+    agent = cfg.default_agent
+    claude_dir = vault.root / ".claude"
+    if agent is None or not claude_dir.is_dir():
+        return out
+    out.agent = agent.name
+    local_path = claude_dir / "settings.local.json"
+    out.settings_bytes, project_rules, out.only_allow_changed = project_clicks(vault, cfg)
     try:
         local = _load(local_path, strict=True)
     except ValueError:
-        out.problem = "Claude Code's .claude/settings.local.json can't be read, so Bron left your saved approvals where they are"
-        out.keep_settings = settings_path.read_bytes() if settings_path.is_file() else None
-        out.only_allow_changed = False
+        out.problem = "Claude Code's .claude/settings.local.json can't be read, so Bron couldn't move your saved approvals into Bron's setup this time; everything else was updated"
+        out.keep_rules = project_rules
         return out
-    project_rules = [r for r in _allow(disk) if r not in known]
     local_rules = _allow(local)
     candidates = project_rules + [r for r in local_rules if r not in project_rules]
     if not candidates:
@@ -187,8 +221,7 @@ def import_approvals(vault: Vault, cfg) -> Imported:
         added = append_always_allow(agent.path, entries) if entries else []
     except (OSError, ValueError) as exc:
         out.problem = f'Bron couldn\'t save your "always allow" choices to {agent.name}\'s Agent.md ({exc}); they stay in Claude Code\'s settings until this is fixed'
-        out.keep_settings = settings_path.read_bytes() if settings_path.is_file() else None
-        out.only_allow_changed = False
+        out.keep_rules = project_rules
         return out
     keep = [r for r in local_rules if r in claude_only] + [r for r in claude_only if r not in local_rules]
     if keep != local_rules:

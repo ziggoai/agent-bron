@@ -84,7 +84,7 @@ def run_sync(vault: Vault, *, dry_run: bool = False) -> SyncResult:
 
 
 def _sync(vault: Vault, *, dry_run: bool) -> SyncResult:
-    from .approvals import Imported, import_approvals, remember_generated
+    from . import approvals as saved
 
     cfg = load(vault)
     issues = run_checks(cfg, include_environment=False)
@@ -94,17 +94,13 @@ def _sync(vault: Vault, *, dry_run: bool) -> SyncResult:
     if not dry_run:
         # Claude Code saves "don't ask again" into a file sync regenerates: move those choices first.
         try:
-            approvals = import_approvals(vault, cfg)
+            approvals = saved.import_approvals(vault, cfg)
         except Exception as exc:  # noqa: BLE001 - never lose a click or stop the sync
-            settings_file = vault.root / ".claude" / "settings.json"
+            approvals = saved.Imported(problem=f"Bron couldn't check your saved approvals ({exc.__class__.__name__}); they stay in Claude Code's settings")
             try:
-                kept = settings_file.read_bytes() if settings_file.is_file() else None
-            except OSError:
-                kept = None
-            approvals = Imported(
-                problem=f"Bron couldn't check your saved approvals ({exc.__class__.__name__}); they stay in Claude Code's settings",
-                keep_settings=kept,
-            )
+                approvals.settings_bytes, approvals.keep_rules, approvals.only_allow_changed = saved.project_clicks(vault, cfg)
+            except Exception:  # noqa: BLE001 - the writer still backs up a changed settings.json
+                pass
         if approvals.entries:
             cfg = load(vault)
             issues = run_checks(cfg, include_environment=False)
@@ -120,20 +116,31 @@ def _sync(vault: Vault, *, dry_run: bool) -> SyncResult:
     if has_errors(issues) or dry_run:
         return SyncResult(not has_errors(issues), issues)
     accept: set[str] = set()
-    if approvals is not None and approvals.keep_settings is not None:
-        files[".claude/settings.json"] = approvals.keep_settings  # keep the user's click until it can be saved
-    elif approvals is not None and approvals.only_allow_changed:
-        accept.add(".claude/settings.json")
+    generated = files.get(".claude/settings.json")
+    if approvals is not None and generated is not None:
+        if approvals.keep_rules:
+            # Clicks that couldn't be imported stay in the file (and stay candidates: Bron's record leaves them out).
+            files[".claude/settings.json"] = saved.with_allow_rules(generated, approvals.keep_rules)
+        # A click isn't a hand edit: no backup, as long as the file is still what the import read.
+        if approvals.only_allow_changed and approvals.settings_bytes is not None and _current(vault.root / ".claude" / "settings.json") == approvals.settings_bytes:
+            accept.add(".claude/settings.json")
     try:
         report = GeneratedWriter(vault).apply(files, fingerprint(vault), accept=accept)
     except (OSError, ValueError) as exc:
         return SyncResult(False, issues + [Issue("error", "sync.failed", f"Bron couldn't write the CLI setup: {exc}")])
-    if approvals is not None and approvals.keep_settings is None and ".claude/settings.json" in files:
+    if approvals is not None and generated is not None:
         try:
-            remember_generated(vault, files[".claude/settings.json"])
+            saved.remember_generated(vault, generated)
         except OSError:
             pass
     return SyncResult(True, issues, report)
+
+
+def _current(path) -> bytes | None:
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
 
 
 def needs_sync(vault: Vault) -> bool:

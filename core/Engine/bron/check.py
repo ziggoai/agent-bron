@@ -21,7 +21,22 @@ def run_checks(cfg: Config, *, include_environment: bool = True) -> list[Issue]:
     if include_environment:
         issues += _environment(cfg)
         issues += _routines(cfg)  # routine problems never stop a sync
+        issues += _claude_local_settings(cfg)
     return issues
+
+
+def _claude_local_settings(cfg: Config) -> list[Issue]:
+    from .approvals import local_settings_readable
+
+    if local_settings_readable(cfg.vault):
+        return []
+    return [Issue(
+        "warning",
+        "approvals.local-unreadable",
+        "Claude Code's settings file .claude/settings.local.json can't be read, so Bron can't move the \"don't ask again\" choices saved there "
+        "into always_allow (and Claude Code may ignore the file too). Ask Bron to look at the file and fix the mistake in it.",
+        cfg.vault.root / ".claude" / "settings.local.json",
+    )]
 
 
 def _routines(cfg: Config) -> list[Issue]:

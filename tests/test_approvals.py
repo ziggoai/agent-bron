@@ -211,3 +211,62 @@ def test_a_hand_edit_plus_a_click_imports_and_backs_up(synced):
     result = run_sync(synced)
     assert result.ok and bron_allows(synced) == ["shell:git push"]
     assert result.report.backup_dir is not None
+
+
+# ---- final review: a failed import never freezes settings.json; hand removals are hand edits ----
+
+def test_an_unreadable_local_file_still_updates_settings_and_keeps_the_click(synced):
+    click_always_allow(synced, "Bash(git push:*)")
+    claude_file(synced, local=True).write_text("{ broken", encoding="utf-8")
+    set_meta(synced.agents_dir / "Bron" / "Agent.md", ask_before=["shell:terraform apply"])
+    result = run_sync(synced)
+    assert result.ok
+    warning = next(i for i in result.issues if i.code == "approvals.import")
+    assert warning.level == "warning" and "settings.local.json" in warning.message
+    permissions = json.loads(claude_file(synced).read_text(encoding="utf-8"))["permissions"]
+    assert any("terraform apply" in rule for rule in permissions["ask"])  # the new ask rule reached Claude Code
+    assert "Bash(git push:*)" in permissions["allow"]  # the click that couldn't be imported is still there
+    assert result.report.backup_dir is None
+    last = json.loads((synced.state_dir / "claude-settings.last.json").read_text(encoding="utf-8"))
+    assert "Bash(git push:*)" not in last["permissions"]["allow"]  # so it is still a candidate next time
+    assert claude_file(synced, local=True).read_text(encoding="utf-8") == "{ broken"
+    claude_file(synced, local=True).write_text("{}", encoding="utf-8")
+    assert run_sync(synced).ok
+    assert bron_allows(synced) == ["shell:git push"]
+
+
+def test_a_failed_import_is_mentioned_at_session_start(synced, monkeypatch):
+    from bron.hooks import main as hook
+    import io
+
+    monkeypatch.setenv("BRON_VAULT", str(synced.root))
+    claude_file(synced, local=True).write_text("{ broken", encoding="utf-8")
+    set_meta(synced.agents_dir / "Bron" / "Agent.md", ask_before=["shell:terraform apply"])
+    out = io.StringIO()
+    assert hook("session-start", "claude", stdin=io.StringIO(""), stdout=out) == 0
+    notes = [line for line in out.getvalue().splitlines() if "settings.local.json" in line]
+    assert len(notes) == 1 and "Tell the user in one line" in notes[0]
+
+
+def test_a_crashed_import_still_regenerates_settings(synced, monkeypatch):
+    from bron import approvals
+
+    click_always_allow(synced, "Bash(git push:*)")
+    set_meta(synced.agents_dir / "Bron" / "Agent.md", ask_before=["shell:terraform apply"])
+    monkeypatch.setattr(approvals, "import_approvals", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    result = run_sync(synced)
+    assert result.ok and "approvals.import" in {i.code for i in result.issues}
+    permissions = json.loads(claude_file(synced).read_text(encoding="utf-8"))["permissions"]
+    assert any("terraform apply" in rule for rule in permissions["ask"])
+    assert "Bash(git push:*)" in permissions["allow"]
+
+
+def test_a_hand_removal_of_a_generated_allow_rule_is_backed_up(synced):
+    bron = synced.agents_dir / "Bron" / "Agent.md"
+    set_meta(bron, always_allow=["shell:git status"])
+    assert run_sync(synced).ok
+    data = json.loads(claude_file(synced).read_text(encoding="utf-8"))
+    data["permissions"]["allow"] = [r for r in data["permissions"]["allow"] if "git status" not in r]
+    claude_file(synced).write_text(json.dumps(data, indent=2), encoding="utf-8")
+    result = run_sync(synced)
+    assert result.ok and result.report.backup_dir is not None

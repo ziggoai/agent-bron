@@ -144,3 +144,16 @@ def test_a_codex_connector_codex_cannot_switch_off_is_a_warning(vault, monkeypat
     assert [(i.level, i.message) for i in found] == [
         ("warning", "CFO can't be kept away from Computer in Codex (Codex doesn't let Bron switch it off); it is still kept away in Claude Code.")
     ]
+
+
+def test_an_unreadable_claude_local_settings_file_is_a_warning(vault):
+    local = vault.root / ".claude" / "settings.local.json"
+    local.parent.mkdir(parents=True, exist_ok=True)
+    assert not any(i.code == "approvals.local-unreadable" for i in run_checks(load(vault)))
+    local.write_text("{ broken", encoding="utf-8")
+    issue = next(i for i in run_checks(load(vault)) if i.code == "approvals.local-unreadable")
+    assert issue.level == "warning" and "settings.local.json" in issue.message
+    local.write_text("[1, 2]", encoding="utf-8")
+    assert any(i.code == "approvals.local-unreadable" for i in run_checks(load(vault)))
+    local.write_text('{"permissions": {}}', encoding="utf-8")
+    assert not any(i.code == "approvals.local-unreadable" for i in run_checks(load(vault)))
