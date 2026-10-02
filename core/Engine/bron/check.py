@@ -20,7 +20,23 @@ def run_checks(cfg: Config, *, include_environment: bool = True) -> list[Issue]:
     issues += _locks(cfg)
     if include_environment:
         issues += _environment(cfg)
+        issues += _routines(cfg)  # routine problems never stop a sync
     return issues
+
+
+def _routines(cfg: Config) -> list[Issue]:
+    from .routines import load_runbooks
+
+    runbooks, out = load_runbooks(cfg.vault)
+    for runbook in runbooks:
+        if runbook.owner and slug(runbook.owner) not in cfg.agents:
+            out.append(Issue(
+                "warning",
+                "routine.owner-unknown",
+                f"The routine '{runbook.name}' is owned by '{runbook.owner}', which isn't an agent; the default agent looks after it",
+                runbook.path,
+            ))
+    return out
 
 
 def has_errors(issues: list[Issue]) -> bool:

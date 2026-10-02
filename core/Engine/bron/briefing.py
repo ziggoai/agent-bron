@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from datetime import date
 
 from . import frontmatter as fm
 from .loader import load
@@ -15,7 +16,7 @@ MAX_CHARS = 6000
 MEMORY_CHARS = 2500
 
 
-def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None, changed: list[str] | tuple = ()) -> str:
+def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None, changed: list[str] | tuple = (), today: date | None = None) -> str:
     cfg = load(vault)
     agent = os.environ.get("BRON_AGENT") or cfg.settings.default_agent
     # A headless ticket run: no one to ask for a name, and the updates belong to the requester's own sessions.
@@ -65,6 +66,17 @@ def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None, ch
                 lines.append("For blocked tickets, tell the user what is needed; for 'Needs your OK' follow the delegate skill.")
     except Exception:  # noqa: BLE001
         lines.append("Ticket updates couldn't be loaded this time.")
+    if not ticket_run:
+        try:
+            from .routines import briefing_lines, today as routines_today
+
+            due = briefing_lines(vault, cfg, key, today or routines_today())
+            if due:
+                lines += ["", "## Routines", *[f"- {line}" for line in due[:8]]]
+                if len(due) > 8:
+                    lines.append(f"- …and {len(due) - 8} more: run `.bron/bin/bron routine list`")
+        except Exception:  # noqa: BLE001
+            lines.append("Routines couldn't be checked this time.")
     summary = vault.memory_dir / "Summary.md"
     if summary.is_file():
         try:

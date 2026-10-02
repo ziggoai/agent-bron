@@ -33,9 +33,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_chat = sub.add_parser("chat", help="open a session as one agent")
     p_chat.add_argument("agent", nargs="?", default="")
     p_chat.add_argument("--cli", choices=CLIS)
-    from . import tickets_cli
+    from . import routines_cli, tickets_cli
 
     tickets_cli.add_parser(sub)
+    routines_cli.add_parser(sub)
     return parser
 
 
@@ -83,6 +84,10 @@ def main(argv: list[str] | None = None) -> int:
         return _chat(vault, args.agent, args.cli)
     if args.command == "ticket":
         return tickets_cli.handle(args, vault)
+    if args.command == "routine":
+        from . import routines_cli
+
+        return routines_cli.handle(args, vault)
     return _sync(vault, dry_run=args.dry_run)
 
 

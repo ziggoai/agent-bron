@@ -72,7 +72,8 @@ def test_quoted_commands_parse(vault):
 
     # Find all `.bron/bin/bron` commands
     pattern = r"\.bron/bin/bron\s+[^\n`]+"
-    commands = re.findall(pattern, skill_text + "\n" + manual_text + "\n" + agents_text)
+    routines_text = (vault.core_skills / "routines" / "SKILL.md").read_text(encoding="utf-8") + "\n" + (vault.core_manual / "routines.md").read_text(encoding="utf-8")
+    commands = re.findall(pattern, skill_text + "\n" + manual_text + "\n" + agents_text + "\n" + routines_text)
 
     # Normalize and parse each command
     parser = build_parser()
@@ -94,6 +95,8 @@ def test_quoted_commands_parse(vault):
         "<what you did>": "x",
         "<path>": "x",
         "<Project or Routine>": "x",
+        "<Routine>": "x",
+        "<period>": "2026-Q3",
     }
 
     for cmd in commands:

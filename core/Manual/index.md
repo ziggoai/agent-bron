@@ -8,6 +8,7 @@ How the Bron framework works, one page per topic. Read the page you need before 
 | [permissions.md](permissions.md) | `ask_before`, `always_allow`, action groups, and how approvals work in both CLIs |
 | [connections.md](connections.md) | Connectors: how Bron finds them and which agent may use which |
 | [tickets.md](tickets.md) | Tickets: handing work between agents, statuses, approvals |
+| [routines.md](routines.md) | Routines: repeating work per period, checklists and due dates |
 
 ## The basics
 

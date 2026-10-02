@@ -1,0 +1,26 @@
+filters:
+  and:
+    - file.inFolder("Routines")
+    - 'file.basename == "Tracking"'
+views:
+  - type: table
+    name: "By status"
+    groupBy:
+      property: status
+      direction: ASC
+    order:
+      - routine
+      - period
+      - status
+      - progress
+      - due
+  - type: table
+    name: "By routine"
+    groupBy:
+      property: routine
+      direction: ASC
+    order:
+      - period
+      - status
+      - progress
+      - due

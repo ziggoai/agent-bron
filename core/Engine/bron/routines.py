@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from . import frontmatter as fm
-from .model import Issue
+from .model import Issue, slug
 from .vault import Vault
 
 CADENCES = ("monthly", "quarterly", "annual")
@@ -293,3 +293,86 @@ def refresh_tracking(path: Path, runbook: Runbook) -> TrackingState:
 
 def tracking_notes(runbook: Runbook) -> list[Path]:
     return sorted(runbook.folder.glob(f"*/{TRACKING}"))
+
+
+# ---- what's due ----
+
+def today() -> date:
+    return date.today()
+
+
+def format_day(day: date) -> str:
+    return f"{day.day} {day.strftime('%b %Y')}"
+
+
+def _as_date(value) -> date | None:
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def due_text(value, today_: date) -> str:
+    due = _as_date(value)
+    if due is None:
+        return ""
+    days = (due - today_).days
+    if days > 1:
+        return f"; due in {days} days"
+    if days == 1:
+        return "; due tomorrow"
+    if days == 0:
+        return "; due today"
+    return f"; overdue by {-days} day{'s' if days < -1 else ''}"
+
+
+def find_runbook(runbooks: list[Runbook], name: str) -> Runbook:
+    for runbook in runbooks:
+        if runbook.name.lower() == name.strip().lower():
+            return runbook
+    known = ", ".join(r.name for r in runbooks) or "none yet"
+    raise RoutineError(f"There's no routine called '{name}'. Routines: {known}")
+
+
+def _period_lines(runbook: Runbook, today_: date, *, briefing: bool) -> list[str]:
+    out: list[str] = []
+    for path in tracking_notes(runbook):
+        period = path.parent.name
+        try:
+            state = refresh_tracking(path, runbook)
+        except (fm.FrontmatterError, OSError, UnicodeDecodeError):
+            out.append(f"{runbook.name} {period}: its Tracking note can't be read (Routines/{runbook.folder.name}/{period}/{TRACKING})")
+            continue
+        due = due_text(state.meta.get("due"), today_) if state.status != "done" else ""
+        if briefing:
+            if state.status != "done":
+                out.append(f"{runbook.name} {period}: {state.progress}{due}")
+        else:
+            out.append(f"{runbook.name} {period} [{state.status}] {state.progress}{due}")
+    period = last_ended(runbook.cadence, today_)
+    if not (runbook.folder / period / TRACKING).exists():
+        due = due_date(runbook.due, period_bounds(runbook.cadence, period)[1])
+        when = f" (due {format_day(due)})" if due else ""
+        if briefing:
+            out.append(f"{runbook.name} {period}: can start{when}. Offer to set it up (routines skill).")
+        else:
+            out.append(f"{runbook.name} {period}: not started{when}")
+    return out
+
+
+def status_lines(runbooks: list[Runbook], today_: date) -> list[str]:
+    return [line for runbook in runbooks for line in _period_lines(runbook, today_, briefing=False)]
+
+
+def briefing_lines(vault: Vault, cfg, agent_key: str, today_: date) -> list[str]:
+    """Due and in-progress periods of the routines this agent owns (the default agent also gets ownerless ones)."""
+    runbooks, _ = load_runbooks(vault)
+    default_key = cfg.default_agent.key if cfg.default_agent else ""
+    out: list[str] = []
+    for runbook in runbooks:
+        owner = slug(runbook.owner) if runbook.owner else ""
+        if owner == agent_key or (agent_key == default_key and owner not in cfg.agents):
+            out += _period_lines(runbook, today_, briefing=True)
+    return out
