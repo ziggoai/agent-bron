@@ -19,6 +19,7 @@ def run_checks(cfg: Config, *, include_environment: bool = True) -> list[Issue]:
     issues += _cycles(cfg)
     issues += _helpers(cfg)
     issues += _connections(cfg)
+    issues += _locks(cfg)
     if include_environment:
         issues += _environment(cfg)
     return issues
@@ -112,6 +113,16 @@ def _connections(cfg: Config) -> list[Issue]:
                     conn.path,
                 ))
     return out
+
+
+def _locks(cfg: Config) -> list[Issue]:
+    from .locks import stale
+
+    leftovers = stale(cfg.vault, cfg.settings.max_minutes)
+    if not leftovers:
+        return []
+    ids = ", ".join(lock.ticket_id for lock in leftovers)
+    return [Issue("warning", "locks.stale", f"Leftover ticket locks from runs that stopped: {ids}. The next run of each ticket clears its lock automatically.")]
 
 
 def _environment(cfg: Config) -> list[Issue]:
