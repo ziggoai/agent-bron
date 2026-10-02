@@ -21,6 +21,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("update", help="update the framework from the Bron project this vault came from")
     p_conn = sub.add_parser("connections", help="find the connectors set up in Claude Code and Codex")
     p_conn.add_argument("action", choices=["scan"])
+    p_run = sub.add_parser("run", help="have a ticket's assignee work it")
+    p_run.add_argument("id")
+    p_run.add_argument("--resume", action="store_true", help="continue the same conversation after new messages")
+    p_run.add_argument("--background", action="store_true", help="start it and return straight away")
+    p_run.add_argument("--caller-cli", choices=CLIS, help="the CLI asking (used when the agent can run in either)")
     from . import tickets_cli
 
     tickets_cli.add_parser(sub)
@@ -58,6 +63,16 @@ def main(argv: list[str] | None = None) -> int:
         if not result.ok:
             print("The setup couldn't be refreshed yet; run `bron check` for details.")
         return 0
+    if args.command == "run":
+        from .runner import run_ticket, start_background
+
+        if args.background:
+            start_background(vault, args.id, caller_cli=args.caller_cli, resume=args.resume)
+            print(f"Started {args.id} in the background. The update will show up in your next message or session.")
+            return 0
+        outcome = run_ticket(vault, args.id, caller_cli=args.caller_cli, resume=args.resume)
+        print(outcome.message)
+        return 1 if outcome.status == "error" else 0
     if args.command == "ticket":
         return tickets_cli.handle(args, vault)
     return _sync(vault, dry_run=args.dry_run)

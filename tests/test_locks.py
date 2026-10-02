@@ -91,9 +91,7 @@ def test_many_processes_never_both_hold(vault):
     for p in processes:
         p.join()
 
-    results = []
-    while not q.empty():
-        results.append(q.get())
+    results = [q.get(timeout=30) for _ in range(8)]
 
     winners = [i for i, won in results if won]
     assert len(winners) == 1
