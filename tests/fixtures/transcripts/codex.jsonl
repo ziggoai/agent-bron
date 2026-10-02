@@ -1,0 +1,7 @@
+{"type": "response_item", "payload": {"type": "message", "role": "developer", "content": [{"type": "input_text", "text": "(developer instructions omitted)"}]}}
+{"type": "response_item", "payload": {"type": "message", "role": "developer", "content": [{"type": "input_text", "text": "(developer instructions omitted)"}]}}
+{"type": "response_item", "payload": {"type": "message", "role": "developer", "content": [{"type": "input_text", "text": "(developer instructions omitted)"}]}}
+{"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "<environment_context>\n  <cwd>/Users/tester/probe</cwd>\n  <shell>zsh</shell>\n</environment_context>"}]}}
+{"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Run the shell command: echo fixture-ok   Then tell me in one short sentence what it printed."}]}}
+{"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "I’ll run the command and check its output.\n"}]}}
+{"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "It printed `fixture-ok`."}]}}
