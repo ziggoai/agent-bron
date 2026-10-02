@@ -21,6 +21,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("update", help="update the framework from the Bron project this vault came from")
     p_conn = sub.add_parser("connections", help="find the connectors set up in Claude Code and Codex")
     p_conn.add_argument("action", choices=["scan"])
+    from . import tickets_cli
+
+    tickets_cli.add_parser(sub)
     args = parser.parse_args(argv)
 
     if args.command == "hook":
@@ -55,6 +58,8 @@ def main(argv: list[str] | None = None) -> int:
         if not result.ok:
             print("The setup couldn't be refreshed yet; run `bron check` for details.")
         return 0
+    if args.command == "ticket":
+        return tickets_cli.handle(args, vault)
     return _sync(vault, dry_run=args.dry_run)
 
 
