@@ -605,7 +605,7 @@ def test_a_chat_without_a_saved_session_repeats_the_later_messages(team):
     assert "Later messages:" in prompt and "you: and next quarter?" in prompt
 
 
-def test_background_runs_can_be_marked_shown(team, monkeypatch, capsys):
+def test_background_runs_can_be_marked_shown(team, monkeypatch):
     seen = {}
 
     def popen(argv, **kwargs):
@@ -694,3 +694,54 @@ def test_ticket_wait_command(team, monkeypatch, capsys):
     assert capsys.readouterr().out == "CFO: Q3 drafted.\n"
     assert main(["ticket", "wait", "T-9999"]) == 0
     assert "There's no ticket T-9999" in capsys.readouterr().out
+
+
+def test_wait_sees_a_run_that_finishes_between_the_two_reads(team, monkeypatch):
+    from bron import runner
+    from bron.locks import release
+
+    ticket = ticket_for(team)
+    with editing(team, ticket.id) as current:
+        current.status = "in-progress"
+    assert acquire(team, ticket.id, "run1", max_minutes=30)
+    real = runner.read_lock
+    calls = []
+
+    def read_lock(vault, tid):
+        calls.append(1)
+        if len(calls) > 1:
+            return real(vault, tid)
+        with editing(team, tid) as current:
+            set_result(current, "Done fine.", "cfo")
+        release(team, tid, "run1")
+        return None
+
+    monkeypatch.setattr("bron.runner.read_lock", read_lock)
+    assert runner.wait_for(team, [ticket.id], sleep=lambda s: None, now=clock()) == ["CFO: Done fine."]
+
+
+def test_wait_measures_the_grace_period_for_each_ticket(team):
+    from bron.locks import release
+    from bron.runner import wait_for
+
+    first, second = ticket_for(team), ticket_for(team)
+    assert acquire(team, first.id, "run1", max_minutes=30)
+    time_now = [0]
+    state = {"second_waits": 0}
+
+    def sleep(_):
+        time_now[0] += 10
+        if time_now[0] == 30:
+            with editing(team, first.id) as current:
+                set_result(current, "First done.", "cfo")
+            release(team, first.id, "run1")
+        elif time_now[0] > 30:
+            state["second_waits"] += 1
+            if state["second_waits"] == 1:
+                assert acquire(team, second.id, "run2", max_minutes=30)
+            elif state["second_waits"] == 3:
+                with editing(team, second.id) as current:
+                    set_result(current, "Second done.", "cfo")
+                release(team, second.id, "run2")
+
+    assert wait_for(team, [first.id, second.id], sleep=sleep, now=lambda: time_now[0]) == ["CFO: First done.", "CFO: Second done."]

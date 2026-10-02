@@ -506,24 +506,26 @@ def wait_for(vault: Vault, ticket_ids: list[str], *, grace: float = 15.0, poll: 
         except TicketError as exc:
             out.append(str(exc))
             continue
+        began = now()
         while True:
+            # Read the lock first: a run saves its ticket before it releases the lock, so no lock means the ticket is settled.
+            running = read_lock(vault, tid) is not None
             try:
                 ticket = load_ticket(find_ticket(vault, tid))
             except TicketError as exc:
                 out.append(str(exc))
                 break
-            running = read_lock(vault, tid) is not None
             if not running and ticket.status not in ("todo", "in-progress"):
                 out.append(describe_outcome(cfg, ticket))
                 break
-            waited = now() - start
-            if not running and waited > grace:
+            current = now()
+            if not running and current - began > grace:
                 if ticket.status == "todo":
                     out.append(f"{tid} hasn't started; see .bron/runs/background-{tid}.log")
                 else:
                     out.append(f"{tid} stopped before it finished; see .bron/runs/")
                 break
-            if waited > limit:
+            if current - start > limit:
                 out.append(f"{tid} is still running after {cfg.settings.max_minutes} minutes; check it later with `.bron/bin/bron ticket show {tid}`.")
                 break
             sleep(poll)
