@@ -117,7 +117,6 @@ def test_quoted_commands_parse(vault):
         "<user role>": "x",
         "<cli>": "claude",
         "<Bron>": "Bron",
-        "<Routine>": "x",
         "<options>": "--role x",
     }
 

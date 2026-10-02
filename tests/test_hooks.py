@@ -221,5 +221,5 @@ def test_a_failing_orphan_check_never_breaks_the_briefing(in_vault, monkeypatch)
 
 def test_first_run_asks_for_name_and_saves_it_without_a_second_yes(in_vault):
     _, out = call("session-start")
-    assert "save them to `user_name` and `company` in System/Settings.md" in out
+    assert "bron settings set --name" in out
     assert "no separate yes" in out

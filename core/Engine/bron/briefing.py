@@ -30,7 +30,7 @@ def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None, ch
     else:
         lines.append(
             "First-run setup isn't done yet (no name in System/Settings.md). Ask the user for their name and company. "
-            "As soon as they tell you, save them to `user_name` and `company` in System/Settings.md and confirm in one line: "
+            "As soon as they tell you, save them straight away with `.bron/bin/bron settings set --name '<user name>' --company '<company>'` and confirm in one line: "
             "this is the one change to System/ that needs no separate yes. Follow the onboarding skill."
         )
     if notes:

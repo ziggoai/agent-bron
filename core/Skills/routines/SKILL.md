@@ -1,6 +1,6 @@
 ---
 name: routines
-description: Look after repeating work (monthly, quarterly or annual routines). Start a period, track who has sent what, say what's due, hand steps to team members, and write a new routine's runbook. Use when the briefing says a routine can start or is due, or the user asks about a routine.
+description: Look after repeating work (monthly, quarterly or annual routines). Start a period, track who has sent what, say what's due, and hand steps to team members. Hand writing a new routine to the create-routine skill. Use when the briefing says a routine can start or is due, or the user asks about a routine.
 ---
 
 # Routines

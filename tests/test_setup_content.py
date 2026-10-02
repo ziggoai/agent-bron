@@ -34,3 +34,41 @@ def test_the_first_run_briefing_points_to_onboarding(vault):
 
 def test_bron_starts_on_opus_in_claude_code(vault):
     assert fm.read(vault.agents_dir / "Bron" / "Agent.md").meta["models"] == {"claude": "opus-5.5", "codex": "default"}
+
+
+def test_onboarding_main_app_step_uses_preview_and_waits(vault):
+    text = (vault.core_skills / "onboarding" / "SKILL.md").read_text(encoding="utf-8")
+    assert "--default-cli <cli> --preview" in text
+
+
+def test_briefing_uses_command_not_hand_editing_for_user_settings(vault):
+    briefing = build_briefing(vault, cli="claude")
+    assert "bron settings set --name" in briefing
+    assert "save them to `user_name` and `company` in System/Settings.md" not in briefing
+
+
+def test_no_skill_or_template_tells_agents_to_edit_files_by_hand(vault):
+    from bron.agents_md import render_agents_md
+
+    # Check all core skills
+    skill_text = "\n".join(p.read_text(encoding="utf-8") for p in sorted(vault.core_skills.glob("*/SKILL.md")))
+
+    # Check AGENTS template
+    agents_template = (vault.core_templates / "AGENTS.md.tmpl").read_text(encoding="utf-8")
+
+    # Check Bron's agent file
+    bron_agent = (vault.agents_dir / "Bron" / "Agent.md").read_text(encoding="utf-8")
+
+    combined_text = skill_text + "\n" + agents_template + "\n" + bron_agent
+
+    # These phrases indicate hand-editing and should not appear
+    bad_phrases = [
+        "in Agent.md",
+        "in System/Agents",
+        "to `connections:`",
+        "in System/Settings.md",
+        "edit System/",
+    ]
+
+    for phrase in bad_phrases:
+        assert phrase not in combined_text, f"Found hand-editing instruction: {phrase}"
