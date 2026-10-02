@@ -39,7 +39,7 @@ def test_rules_map_to_always_allow_entries(synced):
     cfg = load(synced)
     assert to_entry("Bash(git push:*)", cfg) == "shell:git push"
     assert to_entry("Bash(npm run test *)", cfg) == "shell:npm run test"
-    assert to_entry("Bash(rm)", cfg) == "shell:rm"
+    assert to_entry("Bash(rm)", cfg) is None  # exact command: must not widen to every "rm ..."
     assert to_entry("mcp__claude_ai_Gmail__reply", cfg) == "mcp:Gmail:reply"
     assert to_entry("mcp__claude_ai_Gmail", cfg) is None
     assert to_entry("mcp__claude_ai_Unknown__x", cfg) is None
@@ -137,3 +137,77 @@ def test_the_briefing_shows_the_notice_once_and_never_in_a_ticket_run(synced, mo
     monkeypatch.delenv("BRON_TICKET")
     assert 'Saved your "always allow" choices for Bron: shell git push.' in build_briefing(synced, cli="claude")
     assert "always allow" not in build_briefing(synced, cli="claude")
+
+
+def test_an_exact_command_click_stays_exact(synced):
+    click_always_allow(synced, "Bash(rm)", "Bash(git push:*)")
+    assert run_sync(synced).ok
+    assert bron_allows(synced) == ["shell:git push"]
+    local = json.loads(claude_file(synced, local=True).read_text(encoding="utf-8"))
+    assert local == {"permissions": {"allow": ["Bash(rm)"]}}
+
+
+def test_import_crash_never_breaks_sync_or_loses_the_click(synced, monkeypatch):
+    from bron import approvals
+
+    click_always_allow(synced, "Bash(git push:*)")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(approvals, "import_approvals", boom)
+    result = run_sync(synced)
+    assert result.ok and "approvals.import" in {i.code for i in result.issues}
+    assert "Bash(git push:*)" in claude_file(synced).read_text(encoding="utf-8")
+
+
+def test_read_only_local_settings_do_not_lose_the_click(synced):
+    click_always_allow(synced, "Bash(git status:*)", "WebFetch(domain:carta.com)", local=True)
+    click_always_allow(synced, "Bash(git push:*)")
+    local = claude_file(synced, local=True)
+    local.chmod(0o444)
+    try:
+        result = run_sync(synced)
+        assert result.ok
+        in_agent = "shell:git push" in bron_allows(synced)
+        in_settings = "Bash(git push:*)" in claude_file(synced).read_text(encoding="utf-8")
+        assert in_agent or in_settings
+    finally:
+        local.chmod(0o644)
+
+
+def test_a_non_object_permissions_value_does_not_crash(synced):
+    claude_file(synced).write_text(json.dumps({"permissions": "text"}), encoding="utf-8")
+    claude_file(synced, local=True).write_text(json.dumps({"permissions": "text"}), encoding="utf-8")
+    assert run_sync(synced).ok
+
+
+def test_comments_inside_a_block_list_survive(tmp_path):
+    path = tmp_path / "Agent.md"
+    path.write_text(
+        "---\nname: Bron\nalways_allow:\n  - shell:git status\n# top comment\n  # inner comment\n  - delete-files\nrole: x\n---\nBody.\n",
+        encoding="utf-8",
+    )
+    assert append_always_allow(path, ["shell:git push"]) == ["shell:git push"]
+    text = path.read_text(encoding="utf-8")
+    assert "# top comment\n" in text and "  # inner comment\n" in text
+    meta = fm.read(path).meta
+    assert meta["always_allow"] == ["shell:git status", "delete-files", "shell:git push"] and meta["role"] == "x"
+
+
+def test_missing_last_record_does_not_treat_generated_rules_as_clicks(synced):
+    bron = synced.agents_dir / "Bron" / "Agent.md"
+    set_meta(bron, always_allow=["shell:git status"])
+    assert run_sync(synced).ok
+    (synced.state_dir / "claude-settings.last.json").unlink()
+    set_meta(bron, always_allow=[])
+    assert run_sync(synced).ok
+    assert bron_allows(synced) == []
+    assert take_notice(synced) == ""
+
+
+def test_a_hand_edit_plus_a_click_imports_and_backs_up(synced):
+    click_always_allow(synced, "Bash(git push:*)", extra={"env": {"HAND": "1"}})
+    result = run_sync(synced)
+    assert result.ok and bron_allows(synced) == ["shell:git push"]
+    assert result.report.backup_dir is not None

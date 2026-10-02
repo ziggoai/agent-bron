@@ -16,10 +16,11 @@ from . import frontmatter as fm
 from .access import claude_server
 from .statefile import locked, read_json, update_json
 from .vault import Vault
+from .writer import GeneratedWriter, sha256
 
 LAST = "claude-settings.last.json"  # exactly what sync last wrote to .claude/settings.json
 NOTICE = "approvals-notice.json"
-_BASH = re.compile(r"^Bash\(\s*([^*():\"']+?)\s*(?::\*|\s\*)?\s*\)$")
+_BASH = re.compile(r"^Bash\(\s*([^*():\"']+?)\s*(?::\*|\s\*)\s*\)$")
 _PLAIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]*$")
 
 
@@ -86,9 +87,15 @@ def append_always_allow(path: Path, entries: list[str]) -> list[str]:
         lines.insert(end, new_line)
     else:
         stop = index + 1
-        while stop < end and lines[stop].strip() and (lines[stop][0] in " \t" or lines[stop].lstrip().startswith("- ")):
+        comments: list[str] = []
+        while stop < end:
+            line = lines[stop]
+            if line.lstrip().startswith("#"):
+                comments.append(line)  # comments inside the list stay in the file, just above it
+            elif not (line.strip() and (line[0] in " \t" or line.lstrip().startswith("- "))):
+                break
             stop += 1
-        lines[index:stop] = [new_line]
+        lines[index:stop] = comments + [new_line]
     new_text = "".join(lines)
     if fm.parse(new_text).meta.get("always_allow") != values:
         raise ValueError(f"Bron couldn't update 'always_allow' in {path.name} safely")
@@ -122,7 +129,8 @@ def _allow(data: dict | None) -> list[str]:
 
 def _without_allow(data: dict) -> dict:
     copied = copy.deepcopy(data)
-    permissions = dict(copied.get("permissions") or {})
+    permissions = copied.get("permissions")
+    permissions = dict(permissions) if isinstance(permissions, dict) else {}
     permissions.pop("allow", None)
     copied["permissions"] = permissions
     return copied
@@ -146,7 +154,13 @@ def import_approvals(vault: Vault, cfg) -> Imported:
     settings_path, local_path = claude_dir / "settings.json", claude_dir / "settings.local.json"
     disk = _load(settings_path)
     last = _load(vault.state_dir / LAST)
-    known = set(_allow(last)) if last is not None else set(project_allow(cfg))
+    if last is not None:
+        known = set(_allow(last))
+    else:
+        # No record yet (first sync after an upgrade): a file still exactly as Bron wrote it holds no clicks.
+        recorded = GeneratedWriter(vault).manifest["files"].get(".claude/settings.json")
+        unchanged = settings_path.is_file() and recorded == sha256(settings_path.read_bytes())
+        known = set(_allow(disk)) if unchanged else set(project_allow(cfg))
     if disk is not None and last is not None:
         out.only_allow_changed = _without_allow(disk) == _without_allow(last)
     try:
@@ -179,7 +193,8 @@ def import_approvals(vault: Vault, cfg) -> Imported:
     keep = [r for r in local_rules if r in claude_only] + [r for r in claude_only if r not in local_rules]
     if keep != local_rules:
         data = dict(local or {})
-        permissions = dict(data.get("permissions") or {})
+        permissions = data.get("permissions")
+        permissions = dict(permissions) if isinstance(permissions, dict) else {}
         if keep:
             permissions["allow"] = keep
         else:

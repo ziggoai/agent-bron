@@ -84,7 +84,7 @@ def run_sync(vault: Vault, *, dry_run: bool = False) -> SyncResult:
 
 
 def _sync(vault: Vault, *, dry_run: bool) -> SyncResult:
-    from .approvals import import_approvals, remember_generated
+    from .approvals import Imported, import_approvals, remember_generated
 
     cfg = load(vault)
     issues = run_checks(cfg, include_environment=False)
@@ -93,7 +93,18 @@ def _sync(vault: Vault, *, dry_run: bool) -> SyncResult:
     approvals = None
     if not dry_run:
         # Claude Code saves "don't ask again" into a file sync regenerates: move those choices first.
-        approvals = import_approvals(vault, cfg)
+        try:
+            approvals = import_approvals(vault, cfg)
+        except Exception as exc:  # noqa: BLE001 - never lose a click or stop the sync
+            settings_file = vault.root / ".claude" / "settings.json"
+            try:
+                kept = settings_file.read_bytes() if settings_file.is_file() else None
+            except OSError:
+                kept = None
+            approvals = Imported(
+                problem=f"Bron couldn't check your saved approvals ({exc.__class__.__name__}); they stay in Claude Code's settings",
+                keep_settings=kept,
+            )
         if approvals.entries:
             cfg = load(vault)
             issues = run_checks(cfg, include_environment=False)

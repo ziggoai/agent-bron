@@ -31,7 +31,7 @@ An entry is one of:
 Groups only take effect for connections that exist in `System/Connections/`. Bron turns these rules into each CLI's own approval settings, so they work the same in Claude Code and Codex.
 
 ## Saved approvals
-When you choose "Yes, and don't ask again" in Claude Code, Claude Code saves the rule in the vault's `.claude/` settings, which Bron regenerates. At the next sync Bron moves it into the default agent's `always_allow` (shell commands and connector tools) and tells you in one line. Rules Codex has no equivalent for (for example "always allow this website") stay in `.claude/settings.local.json`, which Bron never overwrites. Codex keeps its own approvals in `~/.codex/rules/default.rules`, outside the vault; Bron leaves them alone. To be asked again, delete the entry from `always_allow`.
+When you choose "Yes, and don't ask again" in Claude Code, Claude Code saves the rule in the vault's `.claude/` settings, which Bron regenerates. At the next sync Bron moves it into the default agent's `always_allow` (commands that start with something you approved, and connector tools) and tells you in one line. An approval for one exact command, and rules Codex has no equivalent for (for example "always allow this website"), stay in `.claude/settings.local.json`, which Bron never overwrites. Codex keeps its own approvals in `~/.codex/rules/default.rules`, outside the vault; Bron leaves them alone. To be asked again, delete the entry from `always_allow`.
 
 ## Codex notes
 
