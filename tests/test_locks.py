@@ -12,10 +12,14 @@ from bron.vault import Vault
 DEAD_PID = 999_999
 
 
-def _worker_acquire(vault_root, ticket, i, q):
-    """Worker function for multiprocessing test (must be at module level for pickling)."""
+def _worker_acquire(vault_root, ticket, i, q, owner_pid):
+    """Worker function for multiprocessing test (must be at module level for pickling).
+
+    The lock records the owner's pid; a short-lived worker's own pid would be dead by the time a
+    slower worker runs, making its lock legitimately stale, so the (live) test process owns it.
+    """
     v = Vault(vault_root)
-    result = acquire(v, ticket, f"run-{i}")
+    result = acquire(v, ticket, f"run-{i}", pid=owner_pid)
     q.put((i, result))
 
 
@@ -85,7 +89,7 @@ def test_many_processes_never_both_hold(vault):
     q = ctx.Queue()
     processes = []
     for i in range(8):
-        p = ctx.Process(target=_worker_acquire, args=(vault.root, "T-0006", i, q))
+        p = ctx.Process(target=_worker_acquire, args=(vault.root, "T-0006", i, q, os.getpid()))
         p.start()
         processes.append(p)
     for p in processes:
