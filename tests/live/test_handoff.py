@@ -1,10 +1,12 @@
 """Real ticket handoffs between Claude Code and Codex. Run with: BRON_LIVE=1 uv run --project core/Engine pytest tests/live/test_handoff.py -q"""
 import os
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
 
+from bron.access import codex_home, codex_trusts
 from bron.tickets import find_ticket, load_ticket
 from bron.vault import Vault
 
@@ -25,8 +27,9 @@ def vault(tmp_path_factory) -> Path:
     subprocess.run([str(REPO / "scripts" / "dev-vault.sh"), str(root)], check=True)
     root = root.resolve()
     for name, runs_in, extra in (
-        ("Gpt", "codex", ""),
+        ("Gpt", "codex", "connections: []\n"),
         ("Claudia", "claude", "ask_before: [delete-files]\n"),
+        ("Curly", "codex", "connections: []\nask_before: ['shell:curl']\n"),
     ):
         folder = root / "System" / "Agents" / name
         folder.mkdir(parents=True)
@@ -35,7 +38,10 @@ def vault(tmp_path_factory) -> Path:
             encoding="utf-8",
         )
     agent = root / "System" / "Agents" / "Bron" / "Agent.md"
-    agent.write_text(agent.read_text(encoding="utf-8").replace("can_assign_to: []", "can_assign_to: [Gpt, Claudia]"), encoding="utf-8")
+    agent.write_text(agent.read_text(encoding="utf-8").replace("can_assign_to: []", "can_assign_to: [Gpt, Claudia, Curly]"), encoding="utf-8")
+    # A native connector whose Codex id no Codex config defines (like a plugin server). Gpt may not use it,
+    # but Codex refuses to start if Bron names an undefined server with -c, so Bron must leave it alone.
+    (root / "System" / "Connections" / "Phantom.md").write_text("---\nname: Phantom\ntype: native\ncodex: phantom_server\n---\n", encoding="utf-8")
     bron(root, "sync")
     return root
 
@@ -55,6 +61,28 @@ def test_claude_hands_a_ticket_to_an_agent_pinned_to_codex(vault):
     t = ticket(vault, tid)
     assert t.status == "in-review" and "42" in t.result
     assert "started in Codex" in "\n".join(t.thread)
+
+
+def codex_triggers_trusted(vault: Path) -> bool:
+    """Whether the user approved Bron's Codex session-start trigger for this vault (Codex keeps that in hooks.state)."""
+    try:
+        data = tomllib.loads((codex_home() / "config.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    state = (data.get("hooks") or {}).get("state") or {}
+    prefix = f"{vault}/.codex/hooks.json:session_start:"
+    return any(str(key).startswith(prefix) and isinstance(value, dict) and value.get("trusted_hash") for key, value in state.items())
+
+
+def test_the_codex_briefing_reaches_the_agent_as_itself(vault):
+    # V1: do Codex triggers see BRON_AGENT? Only checkable once the user has approved Bron's Codex triggers
+    # (/hooks). `codex exec` trusts the project folder by itself, but not its triggers.
+    if not (codex_trusts(vault) and codex_triggers_trusted(vault)):
+        pytest.skip("V1 not verifiable here: Codex hasn't approved Bron's triggers in this fresh vault, so the briefing doesn't run; left for the hands-on test")
+    tid = new(vault, "Gpt", "Record as the ticket result the exact first two lines of your Bron session briefing (the text that starts with '# Bron briefing'), or NONE if you got none.")
+    bron(vault, "run", tid)
+    result = ticket(vault, tid).result
+    assert "Bron briefing" in result and "You are Gpt, working in Codex" in result, result
 
 
 def test_codex_hands_a_ticket_to_an_agent_pinned_to_claude(vault):
@@ -83,6 +111,15 @@ def test_an_ask_before_action_becomes_needs_your_ok(vault):
     t = ticket(vault, tid)
     assert keep.exists()
     assert t.status == "blocked" and "Needs your OK" in "\n".join(t.thread)
+
+
+def test_a_codex_agent_asks_before_a_shell_command_on_its_list(vault):
+    tid = new(vault, "Curly", "Run this exact shell command: curl -s https://example.com  Then record its output as the result.")
+    bron(vault, "run", tid)
+    t = ticket(vault, tid)
+    text = "\n".join(t.thread) + "\n" + t.result
+    assert t.status == "blocked" and "Needs your OK" in "\n".join(t.thread), text
+    assert "Example Domain" not in text
 
 
 def test_connector_scan_registers_existing_connectors(vault):
