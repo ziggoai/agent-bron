@@ -6,13 +6,13 @@ action_groups:
     shell: [[rm]]
   send-email:
     mcp:
-      gmail: [send_message, send_email, reply_to_message, forward_message]
+      gmail: [send_message, send_email, reply, forward, reply_to_message, forward_message]
   share-file:
     mcp:
       google_drive: [share_file]
   external-post:
     mcp:
-      slack: [send_message, post_message]
+      slack: [send_message, post_message, slack_send_message, slack_schedule_message]
 ---
 
 # Permissions

@@ -139,7 +139,7 @@ def test_codex_run_hides_the_agents_ask_before_tools(vault):
     add_agent(vault, "CFO", runs_in="codex", connections=["Gmail"], ask_before=["send-email", "shell:curl"])
     codex_config(servers=["gmail"])
     cfg = load(vault)
-    expected = 'mcp_servers.gmail.disabled_tools=["forward_message", "reply_to_message", "send_email", "send_message"]'
+    expected = 'mcp_servers.gmail.disabled_tools=["forward", "forward_message", "reply", "reply_to_message", "send_email", "send_message"]'
     assert expected in configs(run_spec(cfg, cfg.agents["cfo"], "codex", "Go").argv)
     assert expected in configs(run_spec(cfg, cfg.agents["cfo"], "codex", "Go", session="th-1").argv)
     assert not any("disabled_tools" in c for c in configs(chat_spec(cfg, cfg.agents["cfo"], "codex").argv))

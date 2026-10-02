@@ -40,3 +40,10 @@ def test_settings_can_add_action_groups(vault):
 def test_malformed_group_is_reported(vault):
     set_meta(vault.settings_file, action_groups={"bad": {"shell": "git push"}})
     assert any(i.code == "permissions.bad-group" for i in load(vault).issues)
+
+
+def test_built_in_groups_cover_the_claude_ai_gmail_and_slack_tool_names(vault):
+    cfg = load(vault)
+    ask = cfg.catalog.resolve_actions(["send-email", "external-post"])
+    assert {"send_message", "reply", "forward"} <= ask.mcp["gmail"]
+    assert {"slack_send_message", "slack_schedule_message"} <= ask.mcp["slack"]
