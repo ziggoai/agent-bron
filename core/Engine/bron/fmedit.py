@@ -28,69 +28,41 @@ def scalar(value) -> str:
     return json.dumps(text, ensure_ascii=False)
 
 
-def _extract_trailing_comment(line: str, key: str) -> tuple[str, str]:
-    """Extract a trailing comment from a line using YAML parsing.
+def _key_pattern(key: str) -> str:
+    return rf"^[\"']?{re.escape(key)}[\"']?\s*:"
 
-    Returns (line_without_comment, trailing_comment_with_spacing_and_hash).
 
-    Strategy: Split into head (key:) and rest. If rest is empty or starts with #,
-    the comment is from the first # preceded by whitespace (or rest itself when it starts with #).
-    Otherwise, try parsing at each # position to find where the actual value ends.
+def _extract_trailing_comment(line: str, key: str) -> str:
+    """The comment at the end of a key's line, with the whitespace before it ("" when there is none).
+
+    For a value on the same line, the comment starts at the first `#` after whitespace
+    where reading the line up to that point gives the same value as reading the whole line.
+    For a key whose value is on the lines below, it is the `#...` part after whitespace.
     """
     line = line.rstrip("\n")
-
-    # Find the colon after the key
-    colon_idx = line.find(":")
-    if colon_idx == -1:
-        return line, ""
-
-    head = line[:colon_idx + 1]
-    rest = line[colon_idx + 1:]
-
-    # Check if rest is empty or is just whitespace + comment
-    if not rest.strip():
-        # Only whitespace; if there's a #, find it
-        if "#" in rest:
-            hash_idx = rest.find("#")
-            # Verify there's whitespace before the #
-            if hash_idx > 0 and rest[hash_idx - 1] in " \t":
-                ws_start = hash_idx - 1
-                while ws_start > 0 and rest[ws_start - 1] in " \t":
-                    ws_start -= 1
-                return head, rest[ws_start:]
-            elif hash_idx == 0:
-                # Hash at the start of rest (after spaces)
-                return head, rest.lstrip()
-        return line, ""
-
-    # If rest starts with # after optional spaces
+    match = re.match(_key_pattern(key), line)
+    if not match:
+        return ""
+    head, rest = line[: match.end()], line[match.end():]
     if rest.lstrip().startswith("#"):
-        stripped_start = len(rest) - len(rest.lstrip())
-        return head, rest[stripped_start:]
-
-    # Otherwise, look for # positions that could be comment boundaries
-    # Try each position where we see # preceded by whitespace
+        return rest if rest[:1] in (" ", "\t") else ""
+    try:
+        whole = yaml.safe_load(head + rest)
+    except yaml.YAMLError:
+        return ""
+    if not isinstance(whole, dict) or key not in whole:
+        return ""
     for i, char in enumerate(rest):
-        if char == "#" and i > 0 and rest[i - 1] in " \t":
-            # Found a # preceded by whitespace
-            # Try parsing up to this point
-            try:
-                candidate = head + rest[:i]
-                parsed = yaml.safe_load(candidate)
-                if isinstance(parsed, dict) and key in parsed:
-                    # Get the value from parsing the full line and the candidate
-                    full_parsed = yaml.safe_load(head + rest)
-                    if isinstance(full_parsed, dict) and full_parsed.get(key) == parsed.get(key):
-                        # This is the comment boundary
-                        ws_start = i - 1
-                        while ws_start > 0 and rest[ws_start - 1] in " \t":
-                            ws_start -= 1
-                        return head + rest[:ws_start], rest[ws_start:]
-            except (yaml.YAMLError, ValueError):
-                # This position doesn't parse; continue
-                continue
-
-    return line, ""
+        if char != "#" or i == 0 or rest[i - 1] not in " \t":
+            continue
+        try:
+            part = yaml.safe_load(head + rest[:i])
+        except yaml.YAMLError:
+            continue
+        if isinstance(part, dict) and key in part and part[key] == whole[key]:
+            start = len(rest[:i].rstrip(" \t"))
+            return rest[start:]
+    return ""
 
 
 def _value_lines(key: str, value, trailing_comment: str = "") -> list[str]:
@@ -99,7 +71,7 @@ def _value_lines(key: str, value, trailing_comment: str = "") -> list[str]:
     if isinstance(value, dict):
         if not value:
             return [f"{key}: {{}}" + trailing_comment + "\n"]
-        return [f"{key}:\n"] + [f"  {k}: {scalar(v)}\n" for k, v in value.items()]
+        return [f"{key}:" + trailing_comment + "\n"] + [f"  {k}: {scalar(v)}\n" for k, v in value.items()]
     return [f"{key}: {scalar(value)}" + trailing_comment + "\n"]
 
 
@@ -122,8 +94,9 @@ def edit_meta(text: str, changes: dict) -> str:
         raise EditError(str(exc)) from exc
     for key, value in changes.items():
         # Match quoted or unquoted keys
-        index = next((i for i in range(1, end) if re.match(rf"^[\"']?{re.escape(key)}[\"']?\s*:", lines[i])), None)
-        new = [] if value is None else _value_lines(key, value)
+        index = next((i for i in range(1, end) if re.match(_key_pattern(key), lines[i])), None)
+        comment = "" if index is None else _extract_trailing_comment(lines[index], key)
+        new = [] if value is None else _value_lines(key, value, comment)
 
         if index is None:
             # Check if key is in before dict but no line matched (unusual form)
@@ -133,10 +106,6 @@ def edit_meta(text: str, changes: dict) -> str:
                 lines[end:end] = new
                 end += len(new)
             continue
-
-        # Extract trailing comment from the old first line
-        old_line = lines[index]
-        _, trailing_comment = _extract_trailing_comment(old_line, key)
 
         # Scan for content lines and comments that are part of this value
         stop, comments = index + 1, []
@@ -166,11 +135,6 @@ def edit_meta(text: str, changes: dict) -> str:
             elif not (line.strip() and (line[0] in " \t" or line.startswith("- "))):
                 break
             stop += 1
-
-        # Update the new lines with trailing comment (pass to _value_lines, not appended after)
-        if new and trailing_comment:
-            # Recreate new lines with the trailing comment
-            new = _value_lines(key, value, trailing_comment)
 
         lines[index:stop] = comments + new
         end += len(comments) + len(new) - (stop - index)

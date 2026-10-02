@@ -213,3 +213,41 @@ def test_replace_body_validates_settings_block():
     text = "# no settings block\n"
     with pytest.raises(EditError):
         replace_body(text, "new body")
+
+
+def _block(*lines):
+    return "---\n" + "".join(line + "\n" for line in lines) + "---\n\nBody\n"
+
+
+def test_trailing_comment_on_a_flow_list_is_kept_exactly():
+    new = edit_meta(_block("tags: [a, b]  # c", "runs_in: codex"), {"tags": ["x", "z"]})
+    assert new == _block("tags: [x, z]  # c", "runs_in: codex")
+
+
+def test_trailing_comment_after_a_value_with_an_apostrophe_is_kept_exactly():
+    new = edit_meta(_block("role: O'Brien  # keep"), {"role": "Lead"})
+    assert new == _block("role: Lead  # keep")
+
+
+def test_hash_inside_quotes_is_part_of_the_value_exactly():
+    assert edit_meta(_block('role: "a  # b"'), {"role": "Lead"}) == _block("role: Lead")
+    assert edit_meta(_block('role: "a  # b"  # c'), {"role": "Lead"}) == _block("role: Lead  # c")
+
+
+def test_comment_on_a_block_dict_key_stays_on_the_key_line_for_a_new_dict():
+    new = edit_meta(_block("models:  # c", "  claude: default", "runs_in: codex"), {"models": {"claude": "opus-5.5"}})
+    assert new == _block("models:  # c", "  claude: opus-5.5", "runs_in: codex")
+
+
+def test_comment_on_a_block_key_moves_onto_a_new_flow_list():
+    new = edit_meta(_block("tags:  # c", "  - a", "runs_in: codex"), {"tags": ["x"]})
+    assert new == _block("tags: [x]  # c", "runs_in: codex")
+    new = edit_meta(_block("models:  # c", "  claude: default"), {"models": ["p"]})
+    assert new == _block("models: [p]  # c")
+
+
+def test_comment_on_a_block_key_moves_onto_a_new_scalar():
+    new = edit_meta(_block("models:  # c", "  claude: default"), {"models": "p"})
+    assert new == _block("models: p  # c")
+    new = edit_meta(_block("models: # c", "  claude: default"), {"models": "p"})
+    assert new == _block("models: p # c")
