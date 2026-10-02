@@ -42,8 +42,10 @@ def take(vault: Vault, agent_key: str, default_key: str) -> list[dict]:
             requester = entry.get("requested_by") or "you"
             if slug(str(requester)) == slug(agent_key) or (requester == "you" and agent_key == default_key):
                 updates.append(entry)
-        seen[agent_key] = len(lines)
-        write_json(seen_path, seen)
+        new_cursor = len(lines)
+        if new_cursor != start:
+            seen[agent_key] = new_cursor
+            write_json(seen_path, seen)
     return updates
 
 

@@ -103,9 +103,12 @@ def _session_start(cli: str) -> str:
 def _ticket_updates() -> str:
     from .model import slug
     from .notifications import FILE, describe, take
-    from .vault import Vault
+    from .vault import Vault, VaultNotFound
 
-    vault = Vault.find()
+    try:
+        vault = Vault.find()
+    except VaultNotFound:
+        return ""
     if not (vault.state_dir / FILE).is_file():
         return ""
     default_name = _default_agent(vault)
@@ -113,9 +116,17 @@ def _ticket_updates() -> str:
     updates = take(vault, slug(agent), slug(default_name))
     if not updates:
         return ""
-    lines = ["Ticket updates since your last message:", *[f"- {describe(u)}" for u in updates]]
+    shown = updates[:8]
+    lines = ["Ticket updates since your last message:", *[f"- {_truncate_title(describe(u))}" for u in shown]]
+    if len(updates) > 8:
+        lines.append(f"- …and {len(updates) - 8} more: run `.bron/bin/bron ticket list`")
     lines.append("Read the ticket (.bron/bin/bron ticket show <id>) and tell the user what changed.")
     return "\n".join(lines) + "\n"
+
+
+def _truncate_title(text: str, limit: int = 80) -> str:
+    """Truncate text to limit chars, adding '…' if truncated."""
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def _default_agent(vault) -> str:

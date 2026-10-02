@@ -30,19 +30,9 @@ def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None, ch
         )
     if notes:
         lines += ["", *notes]
-    key = slug(agent)
-    default_key = cfg.default_agent.key if cfg.default_agent else ""
-    tickets, _ = list_tickets(vault)
-    assigned = [t for t in tickets if t.assignee == key and t.status in ("todo", "in-progress", "blocked")][:8]
-    updates = take(vault, key, default_key)
-    if assigned or updates:
-        lines += ["", "## Tickets"]
-        lines += [f"- Assigned to you: {t.id} [{t.status}] {t.title}" for t in assigned]
-        lines += [f"- Update: {describe(u)}" for u in updates]
-        if any(u.get("status") == "blocked" for u in updates):
-            lines.append("For blocked tickets, tell the user what is needed; for 'Needs your OK' follow the delegate skill.")
     # Each CLI reads its instruction files before the startup trigger regenerates them, so an edit
     # made since the last session would only apply next time. Carry the fresh instructions here.
+    key = slug(agent)
     own_file = f".claude/agents/{key}.md" if cli == "claude" else ".codex/config.toml"
     if own_file in changed and key in cfg.agents:
         lines += [
@@ -54,6 +44,23 @@ def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None, ch
         ]
     if "AGENTS.md" in changed:
         lines += ["", "The shared rules in AGENTS.md changed since this session loaded them; read AGENTS.md again before relying on them."]
+    # Tickets section: assigned tickets and updates, with failure handling
+    try:
+        default_key = cfg.default_agent.key if cfg.default_agent else ""
+        tickets, _ = list_tickets(vault)
+        assigned = [t for t in tickets if t.assignee == key and t.status in ("todo", "in-progress", "blocked")][:8]
+        all_updates = take(vault, key, default_key)
+        updates = all_updates[:8]
+        if assigned or updates:
+            lines += ["", "## Tickets"]
+            lines += [f"- Assigned to you: {t.id} [{t.status}] {_truncate_title(t.title)}" for t in assigned]
+            lines += [f"- Update: {_truncate_title(describe(u))}" for u in updates]
+            if len(all_updates) > 8:
+                lines.append(f"- …and {len(all_updates) - 8} more: run `.bron/bin/bron ticket list`")
+            if any(u.get("status") == "blocked" for u in updates):
+                lines.append("For blocked tickets, tell the user what is needed; for 'Needs your OK' follow the delegate skill.")
+    except Exception:  # noqa: BLE001
+        lines.append("Ticket updates couldn't be loaded this time.")
     summary = vault.memory_dir / "Summary.md"
     if summary.is_file():
         try:
@@ -63,6 +70,11 @@ def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None, ch
         if text:
             lines += ["", "## What you remember", _clip(text, MEMORY_CHARS)]
     return _clip("\n".join(lines).rstrip() + "\n", MAX_CHARS)
+
+
+def _truncate_title(text: str, limit: int = 80) -> str:
+    """Truncate text to limit chars, adding '…' if truncated."""
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def _clip(text: str, limit: int) -> str:

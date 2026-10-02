@@ -7,7 +7,7 @@ from bron.briefing import build_briefing
 from bron.hooks import main as hook
 from bron.notifications import record
 from bron.tickets import new_ticket
-from vaultkit import add_agent
+from vaultkit import add_agent, write_md
 
 
 @pytest.fixture
@@ -66,3 +66,84 @@ def test_briefing_lists_assigned_tickets_and_updates(in_vault, monkeypatch):
 def test_user_tickets_report_to_the_default_agent(in_vault):
     finished(in_vault, requested_by="you")
     assert "T-0001" in prompt()
+
+
+def test_tickets_section_failure_does_not_break_briefing(in_vault, monkeypatch):
+    # Monkeypatch take to raise OSError
+    def boom(*args, **kwargs):
+        raise OSError("test failure")
+
+    monkeypatch.setattr("bron.briefing.take", boom)
+    briefing = build_briefing(in_vault, cli="claude")
+    assert briefing.startswith("# Bron briefing\n")
+    assert "You are Bron, working in Claude Code" in briefing
+    assert "Ticket updates couldn't be loaded this time." in briefing
+
+
+def test_updates_are_capped_at_eight_with_truncation(in_vault, monkeypatch):
+    # Create 30 updates with 200-character titles
+    long_title = "x" * 200
+    for i in range(30):
+        ticket = new_ticket(in_vault, title=f"{long_title} #{i}", assignee="bron", request="x", requested_by="bron")
+        ticket.status = "in-review"
+        record(in_vault, ticket)
+
+    # Add instructions to trigger "## Your updated instructions" section
+    from vaultkit import write_md
+    agent_config = {
+        "name": "Bron",
+        "role": "main role",
+        "reports_to": "nobody",
+        "runs_in": "any",
+    }
+    write_md(in_vault.agents_dir / "Bron" / "Agent.md", agent_config, "Test instructions\n")
+
+    briefing = build_briefing(in_vault, cli="claude", changed=[".claude/agents/bron.md"])
+
+    # Verify briefing is within limits
+    assert len(briefing) <= 6000, f"Briefing too long: {len(briefing)} chars"
+
+    # Verify structure is preserved
+    assert "## Your updated instructions" in briefing
+    assert "## Tickets" in briefing
+
+    # Count update lines (starting with "- Update:")
+    update_lines = [line for line in briefing.split("\n") if line.startswith("- Update:")]
+    assert len(update_lines) == 8, f"Expected 8 update lines, got {len(update_lines)}"
+
+    # Verify "…and N more" line is present
+    assert "- …and 22 more: run `.bron/bin/bron ticket list`" in briefing
+
+    # Verify no title exceeds 80 characters
+    for line in briefing.split("\n"):
+        if line.startswith("- Assigned") or line.startswith("- Update:"):
+            # Extract the title part (after the id and status/quote)
+            # For assigned: "- Assigned to you: T-0001 [todo] TITLE"
+            # For update: "- Update: T-0001 "TITLE" is now status (assignee)"
+            # Just check that the full line is reasonable
+            assert len(line) < 150, f"Line too long (contains title > 80): {line[:100]}"
+
+
+def test_prompt_trigger_caps_updates_at_eight(in_vault):
+    # Create 30 updates
+    for i in range(30):
+        ticket = new_ticket(in_vault, title=f"Task {i}", assignee="bron", request="x", requested_by="bron")
+        ticket.status = "in-review"
+        record(in_vault, ticket)
+
+    output = prompt()
+    assert output.startswith("Ticket updates since your last message:")
+
+    # Count update lines
+    update_lines = [line for line in output.split("\n") if line.startswith("- ") and "T-" in line]
+    assert len(update_lines) == 8, f"Expected 8 update lines, got {len(update_lines)}"
+
+    # Verify "…and N more" line
+    assert "- …and 22 more: run `.bron/bin/bron ticket list`" in output
+
+
+def test_prompt_trigger_outside_vault_prints_nothing(monkeypatch):
+    monkeypatch.delenv("BRON_VAULT", raising=False)
+    out = io.StringIO()
+    assert hook("user-prompt", "claude", stdin=io.StringIO(json.dumps({"prompt": "hi"})), stdout=out) == 0
+    assert out.getvalue() == ""
