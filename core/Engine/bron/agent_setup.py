@@ -45,6 +45,8 @@ def check_name(cfg: Config, name: str) -> str:
     key = slug(name)
     if key == "you":
         raise SetupError("'you' is reserved: it means you, the user.")
+    if key in (ALL, "any"):
+        raise SetupError(f"'{name}' is reserved: it has a special meaning in agent settings.")
     if key in cfg.agents:
         raise SetupError(f"There's already an agent called {cfg.agents[key].name}.")
     if key in cfg.helpers:
@@ -200,6 +202,10 @@ def create_agent(cfg: Config, *, name: str, role: str, reports_to: str = "", mod
     models = dict(models or {})
     if runs_in and runs_in not in RUNS_IN:
         raise SetupError("The app should be any, claude or codex.")
+    if runs_in in CLIS:
+        for cli, model in models.items():
+            if cli != runs_in and norm(model) != "default":
+                raise SetupError(f"That model is for {CLI_NAMES[cli]}, but you chose {CLI_NAMES[runs_in]}; pick one.")
     if not runs_in:
         chosen = [cli for cli, model in models.items() if norm(model) != "default"]
         runs_in = chosen[0] if len(chosen) == 1 else "any"
@@ -251,6 +257,7 @@ def set_agent(cfg: Config, name: str, *, role=None, reports_to=None, models=None
         changes["role"] = " ".join(role.split())
         lines.append(f"Role: {changes['role']}")
     new_models = dict(agent.models)
+    models = {cli: model for cli, model in (models or {}).items() if agent.models.get(cli) != model}
     if models:
         new_models.update(models)
         changes["models"] = {cli: new_models[cli] for cli in CLIS if cli in new_models}
@@ -277,8 +284,10 @@ def set_agent(cfg: Config, name: str, *, role=None, reports_to=None, models=None
         new_ones = [c for c in added if c not in agent.connections]
         if new_ones:
             lines.append("Can now use: " + ", ".join(new_ones))
-        if removed:
-            lines.append("No longer uses: " + ", ".join(removed))
+        had = {conn_key(c) for c in agent.connections if c.lower() != ALL}
+        really = [r for r in removed if (r == ALL and ALL in [c.lower() for c in agent.connections]) or (r != ALL and conn_key(r) in had)]
+        if really:
+            lines.append("No longer uses: " + ", ".join(really))
     extra = safety_defaults(cfg, added) if (defaults and added) else []
     asks = _merge(agent.ask_before, extra + [a.strip() for a in add_ask if a.strip()])
     dropped = {norm(a) for a in remove_ask}
@@ -304,7 +313,8 @@ def set_agent(cfg: Config, name: str, *, role=None, reports_to=None, models=None
             text = replace_body(text, instructions)
         except EditError as exc:
             raise SetupError(f"Bron couldn't update {rel(cfg, agent.path)}: {exc}") from exc
-        lines.append("New instructions")
+        old_lines = len(fm.read(agent.path).body.strip().splitlines())
+        lines.append(f"Replaces all of its instructions (now {len(instructions.strip().splitlines())} lines, was {old_lines} lines)")
     if not lines:
         raise SetupError(f"Nothing to change for {agent.name}.")
     change = Change(summary=[f"Change {agent.name}:"] + [f"- {line}." for line in lines], done=f"Updated {agent.name}.")

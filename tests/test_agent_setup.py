@@ -138,3 +138,38 @@ def test_the_agent_command(team, monkeypatch, capsys, tmp_path):
     assert meta(team, "COO")["ask_before"][-1] == "shell:curl"
     assert main(["agent", "create", "--name", "COO", "--role", "x"]) == 1
     assert "already an agent called COO" in capsys.readouterr().out
+
+
+def test_set_summary_has_no_phantom_lines(team):
+    add_agent(team, "CFO", runs_in="claude", connections=["Carta"], models={"claude": "default"})
+    cfg = load(team)
+    with pytest.raises(SetupError, match="Nothing to change for CFO"):
+        set_agent(cfg, "CFO", models={"claude": "default"})
+    with pytest.raises(SetupError, match="Nothing to change for CFO"):
+        set_agent(cfg, "CFO", remove_connections=["Gmail"])
+    change = set_agent(cfg, "CFO", remove_connections=["Gmail", "Carta"], role="Finance chief")
+    assert change.summary == ["Change CFO:", "- Role: Finance chief.", "- No longer uses: Carta."]
+    change = set_agent(cfg, "CFO", remove_connections=["Gmail"], role="Finance chief")
+    assert not any("No longer" in line for line in change.summary)
+
+
+def test_set_instructions_summary_counts_lines(team):
+    add_agent(team, "CFO")
+    change = set_agent(load(team), "CFO", instructions="# A\nb\nc")
+    assert change.summary[1].startswith("- Replaces all of its instructions (now 3 lines, was ")
+    assert change.summary[1].endswith(" lines).")
+
+
+def test_create_refuses_a_run_app_that_contradicts_the_model(team):
+    cfg = load(team)
+    with pytest.raises(SetupError, match="That model is for Codex, but you chose Claude Code; pick one."):
+        create_agent(cfg, name="X", role="x", runs_in="claude", models=parse_models(cfg, ["gpt-6.1-sol"]))
+    with pytest.raises(SetupError, match="That model is for Claude Code, but you chose Codex; pick one."):
+        create_agent(cfg, name="X", role="x", runs_in="codex", models=parse_models(cfg, ["opus-5.5"]))
+    create_agent(cfg, name="X", role="x", runs_in="any", models=parse_models(cfg, ["opus-5.5", "gpt-6.1-sol"]))
+
+
+def test_all_and_any_are_reserved_names(team):
+    for bad in ("all", "Any"):
+        with pytest.raises(SetupError, match="reserved"):
+            create_agent(load(team), name=bad, role="x")
