@@ -33,6 +33,8 @@ def _edit(cfg: Config, path: Path, changes: dict) -> str:
     """edit_meta on a file's text; an unusual hand-edited file becomes a plain SetupError."""
     try:
         return edit_meta(path.read_text(encoding="utf-8"), changes)
+    except (OSError, UnicodeDecodeError) as exc:
+        raise SetupError(f"{rel(cfg, path)} is missing or can't be read; run the health check (`bron check`).") from exc
     except EditError as exc:
         raise SetupError(f"Bron couldn't update {rel(cfg, path)}: {exc}") from exc
 

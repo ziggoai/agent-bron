@@ -122,3 +122,49 @@ def test_the_commands(vault, monkeypatch, capsys, tmp_path):
     assert main(["settings", "set", "--name", "Alex", "--company", "Example Capital"]) == 0
     assert fm.read(vault.settings_file).meta["user_name"] == "Alex"
     assert main(["connections", "add", "--name", "Time", "--command", "uvx"]) == 1
+
+
+def test_long_names_are_refused_plainly(vault):
+    long = "x" * 81
+    for build in (lambda: new_project(load(vault), long), lambda: create_routine(load(vault), long, DRAFT), lambda: add_connection(load(vault), name=long, command="uvx")):
+        with pytest.raises(SetupError, match="under 80 characters"):
+            build()
+    with pytest.raises(SetupError):
+        add_connection(load(vault), name=".hidden", command="uvx")
+    new_project(load(vault), "y" * 80)
+
+
+def test_settings_have_length_limits_and_agents_md_stays_small(vault):
+    with pytest.raises(SetupError, match="Keep Preferences under 400 characters"):
+        set_settings(load(vault), preferences="p" * 401)
+    with pytest.raises(SetupError, match="Keep Your name under 100 characters"):
+        set_settings(load(vault), user_name="n" * 101)
+    apply(vault, set_settings(load(vault), user_name="n" * 100, user_role="r" * 100, company="c" * 100, tone="t" * 400, preferences="p" * 400))
+    assert len(render_agents_md(load(vault)).encode()) < 8 * 1024
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"url": "https://docs.example.com/mcp?api_key=abc"},
+    {"url": "https://user:pw@docs.example.com/mcp"},
+    {"command": "uvx", "args": "tool --api-key abc123"},
+    {"command": "uvx", "args": "tool --token=abc123"},
+    {"command": "uvx", "args": "tool TOKEN=abc123"},
+    {"command": "uvx", "args": "tool sk-abcdef123456"},
+    {"command": "uvx", "args": "tool ghp_abcdef"},
+])
+def test_secrets_are_never_written(vault, kwargs):
+    with pytest.raises(SetupError, match="looks like a password or key") as err:
+        add_connection(load(vault), name="Secretive", **kwargs)
+    assert "abc" not in str(err.value)
+
+
+def test_settings_file_missing_is_plain(vault):
+    cfg = load(vault)
+    vault.settings_file.unlink()
+    with pytest.raises(SetupError, match="missing"):
+        set_settings(cfg, company="Example Capital")
+
+
+def test_web_address_message_mentions_both(vault):
+    with pytest.raises(SetupError, match=r"https:// or http://"):
+        add_connection(load(vault), name="X", url="ftp://b")

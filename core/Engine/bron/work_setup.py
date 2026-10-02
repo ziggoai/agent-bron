@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 import shlex
 import time
+from urllib.parse import urlsplit
 
 from . import frontmatter as fm
 from .agent_setup import _edit
@@ -14,8 +15,28 @@ from .setup import Change, SetupError
 _UNSAFE = re.compile(r'[\\/:*?"<>|#^\[\]\n\r\t]')
 
 
+MAX_NAME = 80
+_LIMITS = {"user_name": 100, "user_role": 100, "company": 100, "tone": 400, "preferences": 400}
+_SECRET_MSG = "That looks like a password or key. Keep it in the tool's own sign-in or settings, not in Bron's files."
+_SECRET_FLAG = re.compile(r"^--?(api[-_]?key|token|secret|password|passwd|key)(=.+)?$", re.I)
+_SECRET_ASSIGN = re.compile(r"^[A-Za-z0-9_]*(key|token|secret|password)[A-Za-z0-9_]*=.+", re.I)
+_SECRET_VALUE = re.compile(r"(^|=)(sk-|ghp_|xox)", re.I)
+
+
+def _looks_secret(tokens: list[str]) -> bool:
+    for i, tok in enumerate(tokens):
+        flag = _SECRET_FLAG.match(tok)
+        if flag and (flag.group(2) or i + 1 < len(tokens)):
+            return True
+        if _SECRET_ASSIGN.match(tok) or _SECRET_VALUE.search(tok):
+            return True
+    return False
+
+
 def _folder_name(name: str, what: str) -> str:
     name = " ".join(name.split())
+    if len(name) > MAX_NAME:
+        raise SetupError(f"Keep the name under {MAX_NAME} characters.")
     if not name or name.startswith(".") or _UNSAFE.search(name):
         raise SetupError(f"'{name}' can't be used as a {what} name: use letters, numbers and spaces.")
     return name
@@ -94,12 +115,28 @@ def new_skill(cfg: Config, name: str, description: str, body: str, agent: str = 
 
 def add_connection(cfg: Config, *, name: str, command: str = "", args: str = "", url: str = "", description: str = "") -> Change:
     name = " ".join(name.split())
-    if not name or _UNSAFE.search(name) or not conn_key(name):
+    if len(name) > MAX_NAME:
+        raise SetupError(f"Keep the name under {MAX_NAME} characters.")
+    if not name or name.startswith(".") or _UNSAFE.search(name) or not conn_key(name):
         raise SetupError(f"'{name}' can't be used as a connection name: use letters, numbers and spaces.")
     if conn_key(name) in cfg.connections or (cfg.vault.connections_dir / f"{name}.md").exists():
         raise SetupError(f"There's already a connection called {name}.")
     if bool(command.strip()) == bool(url.strip()):
         raise SetupError("Give either a command (a tool that runs on this Mac) or a web address, not both.")
+    try:
+        arg_tokens = shlex.split(args) if args.strip() else []
+        cmd_tokens = shlex.split(command) if command.strip() else []
+    except ValueError as exc:
+        raise SetupError(f"The command's arguments have an unclosed quote ({exc}).") from exc
+    if _looks_secret(cmd_tokens + arg_tokens):
+        raise SetupError(_SECRET_MSG)
+    if url.strip():
+        try:
+            parts = urlsplit(url.strip())
+        except ValueError:
+            raise SetupError("The web address should start with https:// or http://.") from None
+        if parts.username is not None or parts.password is not None or "@" in parts.netloc or parts.query:
+            raise SetupError(_SECRET_MSG)
     meta: dict = {"name": name, "type": "mcp-stdio" if command.strip() else "mcp-http"}
     if command.strip():
         meta["command"] = command.strip()
@@ -112,7 +149,7 @@ def add_connection(cfg: Config, *, name: str, command: str = "", args: str = "",
         where = f"Runs on this Mac: {command.strip()}" + (f" {args.strip()}" if args.strip() else "") + "."
     else:
         if not re.match(r"^https?://\S+$", url.strip()):
-            raise SetupError("The web address should start with https://.")
+            raise SetupError("The web address should start with https:// or http://.")
         meta["url"] = url.strip()
         where = f"Web address: {url.strip()}."
     if description.strip():
@@ -147,6 +184,8 @@ def set_settings(cfg: Config, **fields) -> Change:
         if value is None:
             continue
         value = " ".join(str(value).split())
+        if key in _LIMITS and len(value) > _LIMITS[key]:
+            raise SetupError(f"Keep {_LABELS[key]} under {_LIMITS[key]} characters; longer notes belong in System/Memory/.")
         if key == "default_cli" and value not in CLIS:
             raise SetupError("The main app should be claude or codex.")
         if value != current[key]:
