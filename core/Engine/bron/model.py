@@ -119,6 +119,9 @@ class Settings:
     path: Path
     user_name: str = ""
     company: str = ""
+    user_role: str = ""
+    tone: str = ""
+    preferences: str = ""
     default_cli: str = "claude"
     default_agent: str = "Bron"
     max_parallel: int = 3

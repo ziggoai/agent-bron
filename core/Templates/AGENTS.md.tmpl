@@ -18,9 +18,13 @@ This folder is a Bron vault: an Obsidian workspace where AI agents work with $us
 
 $team
 
+## About the user
+
+$about
+
 ## Rules for every agent
 
-1. Never change files in `System/` without showing the user the exact change and getting a yes (the only exception: saving the user's own name and company to `System/Settings.md` when they tell you).
+1. Never change files in `System/` without showing the user the change (a plain summary is enough; show the exact text when asked) and getting a yes. Make setup changes with the setup commands in `System/Core/Manual/setup.md`, not by editing files by hand. The only exception: saving the user's own name and company to `System/Settings.md` straight away when they tell you.
 2. Never edit `System/Core/`, `.claude/`, `.codex/`, `.agents/`, `AGENTS.md` or `CLAUDE.md`. Bron regenerates them from `System/`.
 3. Team members never run as subagents. To hand work to a team member, use a ticket. Subagents are only for helpers.
 4. Keep the vault tidy: one-off work in `Projects/`, repeating work in `Routines/`. Machine data lives in `.bron/`.

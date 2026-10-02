@@ -20,8 +20,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_hook.add_argument("--cli", choices=CLIS, required=True)
     sub.add_parser("version", help="show the framework version")
     sub.add_parser("update", help="update the framework from the Bron project this vault came from")
-    p_conn = sub.add_parser("connections", help="find the connectors set up in Claude Code and Codex")
-    p_conn.add_argument("action", choices=["scan"])
+    p_conn = sub.add_parser("connections", help="find connectors set up in Claude Code and Codex, or add one")
+    conn_commands = p_conn.add_subparsers(dest="action", required=True)
+    conn_commands.add_parser("scan", help="find the connectors set up in Claude Code and Codex")
     p_run = sub.add_parser("run", help="have a ticket's assignee work it")
     p_run.add_argument("id")
     p_run.add_argument("--resume", action="store_true", help="continue the same conversation after new messages")
@@ -37,6 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
     tickets_cli.add_parser(sub)
     routines_cli.add_parser(sub)
     setup_cli.add_agent_parser(sub)
+    setup_cli.add_work_parsers(sub)
+    setup_cli.add_connection_parser(conn_commands)
     return parser
 
 
@@ -69,6 +72,10 @@ def main(argv: list[str] | None = None) -> int:
         code, message = run_update(vault)
         print(message)
         return code
+    if args.command == "connections" and args.action == "add":
+        from . import setup_cli
+
+        return setup_cli.handle(args, vault)
     if args.command == "connections":
         from .scan import scan
         from .sync import run_sync
@@ -88,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
         from . import routines_cli
 
         return routines_cli.handle(args, vault)
-    if args.command == "agent":
+    if args.command in ("agent", "project", "skill", "settings"):
         from . import setup_cli
 
         return setup_cli.handle(args, vault)

@@ -155,6 +155,9 @@ def _settings(vault: Vault, issues: list[Issue]) -> Settings:
     f = _Fields(doc.meta, path, issues)
     settings.user_name = f.text("user_name")
     settings.company = f.text("company")
+    settings.user_role = f.text("user_role")
+    settings.tone = f.text("tone")
+    settings.preferences = f.text("preferences")
     settings.default_cli = f.text("default_cli", default="claude").lower()
     if settings.default_cli not in CLIS:
         f.problem("field.value", "'default_cli' should be 'claude' or 'codex'")

@@ -68,6 +68,43 @@ def add_agent_parser(sub) -> None:
     _preview_flags(restore)
 
 
+def add_work_parsers(sub) -> None:
+    project = sub.add_parser("project", help="start a project")
+    projects = project.add_subparsers(dest="project_command", required=True)
+    new = projects.add_parser("new", help="create Projects/<Name>/ with a README")
+    new.add_argument("name")
+    new.add_argument("--goal", default="")
+    _preview_flags(new)
+    skill = sub.add_parser("skill", help="save a reusable skill")
+    skills = skill.add_subparsers(dest="skill_command", required=True)
+    make = skills.add_parser("new", help="create a skill from a written description and steps")
+    make.add_argument("name")
+    make.add_argument("--description", required=True)
+    make.add_argument("--file", required=True, help="the skill's steps, in Markdown")
+    make.add_argument("--agent", default="", help="only for this agent")
+    _preview_flags(make)
+    settings = sub.add_parser("settings", help="change your settings")
+    sets = settings.add_subparsers(dest="settings_command", required=True)
+    put = sets.add_parser("set", help="change one or more settings")
+    put.add_argument("--name")
+    put.add_argument("--role")
+    put.add_argument("--company")
+    put.add_argument("--default-cli")
+    put.add_argument("--tone")
+    put.add_argument("--preferences")
+    _preview_flags(put, files=False)
+
+
+def add_connection_parser(commands) -> None:
+    add = commands.add_parser("add", help="add a connector that runs on this Mac or at a web address")
+    add.add_argument("--name", required=True)
+    add.add_argument("--command", dest="connector_command", default="")
+    add.add_argument("--args", default="")
+    add.add_argument("--url", default="")
+    add.add_argument("--description", default="")
+    _preview_flags(add)
+
+
 def run_change(vault, build, args) -> int:
     """Build the change; with --preview print its summary, otherwise apply it."""
     from .setup import SetupError, apply, preview
@@ -131,4 +168,18 @@ def handle(args, vault) -> int:
             return run_change(vault, lambda: agents.retire_agent(cfg, args.name, args.hand_to), args)
         if args.agent_command == "restore":
             return run_change(vault, lambda: agents.restore_agent(cfg, args.name), args)
+    from . import work_setup as work
+
+    if args.command == "project":
+        return run_change(vault, lambda: work.new_project(cfg, args.name, args.goal), args)
+    if args.command == "skill":
+        return run_change(vault, lambda: work.new_skill(cfg, args.name, args.description, read_file(args.file), args.agent), args)
+    if args.command == "settings":
+        return run_change(vault, lambda: work.set_settings(
+            cfg, user_name=args.name, user_role=args.role, company=args.company, default_cli=args.default_cli, tone=args.tone, preferences=args.preferences,
+        ), args)
+    if args.command == "connections":
+        return run_change(vault, lambda: work.add_connection(
+            cfg, name=args.name, command=args.connector_command, args=args.args, url=args.url, description=args.description,
+        ), args)
     raise SystemExit(f"bron: unknown setup command {args.command}")

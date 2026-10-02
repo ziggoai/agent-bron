@@ -29,10 +29,22 @@ def add_parser(sub) -> None:
     start.add_argument("--due", default="", metavar="YYYY-MM-DD", help="the period's due date (instead of the runbook's rule)")
     refresh = commands.add_parser("refresh", help="recount progress in the Tracking notes")
     refresh.add_argument("name", nargs="?", default="")
+    create = commands.add_parser("create", help="create a routine from a drafted runbook")
+    create.add_argument("--name", required=True)
+    create.add_argument("--file", required=True, help="the drafted Runbook.md")
+    create.add_argument("--preview", action="store_true")
 
 
 def handle(args, vault) -> int:
     from . import routines
+
+    if args.routine_command == "create":
+        from .loader import load
+        from .setup_cli import read_file, run_change
+        from .work_setup import create_routine
+
+        cfg = load(vault)
+        return run_change(vault, lambda: create_routine(cfg, args.name, read_file(args.file)), args)
 
     runbooks, issues = routines.load_runbooks(vault)
     try:

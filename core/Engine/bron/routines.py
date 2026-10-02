@@ -148,6 +148,13 @@ def _runbook(name: str, path: Path, meta: dict, issues: list[Issue]) -> Runbook 
     return Runbook(name, path, cadence, owner, str(meta.get("due") or "").strip(), lists, steps)
 
 
+def check_runbook(name: str, meta: dict) -> tuple["Runbook | None", list[Issue]]:
+    """Validate a runbook's settings before it is written (the same checks `bron check` runs)."""
+    issues: list[Issue] = []
+    runbook = _runbook(name, Path("Runbook.md"), meta, issues)
+    return runbook, issues
+
+
 # ---- periods ----
 
 def period_of(cadence: str, day: date) -> str:
