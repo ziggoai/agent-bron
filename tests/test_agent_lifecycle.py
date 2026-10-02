@@ -170,3 +170,62 @@ def test_retire_through_the_command_reports_an_unrelated_existing_problem(team, 
     out = capsys.readouterr().out
     assert out.startswith("Retired Analyst.") and "still has problems from before" in out and "Ghost" in out
     assert (team.system / "Archive" / "Agents" / "Analyst" / "Agent.md").is_file()
+
+
+def test_bringing_back_an_agent_whose_teammate_retired_drops_it_from_its_team_list(team):
+    apply(team, retire_agent(load(team), "CFO"))
+    apply(team, retire_agent(load(team), "Analyst"))
+    change = restore_agent(load(team), "CFO")
+    assert "No longer on its team list: Analyst." in change.summary
+    assert apply(team, change) == ["CFO is back."]
+    assert meta(team, "CFO")["can_assign_to"] == [] and "CFO" in meta(team, "Bron")["can_assign_to"]
+
+
+def test_bringing_back_an_agent_whose_connection_is_gone(team):
+    from vaultkit import add_connection
+
+    add_connection(team, "Timey")
+    add_connection(team, "Clock")
+    set_meta(team.agents_dir / "Analyst" / "Agent.md", connections=["Timey", "Clock"])
+    assert run_sync(team).ok
+    apply(team, retire_agent(load(team), "Analyst"))
+    (team.connections_dir / "Timey.md").unlink()
+    assert run_sync(team).ok
+    change = restore_agent(load(team), "Analyst")
+    assert "Its connection Timey is gone." in change.summary
+    apply(team, change)
+    assert meta(team, "Analyst")["connections"] == ["Clock"] and run_sync(team).ok
+
+
+def test_retire_hand_to_you_goes_to_the_main_agent(team):
+    for who in ("you", "me"):
+        change = retire_agent(load(team), "Analyst", who)
+        assert "Open work goes to Bron (work has to go to an agent)." in change.summary
+    work = new_ticket(team, title="Q3", assignee="analyst", request="x", requested_by="cfo")
+    apply(team, retire_agent(load(team), "Analyst", "you"))
+    assert load_ticket(work.path).assignee == "bron"
+
+
+def test_rename_updates_the_name_in_its_own_instructions(team):
+    path = team.agents_dir / "CFO" / "Agent.md"
+    doc = fm.read(path)
+    doc.body = "\nYou are CFO, the finance lead. You are CFOs friend.\nWhen asked, say You are CFO.\n"
+    fm.write(path, doc)
+    change = rename_agent(load(team), "CFO", "Finance")
+    assert "Its instructions now call it Finance." in change.summary
+    apply(team, change)
+    body = fm.read(team.agents_dir / "Finance" / "Agent.md").body
+    assert body == "\nYou are Finance, the finance lead. You are CFOs friend.\nWhen asked, say You are Finance.\n"
+    assert "Its instructions now call it" not in "\n".join(rename_agent(load(team), "Analyst", "Scout").summary)
+
+
+def test_a_renamed_bron_is_not_told_it_is_bron(team):
+    body = fm.read(team.agents_dir / "Bron" / "Agent.md").body
+    assert "You are Bron" not in body and "You are the user's Chief of Staff and generalist assistant." in body
+    apply(team, rename_agent(load(team), "Bron", "Atlas"))
+    assert "You are Bron" not in fm.read(team.agents_dir / "Atlas" / "Agent.md").body
+
+
+def test_long_names_are_refused(team):
+    with pytest.raises(SetupError, match="Keep the name under 80 characters."):
+        rename_agent(load(team), "CFO", "B" * 300)

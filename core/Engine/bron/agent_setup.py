@@ -12,6 +12,7 @@ from .model import ALL, CLI_NAMES, CLIS, RUNS_IN, Agent, conn_key, slug
 from .setup import Change, SetupError
 
 DEFAULT_HELPERS = ("reader", "researcher", "reviewer")
+MAX_NAME = 80
 ALWAYS_ASK = ("delete-files", "git-push")
 _UNSAFE = re.compile(r'[\\/:*?"<>|#^\[\]\n\r\t]')
 _CLAUDE_HINTS = ("claude", "opus", "sonnet", "haiku", "fable")
@@ -42,6 +43,8 @@ def _edit(cfg: Config, path: Path, changes: dict) -> str:
 def check_name(cfg: Config, name: str) -> str:
     """A new agent name, tidied; raises SetupError when it can't be used."""
     name = " ".join(name.split())
+    if len(name) > MAX_NAME:
+        raise SetupError(f"Keep the name under {MAX_NAME} characters.")
     if not name or name.startswith(".") or _UNSAFE.search(name) or not slug(name):
         raise SetupError(f"'{name}' can't be used as a name: use letters, numbers and spaces.")
     key = slug(name)
@@ -130,10 +133,10 @@ def _resolve_removals(cfg: Config, agent: Agent, names) -> list[str]:
     return out
 
 
-def safety_defaults(cfg: Config, connections: list[str]) -> list[str]:
-    """Always ask before deleting and pushing; plus every send/share/post group that touches these connections."""
+def safety_defaults(cfg: Config, connections: list[str], *, always: bool = True) -> list[str]:
+    """Always ask before deleting and pushing (unless `always` is False); plus every send/share/post group that touches these connections."""
     keys = set(cfg.connections) if ALL in connections else {conn_key(c) for c in connections}
-    groups = [g for g in ALWAYS_ASK if g in cfg.catalog.action_groups]
+    groups = [g for g in ALWAYS_ASK if g in cfg.catalog.action_groups] if always else []
     for name, group in sorted(cfg.catalog.action_groups.items()):
         if name not in groups and set(group.mcp) & keys:
             groups.append(name)
@@ -181,11 +184,9 @@ def _check_asks(cfg: Config, entries: list[str]) -> None:
         raise SetupError(f"Bron doesn't know these ask-first entries: {', '.join(unknown)}. See System/Core/Manual/permissions.md.")
 
 
-def default_instructions(name: str, role: str, boss: str) -> str:
-    boss_text = "the user" if boss == "you" else boss
+def default_instructions() -> str:
+    """Standard instructions; the name, role and boss are already at the top of the agent's prompt."""
     return (
-        "# Who you are\n"
-        f"You are {name}, {role} on the team. You report to {boss_text}.\n\n"
         "# How you work\n"
         "- Work comes to you through tickets and @-mentions; your final reply is the answer.\n"
         "- Start from what you already know: the briefing, shared memory in `System/Memory/`, and the knowledge base.\n"
@@ -249,7 +250,7 @@ def create_agent(cfg: Config, *, name: str, role: str, reports_to: str = "", mod
         "ask_before": asks,
         "always_allow": [],
     }
-    body = instructions.strip() or default_instructions(name, role, boss)
+    body = instructions.strip() or default_instructions()
     change = Change(done=f"Created {name}. Say hi with @{slug(name)}.")
     change.writes[f"System/Agents/{name}/Agent.md"] = fm.dump(fm.Document(meta, "\n" + body.rstrip() + "\n"))
     change.folders.append(f"System/Agents/{name}/Memory")
@@ -262,6 +263,7 @@ def create_agent(cfg: Config, *, name: str, role: str, reports_to: str = "", mod
         f"Reports to {boss}." + (f" {boss} can hand it work." if boss_key != "you" else ""),
         "Can use: " + (", ".join(conns) if conns else "no connectors") + ".",
         "Asks you before: " + describe_asks(asks) + ".",
+        "Instructions: yours (from the file)." if instructions.strip() else "Instructions: standard ones for this role.",
     ]
     return change
 
@@ -281,8 +283,8 @@ def set_agent(cfg: Config, name: str, *, role=None, reports_to=None, models=None
         changes["models"] = {cli: new_models[cli] for cli in CLIS if cli in new_models}
         lines.append("Model: " + ", ".join(f"{CLI_NAMES[cli]} {model}" for cli, model in models.items()))
         if runs_in is None and len(models) == 1:
-            cli = next(iter(models))
-            if agent.runs_in in CLIS and agent.runs_in != cli:
+            cli, model = next(iter(models.items()))
+            if agent.runs_in in CLIS and agent.runs_in != cli and norm(model) != "default":
                 runs_in = cli
     if runs_in is not None and runs_in != agent.runs_in:
         if runs_in not in RUNS_IN:
@@ -306,7 +308,7 @@ def set_agent(cfg: Config, name: str, *, role=None, reports_to=None, models=None
         really = [r for r in removed if (r == ALL and ALL in [c.lower() for c in agent.connections]) or (r != ALL and conn_key(r) in had)]
         if really:
             lines.append("No longer uses: " + ", ".join(really))
-    extra = safety_defaults(cfg, added) if (defaults and added) else []
+    extra = safety_defaults(cfg, added, always=False) if (defaults and added) else []
     asks = _merge(agent.ask_before, extra + [a.strip() for a in add_ask if a.strip()])
     dropped = {norm(a) for a in remove_ask}
     asks = [a for a in asks if norm(a) not in dropped]
@@ -376,6 +378,15 @@ def _refuse_busy(cfg: Config, tickets) -> None:
         raise SetupError(f"{', '.join(busy)} are being worked on right now; try again once they're finished.")
 
 
+def _rename_in_body(text: str, old: str, new: str) -> tuple[str, int]:
+    """Replace whole-word "You are <old>" with "You are <new>" in the instructions (not the settings block)."""
+    lines = text.splitlines(keepends=True)
+    end = next((i for i in range(1, len(lines)) if lines[i].strip() == fm.FENCE), len(lines) - 1)
+    head, body = "".join(lines[: end + 1]), "".join(lines[end + 1:])
+    body, count = re.subn(rf"\bYou are {re.escape(old)}(?!\w)", lambda _: f"You are {new}", body)
+    return head + body, count
+
+
 def rename_agent(cfg: Config, name: str, new_name: str) -> Change:
     from .routines import load_runbooks
     from .tickets import add_message, render
@@ -392,7 +403,8 @@ def rename_agent(cfg: Config, name: str, new_name: str) -> Change:
         raise SetupError(f"The folder {new_folder} already exists.")
     change = Change(done=f"Renamed {agent.name} to {new_name}. Tag it with @{slug(new_name)}.")
     change.moves.append((old_folder, new_folder))
-    change.writes[f"{new_folder}/Agent.md"] = _edit(cfg, agent.path, {"name": new_name})
+    text, renamed_in_body = _rename_in_body(_edit(cfg, agent.path, {"name": new_name}), agent.name, new_name)
+    change.writes[f"{new_folder}/Agent.md"] = text
     also: list[str] = []
     for other in cfg.agents.values():
         if other.key == agent.key:
@@ -426,6 +438,8 @@ def rename_agent(cfg: Config, name: str, new_name: str) -> Change:
             change.writes[rel(cfg, ticket.path)] = render(ticket)
             moved += 1
     change.summary = [f"Rename {agent.name} to {new_name}."]
+    if renamed_in_body:
+        change.summary.append(f"Its instructions now call it {new_name}.")
     if also:
         change.summary.append("Also updates: " + ", ".join(also) + ".")
     skills = sorted(f.parent.name for f in (agent.path.parent / "Skills").glob("*/SKILL.md"))
@@ -447,7 +461,11 @@ def retire_agent(cfg: Config, name: str, hand_to: str = "") -> Change:
         raise SetupError(f"{agent.name} is your main agent and can't be retired; you can rename it instead.")
     boss_key = slug(agent.reports_to)
     boss = cfg.agents.get(boss_key)
-    target = find_agent(cfg, hand_to) if hand_to.strip() else (boss or cfg.default_agent)
+    to_user = slug(hand_to) in ("you", "me")
+    if to_user:
+        target = cfg.default_agent  # the user can't hold tickets: their main agent does
+    else:
+        target = find_agent(cfg, hand_to) if hand_to.strip() else (boss or cfg.default_agent)
     if target is None or target.key == agent.key:
         raise SetupError(f"Say who should take over {agent.name}'s work.")
     mine = [t for t in _open_tickets(cfg) if t.assignee == agent.key]
@@ -503,6 +521,8 @@ def retire_agent(cfg: Config, name: str, hand_to: str = "") -> Change:
         change.writes[rel(cfg, rb.path)] = _edit(cfg, rb.path, {"owner": owner})
     change.moves.append((f"System/Agents/{agent.path.parent.name}", archive))
     change.summary = [f"Retire {agent.name}."]
+    if to_user:
+        change.summary.append(f"Open work goes to {target.name} (work has to go to an agent).")
     change.summary.append(f"Open work handed to {target.name}: {', '.join(handed)}." if handed else "It has no open work.")
     if team_lists:
         change.summary.append(f"Removed from the team list of {', '.join(team_lists)}.")
@@ -536,10 +556,23 @@ def restore_agent(cfg: Config, name: str) -> Change:
     change.moves.append((rel(cfg, folder), target))
     boss_key = slug(str(meta.get("reports_to") or ""))
     change.summary = [f"Bring back {folder.name}."]
+    edits: dict = {}
     if boss_key not in ("", "you") and boss_key not in cfg.agents and cfg.default_agent is not None:
-        change.writes[f"{target}/Agent.md"] = _edit(cfg, folder / "Agent.md", {"reports_to": cfg.default_agent.name})
+        edits["reports_to"] = cfg.default_agent.name
         boss_key = cfg.default_agent.key
         change.summary.append(f"Its old boss is gone, so it will report to {cfg.default_agent.name}.")
+    team = [str(x) for x in (meta.get("can_assign_to") or [])] if isinstance(meta.get("can_assign_to"), list) else []
+    gone_team = [x for x in team if slug(x) not in cfg.agents]
+    if gone_team:
+        edits["can_assign_to"] = [x for x in team if slug(x) in cfg.agents]
+        change.summary.append(f"No longer on its team list: {', '.join(gone_team)}.")
+    conns = [str(x) for x in (meta.get("connections") or [])] if isinstance(meta.get("connections"), list) else []
+    gone_conns = [c for c in conns if c.strip().lower() != ALL and conn_key(c) not in cfg.connections]
+    if gone_conns:
+        edits["connections"] = [c for c in conns if c not in gone_conns]
+        change.summary.append(f"Its connection {gone_conns[0]} is gone." if len(gone_conns) == 1 else f"Its connections {', '.join(gone_conns)} are gone.")
+    if edits:
+        change.writes[f"{target}/Agent.md"] = _edit(cfg, folder / "Agent.md", edits)
     if boss_key in cfg.agents:
         chief = cfg.agents[boss_key]
         change.writes[rel(cfg, chief.path)] = _edit(cfg, chief.path, {"can_assign_to": _merge(chief.can_assign_to, [folder.name])})

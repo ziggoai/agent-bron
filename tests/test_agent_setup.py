@@ -32,6 +32,7 @@ def test_create_infers_the_app_reports_to_bron_and_adds_safety_defaults(team):
         "Reports to Bron. Bron can hand it work.",
         "Can use: Google Drive, Carta.",
         "Asks you before: deleting files, pushing to git, sharing files.",
+        "Instructions: standard ones for this role.",
     ]
     apply(team, change)
     coo = meta(team, "COO")
@@ -41,7 +42,9 @@ def test_create_infers_the_app_reports_to_bron_and_adds_safety_defaults(team):
     assert coo["helpers"] == ["reader", "researcher", "reviewer"] and coo["can_assign_to"] == [] and coo["always_allow"] == []
     assert "COO" in meta(team, "Bron")["can_assign_to"]
     assert (team.agents_dir / "COO" / "Memory").is_dir()
-    assert "# Who you are" in fm.read(team.agents_dir / "COO" / "Agent.md").body
+    body = fm.read(team.agents_dir / "COO" / "Agent.md").body
+    assert body.startswith("\n# How you work\n") and "# Boundaries" in body
+    assert "# Who you are" not in body and "You are COO" not in body and "Chief Operating Officer" not in body
     assert (team.root / ".claude" / "agents" / "coo.md").is_file()
 
 
@@ -61,7 +64,7 @@ def test_safety_defaults_follow_the_connections(team):
     assert safety_defaults(cfg, ["Gmail"]) == ["delete-files", "git-push", "send-email"]
     assert safety_defaults(cfg, ["Carta"]) == ["delete-files", "git-push"]
     change = create_agent(cfg, name="Ops", role="Operations", connections=["Gmail"], defaults=False, ask_before=["shell:curl"])
-    assert change.summary[-1] == "Asks you before: running `curl`."
+    assert change.summary[-2] == "Asks you before: running `curl`."
 
 
 def test_names_with_spaces_and_accents_work_and_unsafe_ones_are_refused(team):
@@ -93,12 +96,12 @@ def test_set_changes_only_what_was_asked_and_keeps_hand_edits(team):
         "- Model: Codex gpt-6.1-sol.",
         "- Runs in Codex.",
         "- Can now use: Gmail.",
-        "- Asks you before: deleting files, pushing to git, sending email.",
+        "- Asks you before: sending email.",
     ]
     apply(team, change)
     cfo = meta(team, "CFO")
     assert cfo["runs_in"] == "codex" and cfo["models"] == {"claude": "default", "codex": "gpt-6.1-sol"}
-    assert cfo["connections"] == ["Carta", "Gmail"] and cfo["ask_before"] == ["delete-files", "git-push", "send-email"]
+    assert cfo["connections"] == ["Carta", "Gmail"] and cfo["ask_before"] == ["send-email"]
     assert "# written by hand\n" in path.read_text() and "Instructions for CFO." in path.read_text()
 
 
@@ -210,3 +213,31 @@ def test_a_connection_whose_file_is_gone_can_still_be_removed(team, monkeypatch,
     assert run_sync(team).ok
     with pytest.raises(SetupError, match="There's no connection called 'Nope'"):
         set_agent(load(team), "COO", remove_connections=["Nope"])
+
+
+def test_create_says_whose_instructions_it_uses(team):
+    change = create_agent(load(team), name="COO", role="Chief Operating Officer", instructions="# How you work\nCarefully.")
+    assert change.summary[-1] == "Instructions: yours (from the file)."
+
+
+def test_long_agent_names_are_refused(team):
+    with pytest.raises(SetupError, match="Keep the name under 80 characters."):
+        create_agent(load(team), name="A" * 300, role="x")
+    create_agent(load(team), name="A" * 80, role="x")
+
+
+def test_adding_a_connection_adds_only_its_own_ask_first_groups(team):
+    add_agent(team, "COO", ask_before=["delete-files"])
+    change = set_agent(load(team), "COO", add_connections=["Gmail"])
+    apply(team, change)
+    assert meta(team, "COO")["ask_before"] == ["delete-files", "send-email"]
+
+
+def test_a_default_model_never_moves_an_agent_to_the_other_app(team):
+    add_agent(team, "CFO", runs_in="claude", models={"claude": "opus-5.5"})
+    change = set_agent(load(team), "CFO", models={"codex": "default"})
+    assert not any("Runs in" in line for line in change.summary)
+    apply(team, change)
+    assert meta(team, "CFO")["runs_in"] == "claude" and meta(team, "CFO")["models"] == {"claude": "opus-5.5", "codex": "default"}
+    change = set_agent(load(team), "CFO", models={"codex": "gpt-6.1-sol"})
+    assert "- Runs in Codex." in change.summary
