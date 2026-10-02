@@ -53,6 +53,8 @@
 
 ### Design facts from the Plan 2 checks (binding)
 
+> **Task 1 ruling:** the runner does **not** pass `--dangerously-bypass-hook-trust`, even where the templates below show it. The user approves Bron's Codex triggers once (`/hooks`), and since their configuration never changes, ticket runs use them from then on.
+
 - **Run as agent (Claude):** `claude -p "<prompt>" --agent <key> --output-format json …`
   - Read `session_id`, `result` and `permission_denials` from the JSON.
   - `--resume <session_id>` continues the same session and keeps the agent.
@@ -2088,7 +2090,8 @@ def test_codex_run_command(vault):
     cfg = team(vault)
     spec = run_spec(cfg, cfg.agents["cfo"], "codex", "Work ticket T-0001", ticket_id="T-0001")
     argv = spec.argv
-    assert argv[:6] == ["codex", "exec", "--json", "--skip-git-repo-check", "--dangerously-bypass-hook-trust", "-c"]
+    assert argv[:5] == ["codex", "exec", "--json", "--skip-git-repo-check", "-c"]
+    assert "--dangerously-bypass-hook-trust" not in argv  # the user approves Bron's triggers once instead
     assert argv[-1] == "Work ticket T-0001"
     assert argv[argv.index("-m") + 1] == "gpt-6.1-sol"
     configs = [argv[i + 1] for i, a in enumerate(argv) if a == "-c"]
@@ -2102,7 +2105,7 @@ def test_codex_run_command(vault):
 def test_codex_resume_keeps_connection_limits_but_not_instructions(vault):
     cfg = team(vault)
     argv = run_spec(cfg, cfg.agents["cfo"], "codex", "Continue", session="thread-9").argv
-    assert argv[:6] == ["codex", "exec", "resume", "--json", "--skip-git-repo-check", "--dangerously-bypass-hook-trust"]
+    assert argv[:5] == ["codex", "exec", "resume", "--json", "--skip-git-repo-check"]
     assert argv[-2:] == ["thread-9", "Continue"]
     assert "mcp_servers.time.enabled=false" in argv
     assert not any(a.startswith("developer_instructions=") for a in argv)
@@ -2185,7 +2188,9 @@ from .vault import Vault
 if TYPE_CHECKING:
     from .loader import Config
 
-CODEX_EXEC = ["--json", "--skip-git-repo-check", "--dangerously-bypass-hook-trust"]
+# No --dangerously-bypass-hook-trust: Bron's trigger config is fixed, so the user approves it once in Codex
+# and ticket runs use it from then on (Task 1 ruling). Untrusted triggers simply don't run.
+CODEX_EXEC = ["--json", "--skip-git-repo-check"]
 
 
 @dataclass
