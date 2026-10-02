@@ -15,6 +15,11 @@ STALE_HOURS = 12
 TITLE_MAX = 60
 
 
+class _StaleChat(Exception):
+    """Raised when a chat's status changed before we could edit it; prevents saving."""
+    pass
+
+
 def tagged_agents(text: str, agents: dict[str, Agent], self_key: str) -> list[Agent]:
     """Agents tagged in the message, in order, each once; never the session's own agent."""
     found: list[Agent] = []
@@ -48,12 +53,18 @@ def start_chat(vault: Vault, *, agent: Agent, requester: str, session: str, mess
     """Continue this session's open chat with the agent, or start a new one. Returns (ticket, is_follow_up)."""
     existing = open_chat(vault, session, agent.key)
     if existing is not None:
-        with editing(vault, existing.id) as ticket:
-            add_message(ticket, "you", message)
-            # Back to todo without a Thread line: `ticket wait` then waits for the new run.
-            ticket.status = "todo"
-            ticket.invalid.pop("status", None)
-        return ticket, True
+        try:
+            with editing(vault, existing.id) as ticket:
+                # Re-check status under the ticket's lock: a run may have started it (leave the file untouched).
+                if ticket.status not in CONTINUABLE:
+                    raise _StaleChat
+                add_message(ticket, "you", message)
+                # Back to todo without a Thread line: `ticket wait` then waits for the new run.
+                ticket.status = "todo"
+                ticket.invalid.pop("status", None)
+            return ticket, True
+        except (_StaleChat, TicketError, OSError):
+            pass
     ticket = new_ticket(
         vault,
         title=chat_title(agent, message),

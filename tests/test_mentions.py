@@ -102,3 +102,37 @@ def test_chats_untouched_for_12_hours_are_closed(team):
     assert close_stale_chats(team) == [old.id]
     assert load_ticket(old.path).status == "done"
     assert load_ticket(fresh.path).status == "in-review" and load_ticket(task.path).status == "in-review"
+
+
+def test_follow_up_with_chat_started_between_find_and_edit(team, monkeypatch):
+    first, _ = chat(team)
+    set_state(team, first.id, "in-review")
+    # Snapshot: the chat is in-review
+    stale_snapshot = load_ticket(first.path)
+    # Now move the file's status to in-progress (simulating a run starting)
+    set_state(team, first.id, "in-progress")
+    # Save the running file's bytes
+    running_bytes = first.path.read_bytes()
+    # Monkeypatch open_chat to return the stale snapshot
+    monkeypatch.setattr("bron.mentions.open_chat", lambda vault, session, agent_key: stale_snapshot)
+    # Try to follow up: should create a new ticket, not continue the running one
+    follow_up_ticket, follow_up = chat(team, message="and next quarter?")
+    assert follow_up is False
+    assert follow_up_ticket.id != first.id
+    # The running ticket's file should be completely unchanged
+    assert first.path.read_bytes() == running_bytes
+    assert load_ticket(first.path).status == "in-progress"
+
+
+def test_follow_up_with_deleted_ticket_file(team):
+    first, _ = chat(team)
+    set_state(team, first.id, "in-review")
+    # Delete the ticket file
+    first.path.unlink()
+    # Try to follow up: should create a new ticket, not raise an exception
+    follow_up_ticket, follow_up = chat(team, message="and next quarter?")
+    assert follow_up is False
+    assert follow_up_ticket.id not in ("", None)  # A new ticket was created
+    # Verify the new ticket can be loaded
+    loaded = load_ticket(follow_up_ticket.path)
+    assert loaded.kind == "chat" and loaded.status == "todo"
