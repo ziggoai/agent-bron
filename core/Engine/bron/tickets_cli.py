@@ -36,7 +36,9 @@ def add_parser(sub) -> None:
     status.add_argument("id")
     status.add_argument("status")
     status.add_argument("--as", dest="author", default="you")
-    status.add_argument("--note", default="")
+    note = status.add_mutually_exclusive_group()
+    note.add_argument("--note", default="")
+    note.add_argument("--note-file", help="read the note from a file ('-' for standard input)")
 
     result = commands.add_parser("result", help="record the result and mark the ticket in-review")
     result.add_argument("id")
@@ -51,6 +53,8 @@ def add_parser(sub) -> None:
 
 
 def _read(value: str | None, file: str | None) -> str:
+    if file == "-":
+        return sys.stdin.read()
     if file:
         return Path(file).read_text(encoding="utf-8")
     return value or ""
@@ -139,8 +143,9 @@ def handle(args, vault) -> int:
             print(f"{ticket.id} is now {ticket.status}.")
             return 0
         if command == "status":
+            note = _read(args.note, args.note_file)
             with editing(vault, args.id) as ticket:
-                set_status(ticket, args.status, _author(args.author), args.note)
+                set_status(ticket, args.status, _author(args.author), note)
             for problem in ticket.problems:
                 print(f"! {problem}", file=sys.stderr)
             print(f"{ticket.id} is now {ticket.status}.")

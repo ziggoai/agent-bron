@@ -22,6 +22,25 @@ def test_agents_md_has_the_ticket_protocol_and_stays_small(vault):
     assert "in the environment" not in text
 
 
+def test_free_text_is_single_quoted_with_a_file_fallback(vault):
+    from bron.runner import RESUME_PROMPT, TASK_PROMPT
+
+    texts = {
+        "delegate skill": (vault.core_skills / "delegate" / "SKILL.md").read_text(encoding="utf-8"),
+        "tickets manual": (vault.core_manual / "tickets.md").read_text(encoding="utf-8"),
+        "AGENTS.md": render_agents_md(load(vault)),
+        "task prompt": TASK_PROMPT,
+        "resume prompt": RESUME_PROMPT,
+    }
+    for where, text in texts.items():
+        for flag in ("--note", "--text", "--request", "--title", "--context"):
+            assert f'{flag} "' not in text, f"{where} double-quotes {flag}"
+        assert re.search(r'ticket say \S+ (--as \S+ )?"', text) is None, f"{where} double-quotes a ticket say"
+    for where in ("delegate skill", "tickets manual", "AGENTS.md", "task prompt"):
+        text = texts[where]
+        assert "if the text contains a single quote, write it to a file and use `--file` (result) or `--note-file` (status)" in text, where
+
+
 def test_codex_notes_in_the_skill_and_manual(vault):
     skill = (vault.core_skills / "delegate" / "SKILL.md").read_text(encoding="utf-8")
     assert "if Codex asks for permission to run it outside the sandbox, approve it" in skill

@@ -29,17 +29,18 @@ Read the ticket first: {path}
 Do the work it asks for. Save any files you produce in the project or routine folder the ticket links to (or in Projects/Unsorted/ if it links none) and mention them in your result.
 
 Report only through the ticket, with these commands, run from the vault folder:
-- To ask a question you need answered: .bron/bin/bron ticket status {id} blocked --as {key} --note "<your question>"   (then stop and wait)
-- When you're finished: .bron/bin/bron ticket result {id} --as {key} --text "<a short summary, plus links to any files you made>"
+- To ask a question you need answered: .bron/bin/bron ticket status {id} blocked --as {key} --note '<your question>'   (then stop and wait)
+- When you're finished: .bron/bin/bron ticket result {id} --as {key} --text '<a short summary, plus links to any files you made>'
+Put the text in single quotes; if the text contains a single quote, write it to a file and use `--file` (result) or `--note-file` (status).
 
 If an action is refused or needs approval (sending, sharing, deleting, pushing, or anything on your ask-before list), don't look for a way around it. Run
-.bron/bin/bron ticket status {id} blocked --as {key} --note "{needs_ok} <the exact action, with every detail needed to do it>"
+.bron/bin/bron ticket status {id} blocked --as {key} --note '{needs_ok} <the exact action, with every detail needed to do it>'
 and stop."""
 
 RESUME_PROMPT = """New messages on ticket {id} since your last turn:
 {messages}
 
-Continue working the ticket with the same rules as before: report through `.bron/bin/bron ticket` commands, and mark it blocked with "{needs_ok} …" for anything that needs approval."""
+Continue working the ticket with the same rules as before: report through `.bron/bin/bron ticket` commands (text in single quotes, or `--file` / `--note-file` when it contains one), and mark it blocked with '{needs_ok} …' for anything that needs approval."""
 
 
 @dataclass

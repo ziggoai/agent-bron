@@ -14,11 +14,12 @@ A ticket is one note in `Tickets/` (`T-0042 <Title>.md`) that hands work from on
 The body has four parts: **Request** (what to do), **Context** (what they need to know), **Thread** (dated messages), **Result** (summary and links to outputs). You can type in a ticket in Obsidian; write new thread lines as `- your message`. When you're done typing, ask Bron to resume it (`.bron/bin/bron run <id> --resume --background --caller-cli <your-cli>`).
 
 ## Commands (from the vault folder)
-- `.bron/bin/bron ticket new --to <Agent> --from <requester> --title "…" --request "…" [--context "…"] [--project "…"]`
+Put free text in single quotes; if the text contains a single quote, write it to a file and use `--file` (result) or `--note-file` (status).
+- `.bron/bin/bron ticket new --to <Agent> --from <requester> --title '…' --request '…' [--context '…'] [--project '…']` (or `--request-file` / `--context-file`)
 - `.bron/bin/bron run <id> [--resume] [--background] [--caller-cli claude|codex]`: the assignee works it, in its own CLI and model
-- `.bron/bin/bron ticket say <id> "<text>" --as <name>`
-- `.bron/bin/bron ticket status <id> <status> [--note "…"] --as <name>`
-- `.bron/bin/bron ticket result <id> --text "…" | --file <path> --as <name>`
+- `.bron/bin/bron ticket say <id> '<text>' --as <name>`
+- `.bron/bin/bron ticket status <id> <status> [--note '…' | --note-file <path>] --as <name>` (`--note-file -` reads standard input)
+- `.bron/bin/bron ticket result <id> --text '…' | --file <path> --as <name>`
 - `.bron/bin/bron ticket show <id>`
 - `.bron/bin/bron ticket list [--for <agent>] [--open]`
 

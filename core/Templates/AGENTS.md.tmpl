@@ -30,7 +30,7 @@ $team
 
 Work between agents goes through tickets in `Tickets/` (see `System/Core/Manual/tickets.md`).
 - To hand work to a team member, use the delegate skill.
-- When you were started to work a ticket, report with ticket commands: `.bron/bin/bron ticket status <id> blocked --as <your key> --note "<question>"` to ask, `.bron/bin/bron ticket result <id> --as <your key> --text "<summary>"` when done. Your ticket id is in the task you were given (also in $$BRON_TICKET); your key is your agent name in lower case with hyphens (e.g. cfo).
+- When you were started to work a ticket, report with ticket commands: `.bron/bin/bron ticket status <id> blocked --as <your key> --note '<question>'` to ask, `.bron/bin/bron ticket result <id> --as <your key> --text '<summary>'` when done (if the text contains a single quote, write it to a file and use `--file` (result) or `--note-file` (status)). Your ticket id is in the task you were given (also in $$BRON_TICKET); your key is your agent name in lower case with hyphens (e.g. cfo).
 - If an action is refused or needs approval, don't work around it: mark the ticket blocked with a note starting "Needs your OK:" that names the exact action.
 
 ## How Bron works

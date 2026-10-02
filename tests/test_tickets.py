@@ -128,6 +128,22 @@ def test_cli_new_say_status_result_list(team, capsys):
     assert "Needs your OK: send email to LPs" in out
 
 
+def test_cli_status_note_from_a_file_or_stdin(team, capsys, tmp_path, monkeypatch):
+    import io
+
+    run(capsys, "ticket", "new", "--to", "CFO", "--from", "bron", "--title", "Q3", "--request", "x")
+    note = tmp_path / "note.txt"
+    note.write_text("Is it Fund III's or the LP's fee?\n", encoding="utf-8")
+    assert run(capsys, "ticket", "status", "1", "blocked", "--as", "cfo", "--note-file", str(note))[0] == 0
+    monkeypatch.setattr("sys.stdin", io.StringIO("Needs your OK: send 'Q3' to LPs\n"))
+    assert run(capsys, "ticket", "status", "1", "blocked", "--as", "cfo", "--note-file", "-")[0] == 0
+    out = run(capsys, "ticket", "show", "1")[1]
+    assert "status → blocked: Is it Fund III's or the LP's fee?" in out
+    assert "status → blocked: Needs your OK: send 'Q3' to LPs" in out
+    with pytest.raises(SystemExit):
+        main(["ticket", "status", "1", "blocked", "--note", "a", "--note-file", str(note)])
+
+
 def test_cli_refuses_assignment_outside_can_assign_to(team, capsys):
     add_agent(team, "COO")
     code, _, err = run(capsys, "ticket", "new", "--to", "COO", "--from", "bron", "--title", "x", "--request", "y")
