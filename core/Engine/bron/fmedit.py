@@ -65,6 +65,25 @@ def _extract_trailing_comment(line: str, key: str) -> str:
     return ""
 
 
+def _value_line_comment(line: str) -> str:
+    """The `# ...` at the end of a line inside a block value, like `  - CFO  # note` ("" when there is none)."""
+    text = line.strip()
+    try:
+        whole = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return ""
+    for i, char in enumerate(text):
+        if char != "#" or i == 0 or text[i - 1] not in " \t":
+            continue
+        try:
+            part = yaml.safe_load(text[:i])
+        except yaml.YAMLError:
+            continue
+        if part == whole:
+            return text[i:]
+    return ""
+
+
 def _value_lines(key: str, value, trailing_comment: str = "") -> list[str]:
     if isinstance(value, list):
         return [f"{key}: [" + ", ".join(scalar(v) for v in value) + "]" + trailing_comment + "\n"]
@@ -122,8 +141,8 @@ def edit_meta(text: str, changes: dict) -> str:
                 if scan < end:
                     next_line = lines[scan]
                     if next_line.strip() and (next_line[0] in " \t" or next_line.startswith("- ")):
-                        # Indented continuation, so comment is part of value
-                        comments.append(line)
+                        # Indented continuation, so comment is part of value: kept, above the key, at column 0
+                        comments.append(line.lstrip())
                         stop += 1
                         continue
                     else:
@@ -134,6 +153,8 @@ def edit_meta(text: str, changes: dict) -> str:
                     break
             elif not (line.strip() and (line[0] in " \t" or line.startswith("- "))):
                 break
+            elif trailing := _value_line_comment(line):
+                comments.append(trailing + "\n")  # a comment at the end of a replaced item: kept above the key
             stop += 1
 
         lines[index:stop] = comments + new

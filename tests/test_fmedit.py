@@ -239,6 +239,19 @@ def test_comment_on_a_block_dict_key_stays_on_the_key_line_for_a_new_dict():
     assert new == _block("models:  # c", "  claude: opus-5.5", "runs_in: codex")
 
 
+def test_comments_moved_out_of_a_replaced_block_go_to_column_0_exactly():
+    new = edit_meta(_block("helpers:", "  - reader", "  # keep me", "  - researcher", "runs_in: codex"), {"helpers": ["reader"]})
+    assert new == _block("# keep me", "helpers: [reader]", "runs_in: codex")
+
+
+def test_a_trailing_comment_on_a_replaced_list_item_is_kept_above_the_key_exactly():
+    lines = ("can_assign_to:", "  - CFO  # the money person", "  - 'A # B'", "  - Analyst", "runs_in: codex")
+    new = edit_meta(_block(*lines), {"can_assign_to": ["CFO", "Ops"]})
+    assert new == _block("# the money person", "can_assign_to: [CFO, Ops]", "runs_in: codex")
+    new = edit_meta(_block("models:", "  claude: default  # fast one", "runs_in: codex"), {"models": {"claude": "opus-5.5"}})
+    assert new == _block("# fast one", "models:", "  claude: opus-5.5", "runs_in: codex")
+
+
 def test_comment_on_a_block_key_moves_onto_a_new_flow_list():
     new = edit_meta(_block("tags:  # c", "  - a", "runs_in: codex"), {"tags": ["x"]})
     assert new == _block("tags: [x]  # c", "runs_in: codex")
