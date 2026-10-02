@@ -126,7 +126,7 @@ def _locks(cfg: Config) -> list[Issue]:
     if not leftovers:
         return []
     ids = ", ".join(lock.ticket_id for lock in leftovers)
-    return [Issue("warning", "locks.stale", f"Leftover ticket locks from runs that stopped: {ids}. The next run of each ticket clears its lock automatically.")]
+    return [Issue("warning", "locks.stale", f"Leftover ticket locks from runs that stopped: {ids}. The next session marks a ticket still in-progress as blocked, and the next run of each ticket clears its lock automatically.")]
 
 
 def _environment(cfg: Config) -> list[Issue]:

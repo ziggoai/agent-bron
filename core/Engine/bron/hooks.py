@@ -97,6 +97,12 @@ def _session_start(cli: str) -> str:
     except Exception as exc:  # noqa: BLE001
         _log_error("session-start", cli, exc)
         notes.append(f"Bron couldn't check the setup ({exc.__class__.__name__}). Ask Bron to run `.bron/bin/bron check`.")
+    try:
+        from .runner import recover_orphans
+
+        recover_orphans(vault)
+    except Exception as exc:  # noqa: BLE001 - best effort, never fails the briefing
+        _log_error("session-start", cli, exc)
     return build_briefing(vault, cli=cli, notes=notes, changed=changed)
 
 
@@ -105,6 +111,8 @@ def _ticket_updates() -> str:
     from .notifications import FILE, describe, take
     from .vault import Vault, VaultNotFound
 
+    if os.environ.get("BRON_TICKET"):
+        return ""  # a headless ticket run: the updates belong to the requester's own sessions
     try:
         vault = Vault.find()
     except VaultNotFound:

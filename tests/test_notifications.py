@@ -19,6 +19,13 @@ def test_tickets_the_user_created_are_reported_to_the_default_agent(vault):
     assert [u["id"] for u in take(vault, "bron", "bron")] == ["T-0001"]
 
 
+def test_the_user_is_matched_by_key_whatever_the_spelling(vault):
+    ticket = new_ticket(vault, title="Mine", assignee="cfo", request="x")
+    ticket.requested_by = "You"
+    record(vault, ticket)
+    assert [u["id"] for u in take(vault, "bron", "bron")] == ["T-0001"]
+
+
 def test_a_garbled_line_is_skipped(vault):
     vault.state_dir.mkdir(parents=True, exist_ok=True)
     (vault.state_dir / "notifications.jsonl").write_text("not json\n", encoding="utf-8")

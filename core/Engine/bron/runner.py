@@ -12,12 +12,12 @@ from dataclasses import dataclass
 
 from .launch import LaunchSpec, choose_cli, run_spec
 from .loader import load
-from .locks import acquire, active, release
+from .locks import acquire, active, is_stale, read_lock, release
 from .model import CLI_NAMES, CLIS, slug
 from .notifications import record
 from .statefile import read_json, update_json
 from .sync import needs_sync, run_sync
-from .tickets import TicketError, add_message, editing, find_ticket, load_ticket, normalize_id, set_result, set_status
+from .tickets import TicketError, add_message, editing, find_ticket, list_tickets, load_ticket, normalize_id, set_result, set_status
 from .vault import Vault
 
 NEEDS_OK = "Needs your OK:"
@@ -374,6 +374,38 @@ def run_ticket(
         return RunOutcome(tid, "blocked", cli, f"{tid} is blocked: the run stopped unexpectedly ({exc.__class__.__name__}: {exc}); see {log}")
     finally:
         release(vault, tid, run_id)
+
+
+ORPHANED = "The run stopped before it finished (Bron or the Mac was closed); see .bron/runs/"
+
+
+def recover_orphans(vault: Vault) -> list[str]:
+    """Block in-progress tickets whose run is gone (no lock, or a stale one). Returns their ids."""
+    max_minutes = load(vault).settings.max_minutes
+
+    def orphaned(tid: str) -> bool:
+        lock = read_lock(vault, tid)
+        return lock is None or is_stale(lock, max_minutes)
+
+    class _Busy(Exception):
+        pass
+
+    tickets, _ = list_tickets(vault)
+    blocked: list[str] = []
+    for ticket in tickets:
+        try:
+            if ticket.status != "in-progress" or not orphaned(ticket.id):
+                continue
+            with editing(vault, ticket.id) as current:
+                # Check again under the ticket's lock: a run may have just started it (leave the file untouched).
+                if current.status != "in-progress" or not orphaned(current.id):
+                    raise _Busy
+                set_status(current, "blocked", "runner", ORPHANED)
+            record(vault, current)
+            blocked.append(current.id)
+        except (_Busy, TicketError, OSError, ValueError):
+            continue
+    return blocked
 
 
 def start_background(vault: Vault, ticket_id: str, *, caller_cli: str | None = None, resume: bool = False, popen=subprocess.Popen) -> int:

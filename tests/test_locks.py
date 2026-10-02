@@ -61,6 +61,8 @@ def test_health_check_warns_about_leftover_locks(vault):
     acquire(vault, "T-0002", "b", pid=DEAD_PID)
     issues = run_checks(load(vault), include_environment=False)
     assert any(i.code == "locks.stale" and i.level == "warning" and "T-0002" in i.message for i in issues)
+    message = next(i.message for i in issues if i.code == "locks.stale")
+    assert "The next session marks a ticket still in-progress as blocked" in message
 
 
 def test_many_racers_on_a_stale_lock_exactly_one_wins(vault):

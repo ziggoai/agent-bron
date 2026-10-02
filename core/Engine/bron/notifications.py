@@ -40,7 +40,7 @@ def take(vault: Vault, agent_key: str, default_key: str) -> list[dict]:
             if not isinstance(entry, dict):
                 continue
             requester = entry.get("requested_by") or "you"
-            if slug(str(requester)) == slug(agent_key) or (requester == "you" and agent_key == default_key):
+            if slug(str(requester)) == slug(agent_key) or (slug(str(requester)) == "you" and agent_key == default_key):
                 updates.append(entry)
         new_cursor = len(lines)
         if new_cursor != start:

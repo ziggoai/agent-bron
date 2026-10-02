@@ -25,4 +25,5 @@ def vault(tmp_path, monkeypatch) -> Vault:
     shutil.copytree(REPO / "core", root / "System" / "Core", ignore=IGNORE)
     monkeypatch.delenv("BRON_VAULT", raising=False)
     monkeypatch.delenv("BRON_AGENT", raising=False)
+    monkeypatch.delenv("BRON_TICKET", raising=False)
     return Vault(root)

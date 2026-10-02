@@ -18,9 +18,13 @@ MEMORY_CHARS = 2500
 def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None, changed: list[str] | tuple = ()) -> str:
     cfg = load(vault)
     agent = os.environ.get("BRON_AGENT") or cfg.settings.default_agent
+    # A headless ticket run: no one to ask for a name, and the updates belong to the requester's own sessions.
+    ticket_run = bool(os.environ.get("BRON_TICKET"))
     settings = cfg.settings
     lines = ["# Bron briefing", f"You are {agent}, working in {CLI_NAMES.get(cli, cli)} in the user's Bron vault."]
-    if settings.user_name:
+    if ticket_run:
+        pass  # no name line and no first-run setup: nobody is there to answer
+    elif settings.user_name:
         lines.append(f"You're working with {settings.user_name}" + (f" at {settings.company}" if settings.company else "") + ".")
     else:
         lines.append(
@@ -49,7 +53,7 @@ def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None, ch
         default_key = cfg.default_agent.key if cfg.default_agent else ""
         tickets, _ = list_tickets(vault)
         assigned = [t for t in tickets if t.assignee == key and t.status in ("todo", "in-progress", "blocked")][:8]
-        all_updates = take(vault, key, default_key)
+        all_updates = [] if ticket_run else take(vault, key, default_key)
         updates = all_updates[:8]
         if assigned or updates:
             lines += ["", "## Tickets"]

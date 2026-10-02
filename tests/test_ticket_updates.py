@@ -142,6 +142,39 @@ def test_prompt_trigger_caps_updates_at_eight(in_vault):
     assert "- …and 22 more: run `.bron/bin/bron ticket list`" in output
 
 
+def test_a_ticket_run_briefing_shows_assigned_tickets_only(in_vault, monkeypatch):
+    # A background run must not consume the updates meant for the requester's own sessions (I3).
+    new_ticket(in_vault, title="Fund III fees", assignee="cfo", request="x", requested_by="bron")
+    mine = new_ticket(in_vault, title="Ask Bron", assignee="bron", request="x", requested_by="cfo")
+    mine.status = "in-review"
+    record(in_vault, mine)
+    monkeypatch.setenv("BRON_AGENT", "CFO")
+    monkeypatch.setenv("BRON_TICKET", "T-0001")
+    text = build_briefing(in_vault, cli="codex")
+    assert "You are CFO, working in Codex" in text
+    assert "- Assigned to you: T-0001 [todo] Fund III fees" in text
+    assert "Update:" not in text
+    assert "First-run setup" not in text and "You're working with" not in text
+    monkeypatch.delenv("BRON_TICKET")
+    assert "- Update: T-0002" in build_briefing(in_vault, cli="codex")  # still waiting for CFO's own session
+
+
+def test_a_ticket_run_briefing_skips_the_name_line_too(in_vault, monkeypatch):
+    from vaultkit import set_meta
+
+    set_meta(in_vault.settings_file, user_name="Alex", company="Example Capital")
+    monkeypatch.setenv("BRON_TICKET", "T-0001")
+    assert "You're working with" not in build_briefing(in_vault, cli="claude")
+
+
+def test_the_message_trigger_is_silent_in_a_ticket_run(in_vault, monkeypatch):
+    finished(in_vault)
+    monkeypatch.setenv("BRON_TICKET", "T-0001")
+    assert prompt() == ""
+    monkeypatch.delenv("BRON_TICKET")
+    assert "T-0001" in prompt()  # the update is still there for Bron's own session
+
+
 def test_prompt_trigger_outside_vault_prints_nothing(monkeypatch):
     monkeypatch.delenv("BRON_VAULT", raising=False)
     out = io.StringIO()

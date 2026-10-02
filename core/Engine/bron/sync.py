@@ -10,6 +10,7 @@ from .agents_md import render_agents_md
 from .check import has_errors, run_checks
 from .loader import Config, load
 from .model import Issue
+from .statefile import locked
 from .vault import MARKER, Vault
 from .writer import GeneratedWriter, WriteReport
 
@@ -77,6 +78,12 @@ class SyncResult:
 
 
 def run_sync(vault: Vault, *, dry_run: bool = False) -> SyncResult:
+    # One sync at a time: two writers that both read the old manifest would back up each other's files.
+    with locked(vault.state_dir / "sync.json"):
+        return _sync(vault, dry_run=dry_run)
+
+
+def _sync(vault: Vault, *, dry_run: bool) -> SyncResult:
     cfg = load(vault)
     issues = run_checks(cfg, include_environment=False)
     if has_errors(issues):

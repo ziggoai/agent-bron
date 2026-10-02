@@ -117,6 +117,44 @@ def test_unsafe_target_stops_sync_without_crashing(vault):
     assert not (vault.root / ".claude/settings.json").exists()
 
 
+def test_two_syncs_at_once_never_back_up_each_others_files(vault, monkeypatch):
+    import threading
+    import time
+
+    from bron import sync
+
+    assert run_sync(vault).ok
+    barrier = threading.Barrier(2)
+    real_plan = sync.plan_files
+
+    def plan(cfg):  # each sync plans a slightly different AGENTS.md, as if System/ changed in between
+        files = real_plan(cfg)
+        files["AGENTS.md"] += f"<!-- {threading.current_thread().name} -->\n".encode()
+        return files
+
+    class RacingWriter(sync.GeneratedWriter):
+        def apply(self, files, fingerprint=""):
+            try:
+                barrier.wait(timeout=1)  # without a sync lock both writers have read the old manifest by now
+            except threading.BrokenBarrierError:
+                pass
+            if threading.current_thread().name == "second":
+                time.sleep(0.3)
+            return super().apply(files, fingerprint)
+
+    monkeypatch.setattr(sync, "plan_files", plan)
+    monkeypatch.setattr(sync, "GeneratedWriter", RacingWriter)
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(run_sync(vault)), name=name) for name in ("first", "second")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(results) == 2 and all(r.ok for r in results)
+    assert not any(r.report.backed_up for r in results)
+    assert not vault.backups_dir.exists() or not any(vault.backups_dir.iterdir())
+
+
 def test_engine_version_change_triggers_sync(vault, monkeypatch):
     import bron
 

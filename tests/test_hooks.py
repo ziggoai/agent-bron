@@ -187,6 +187,38 @@ def test_unrelated_change_does_not_resend_instructions_but_flags_shared_rules(in
     assert "The shared rules in AGENTS.md changed" in out
 
 
+def test_session_start_blocks_tickets_whose_run_stopped(in_vault):
+    from bron.locks import acquire
+    from bron.tickets import load_ticket, new_ticket
+
+    add_agent(in_vault, "CFO")
+    orphan = new_ticket(in_vault, title="No lock", assignee="cfo", request="x", requested_by="bron", status="in-progress")
+    dead = new_ticket(in_vault, title="Dead run", assignee="cfo", request="x", requested_by="bron", status="in-progress")
+    acquire(in_vault, dead.id, "gone", pid=999_999)
+    alive = new_ticket(in_vault, title="Running", assignee="cfo", request="x", requested_by="bron", status="in-progress")
+    acquire(in_vault, alive.id, "live")  # this test process: still running
+    waiting = new_ticket(in_vault, title="Todo", assignee="cfo", request="x", requested_by="bron")
+    code, out = call("session-start")
+    assert code == 0 and out.startswith("# Bron briefing\n")
+    note = "The run stopped before it finished (Bron or the Mac was closed); see .bron/runs/"
+    for ticket in (orphan, dead):
+        loaded = load_ticket(ticket.path)
+        assert loaded.status == "blocked" and note in loaded.thread[-1]
+    assert load_ticket(alive.path).status == "in-progress"
+    assert load_ticket(waiting.path).status == "todo"
+    updates = (in_vault.state_dir / "notifications.jsonl").read_text()
+    assert orphan.id in updates and dead.id in updates and alive.id not in updates
+
+
+def test_a_failing_orphan_check_never_breaks_the_briefing(in_vault, monkeypatch):
+    def boom(*a, **k):
+        raise OSError("disk")
+
+    monkeypatch.setattr("bron.runner.list_tickets", boom)
+    code, out = call("session-start")
+    assert code == 0 and out.startswith("# Bron briefing\n")
+
+
 def test_first_run_asks_for_name_and_saves_it_without_a_second_yes(in_vault):
     _, out = call("session-start")
     assert "save them to `user_name` and `company` in System/Settings.md" in out
