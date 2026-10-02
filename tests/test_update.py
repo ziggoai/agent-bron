@@ -48,14 +48,14 @@ def test_update_when_the_project_moved(run, vault, tmp_path):
 def test_update_runs_the_project_script_for_this_vault_and_reports_the_version(run, vault, tmp_path):
     project = fake_project(
         tmp_path,
-        'printf "0.2.0\\n" > "$1/System/Core/VERSION"\n'
+        'printf "0.3.0\\n" > "$1/System/Core/VERSION"\n'
         'echo "Synced: 3 file(s) written, 0 removed."\n'
         'echo "Bron health check: all good."\n',
     )
     remember_source(vault, project)
     code, out, _ = run("update")
     assert code == 0
-    assert "Updated Bron from version 0.1.0 to 0.2.0." in out
+    assert "Updated Bron from version 0.2.0 to 0.3.0." in out
     assert "Bron health check: all good." in out
     assert "Your own files were kept." in out
     assert "Start a new session" in out
@@ -66,7 +66,7 @@ def test_update_with_no_new_version_still_refreshes(run, vault, tmp_path):
     remember_source(vault, project)
     code, out, _ = run("update")
     assert code == 0
-    assert "already on the latest version (0.1.0)" in out
+    assert "already on the latest version (0.2.0)" in out
 
 
 def test_failed_update_reports_the_reason(run, vault, tmp_path):

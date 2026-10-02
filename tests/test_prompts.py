@@ -17,7 +17,7 @@ def test_agents_md_lists_team_rules_and_manual(vault):
     assert "System/Core/Manual/index.md" in text
     assert "Team members never run as subagents" in text
     assert "the only exception: saving the user's own name and company" in text
-    assert "Framework version 0.1.0." in text
+    assert "Framework version 0.2.0." in text
     assert "work with the user" in text
     assert len(text.encode()) < 8 * 1024
 
