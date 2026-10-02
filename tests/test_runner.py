@@ -219,3 +219,198 @@ def test_a_failing_sync_blocks_the_ticket(team, monkeypatch):
     assert loaded.status == "blocked"
     assert "Bron's setup has problems, so CFO can't start; run `.bron/bin/bron check`." in loaded.thread[-1]
     assert read_lock(team, "T-0001") is None
+
+
+# ---- fix round 1: robustness, locking, background, resume validation, denials ----
+
+import sys
+
+from bron import runner
+from bron.cli import main
+from bron.notifications import record, take
+
+
+def raising(exc):
+    def run(argv, **kwargs):
+        raise exc
+
+    return run
+
+
+def test_invalid_utf8_from_a_real_child_never_crashes(team):
+    child = [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'\\xff\\xfe')"]
+    done = runner.execute(child, env={}, cwd=team.root, timeout=30)
+    assert done.returncode == 0 and "�" in done.stdout
+
+    ticket = ticket_for(team)
+    run_ticket(team, ticket.id, run=lambda argv, *, env, cwd, timeout: runner.execute(child, env=env, cwd=cwd, timeout=timeout), which=found)
+    assert load_ticket(ticket.path).status == "blocked"
+    assert read_lock(team, ticket.id) is None
+
+
+def test_timeout_kills_the_whole_process_group(team):
+    child = [sys.executable, "-c", "import time; time.sleep(60)"]
+    done = runner.execute(child, env={}, cwd=team.root, timeout=1)
+    assert done.timed_out
+
+
+def test_a_run_that_raises_is_blocked_not_crashed(team):
+    ticket = ticket_for(team)
+    outcome = run_ticket(team, ticket.id, run=raising(RuntimeError("boom")), which=found)
+    assert outcome.status == "blocked"
+    loaded = load_ticket(ticket.path)
+    assert loaded.status == "blocked" and "RuntimeError: boom" in loaded.thread[-1]
+    assert read_lock(team, ticket.id) is None
+    assert (team.state_dir / "notifications.jsonl").read_text().count("T-0001") == 1
+
+
+def test_a_failing_run_log_blocks(team):
+    ticket = ticket_for(team)
+    team.bron_dir.mkdir(exist_ok=True)
+    (team.bron_dir / "runs").write_text("not a dir")
+    run_ticket(team, ticket.id, run=FakeCLI(team, Execution(0, claude_json(), "")), which=found)
+    assert load_ticket(ticket.path).status == "blocked"
+
+
+def test_denials_that_are_not_a_list_do_not_crash(team):
+    stdout = json.dumps({"session_id": "s", "result": "", "permission_denials": 5})
+    assert parse_claude(stdout) == ("s", "", [])
+    ticket = ticket_for(team)
+    run_ticket(team, ticket.id, run=FakeCLI(team, Execution(0, stdout, "")), which=found)
+    assert load_ticket(ticket.path).status == "blocked"
+
+
+def test_agent_deleting_the_ticket_gives_an_error_and_frees_the_lock(team):
+    ticket = ticket_for(team)
+
+    def run(argv, **kwargs):
+        ticket.path.unlink()
+        return Execution(0, claude_json(), "")
+
+    outcome = run_ticket(team, ticket.id, run=run, which=found)
+    assert outcome.status == "error" and "couldn't be read after the run" in outcome.message
+    assert read_lock(team, "T-0001") is None
+    assert read_json(team.state_dir / "runs.json", {})["T-0001"]["session"] == "s1"
+
+
+def test_keyboard_interrupt_blocks_the_ticket_and_propagates(team):
+    ticket = ticket_for(team)
+    with pytest.raises(KeyboardInterrupt):
+        run_ticket(team, ticket.id, run=raising(KeyboardInterrupt()), which=found)
+    assert load_ticket(ticket.path).status == "blocked"
+    assert read_lock(team, ticket.id) is None
+
+
+def test_a_second_run_waiting_for_a_slot_does_not_rerun_a_finished_ticket(team):
+    set_meta(team.settings_file, runner={"max_parallel": 1, "max_minutes": 30})
+    ticket = ticket_for(team)
+    acquire(team, "T-0099", "busy")
+
+    def sleep(seconds):
+        loaded = load_ticket(ticket.path)
+        set_result(loaded, "done by the first run", "cfo")
+        save_ticket(loaded)
+        (team.bron_dir / "locks" / "T-0099.lock").unlink()
+
+    fake = FakeCLI(team, Execution(0, claude_json(), ""))
+    outcome = run_ticket(team, ticket.id, run=fake, which=found, sleep=sleep)
+    assert fake.calls == [] and "waiting for review" in outcome.message
+    assert read_lock(team, ticket.id) is None
+
+
+def test_checks_run_under_the_lock_so_a_busy_ticket_is_left_alone(team):
+    ticket = ticket_for(team)
+    acquire(team, ticket.id, "other")
+    before = ticket.path.read_text()
+    run_ticket(team, ticket.id, run=FakeCLI(team, Execution(0, "", "")), which=lambda name: None)
+    assert ticket.path.read_text() == before
+    assert read_lock(team, ticket.id).run_id == "other"
+
+
+def test_in_review_needs_resume(team):
+    ticket = new_ticket(team, title="R", assignee="cfo", request="x", requested_by="bron", status="in-review")
+    fake = FakeCLI(team, Execution(0, claude_json(), ""))
+    assert "waiting for review; use --resume" in run_ticket(team, ticket.id, run=fake, which=found).message
+    assert fake.calls == []
+
+
+def test_resume_starts_fresh_when_the_saved_run_does_not_fit(team):
+    ticket = ticket_for(team)
+    path = team.state_dir / "runs.json"
+    entries = [
+        "oops",
+        {"cli": "gemini", "session": "s", "thread_len": 1, "agent": "cfo"},
+        {"cli": "claude", "session": "s", "thread_len": "x", "agent": "cfo"},
+        {"cli": "claude", "session": "s", "thread_len": 1, "agent": "someone-else"},
+    ]
+    for entry in entries:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({ticket.id: entry}))
+        fake = FakeCLI(team, Execution(0, claude_json(), ""), act=lambda t: set_result(t, "ok", "cfo"))
+        run_ticket(team, ticket.id, resume=True, run=fake, which=found)
+        assert "--resume" not in fake.calls[0]["argv"], entry
+        loaded = load_ticket(ticket.path)
+        loaded.status = "open"
+        save_ticket(loaded)
+
+
+def test_reassigned_ticket_starts_fresh_in_the_new_agents_cli(team):
+    ticket = ticket_for(team, "cfo")
+    ask = FakeCLI(team, Execution(0, claude_json(session="s1"), ""), act=lambda t: set_status(t, "blocked", "cfo", "q?"))
+    run_ticket(team, ticket.id, caller_cli="claude", run=ask, which=found)
+    loaded = load_ticket(ticket.path)
+    loaded.assignee = "pinned"
+    save_ticket(loaded)
+    fake = FakeCLI(team, Execution(0, codex_jsonl(), ""))
+    outcome = run_ticket(team, ticket.id, resume=True, run=fake, which=found)
+    assert outcome.cli == "codex" and fake.calls[0]["argv"][:2] == ["codex", "exec"]
+    assert "resume" not in fake.calls[0]["argv"][:3]
+
+
+def test_a_refusal_wins_over_an_in_review_ticket_but_keeps_the_result(team):
+    ticket = ticket_for(team)
+    denials = [{"tool_name": "Bash", "tool_input": {"command": "git push"}}]
+    fake = FakeCLI(team, Execution(0, claude_json(denials=denials), ""), act=lambda t: set_result(t, "Partial work", "cfo"))
+    run_ticket(team, ticket.id, run=fake, which=found)
+    loaded = load_ticket(ticket.path)
+    assert loaded.status == "blocked" and loaded.result == "Partial work"
+    assert "Needs your OK: Bash: git push" in loaded.thread[-1]
+
+
+def test_codex_refusal_quotes_the_command_line():
+    stderr = "noise\nexec_command failed: rm -rf x: " + APPROVAL_SIGNAL + "\nmore"
+    assert "rm -rf x" in parse_codex("", stderr)[2][0]
+
+
+def test_notifications_match_the_requester_by_key(team):
+    ticket = new_ticket(team, title="Q", assignee="cfo", request="x", requested_by="Bron")
+    record(team, ticket)
+    assert [u["id"] for u in take(team, "bron", "bron")] == ["T-0001"]
+
+
+def test_background_cli_refuses_finished_tickets_and_reports_failures(team, monkeypatch, capsys):
+    monkeypatch.chdir(team.root)
+    done = new_ticket(team, title="Old", assignee="cfo", request="x", requested_by="bron", status="done")
+    started = []
+    monkeypatch.setattr("bron.runner.start_background", lambda *a, **k: started.append(a) or 1)
+    assert main(["run", done.id, "--background"]) == 0
+    assert "nothing to run" in capsys.readouterr().out and started == []
+
+    review = new_ticket(team, title="Rev", assignee="cfo", request="x", requested_by="bron", status="in-review")
+    main(["run", review.id, "--background"])
+    assert "waiting for review" in capsys.readouterr().out and started == []
+
+    live = ticket_for(team)
+
+    def fail(*a, **k):
+        raise OSError("no such file")
+
+    monkeypatch.setattr("bron.runner.start_background", fail)
+    assert main(["run", live.id, "--background"]) == 1
+    out = capsys.readouterr().out
+    assert "Started" not in out and ".bron/bin/bron check" in out
+
+    monkeypatch.setattr("bron.runner.start_background", lambda *a, **k: 7)
+    assert main(["run", live.id, "--background"]) == 0
+    assert "Started T-" in capsys.readouterr().out
+    assert main(["run", "T-9999", "--background"]) == 1

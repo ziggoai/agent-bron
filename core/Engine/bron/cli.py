@@ -64,18 +64,36 @@ def main(argv: list[str] | None = None) -> int:
             print("The setup couldn't be refreshed yet; run `bron check` for details.")
         return 0
     if args.command == "run":
-        from .runner import run_ticket, start_background
-
-        if args.background:
-            start_background(vault, args.id, caller_cli=args.caller_cli, resume=args.resume)
-            print(f"Started {args.id} in the background. The update will show up in your next message or session.")
-            return 0
-        outcome = run_ticket(vault, args.id, caller_cli=args.caller_cli, resume=args.resume)
-        print(outcome.message)
-        return 1 if outcome.status == "error" else 0
+        return _run(vault, args)
     if args.command == "ticket":
         return tickets_cli.handle(args, vault)
     return _sync(vault, dry_run=args.dry_run)
+
+
+def _run(vault, args) -> int:
+    import signal
+
+    from .runner import refusal, run_ticket, start_background
+    from .tickets import TicketError, find_ticket, load_ticket
+
+    if args.background:
+        try:
+            ticket = load_ticket(find_ticket(vault, args.id))
+            why = refusal(ticket, args.resume)
+            if why:
+                print(why)
+                return 0
+            start_background(vault, args.id, caller_cli=args.caller_cli, resume=args.resume)
+        except (TicketError, OSError) as exc:
+            print(f"Couldn't start {args.id} in the background ({exc}). Check that .bron/bin/bron exists: run `.bron/bin/bron check`.")
+            return 1
+        print(f"Started {args.id} in the background. The update will show up in your next message or session.")
+        return 0
+    # A SIGTERM should unwind through run_ticket so the ticket is never left in-progress.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    outcome = run_ticket(vault, args.id, caller_cli=args.caller_cli, resume=args.resume)
+    print(outcome.message)
+    return 1 if outcome.status == "error" else 0
 
 
 def _print_issues(vault, issues) -> None:

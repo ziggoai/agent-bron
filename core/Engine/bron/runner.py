@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import time
 import uuid
@@ -12,7 +13,7 @@ from dataclasses import dataclass
 from .launch import LaunchSpec, choose_cli, run_spec
 from .loader import load
 from .locks import acquire, active, release
-from .model import CLI_NAMES, slug
+from .model import CLI_NAMES, CLIS, slug
 from .notifications import record
 from .statefile import read_json, update_json
 from .sync import needs_sync, run_sync
@@ -63,22 +64,45 @@ def _text(value) -> str:
     return value.decode("utf-8", "replace") if isinstance(value, bytes) else str(value)
 
 
+def _kill_group(proc: subprocess.Popen) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+
 def execute(argv: list[str], *, env: dict[str, str], cwd, timeout: int) -> Execution:
     try:
-        done = subprocess.run(
+        proc = subprocess.Popen(
             argv,
             cwd=cwd,
             env={**os.environ, **env},
-            capture_output=True,
-            text=True,
-            timeout=timeout,
             stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            start_new_session=True,
         )
-    except subprocess.TimeoutExpired as exc:
-        return Execution(-1, _text(exc.stdout), _text(exc.stderr), timed_out=True)
     except OSError as exc:
         return Execution(-1, "", str(exc))
-    return Execution(done.returncode, done.stdout, done.stderr)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        _kill_group(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            stdout, stderr = _text(exc.stdout), _text(exc.stderr)
+        return Execution(-1, stdout or "", stderr or "", timed_out=True)
+    except BaseException:
+        _kill_group(proc)
+        raise
+    return Execution(proc.returncode, stdout, stderr)
 
 
 def parse_claude(stdout: str) -> tuple[str, str, list[str]]:
@@ -92,7 +116,8 @@ def parse_claude(stdout: str) -> tuple[str, str, list[str]]:
     if not isinstance(data, dict):
         return "", "", []
     denials: list[str] = []
-    for denial in data.get("permission_denials") or []:
+    raw = data.get("permission_denials")
+    for denial in raw if isinstance(raw, list) else []:
         if not isinstance(denial, dict):
             continue
         tool = str(denial.get("tool_name") or "a tool")
@@ -117,7 +142,10 @@ def parse_codex(stdout: str, stderr: str) -> tuple[str, str, list[str]]:
         item = event.get("item")
         if event.get("type") == "item.completed" and isinstance(item, dict) and item.get("type") == "agent_message":
             text = str(item.get("text") or text)
-    denials = ["a command that needs approval (Codex: approval required by policy)"] if APPROVAL_SIGNAL in stderr else []
+    denials: list[str] = []
+    if APPROVAL_SIGNAL in stderr:
+        line = next((ln.strip() for ln in stderr.splitlines() if APPROVAL_SIGNAL in ln), "")
+        denials = [f"a command that needs approval (Codex: {line[:300]})" if line else "a command that needs approval (Codex: approval required by policy)"]
     return thread, text, denials
 
 
@@ -126,15 +154,6 @@ def _block(vault: Vault, ticket, cli: str, note: str) -> RunOutcome:
         set_status(current, "blocked", "runner", note)
     record(vault, current)
     return RunOutcome(current.id, "blocked", cli, f"{current.id} is blocked: {note}")
-
-
-def _wait_for_slot(vault: Vault, settings, sleep, now) -> bool:
-    deadline = now() + settings.max_minutes * 60
-    while len(active(vault, settings.max_minutes)) >= settings.max_parallel:
-        if now() > deadline:
-            return False
-        sleep(5)
-    return True
 
 
 def _write_log(vault: Vault, run_id: str, spec: LaunchSpec, result: Execution) -> str:
@@ -149,20 +168,71 @@ def _write_log(vault: Vault, run_id: str, spec: LaunchSpec, result: Execution) -
 
 
 def _settle(ticket, agent, result: Execution, text: str, denials: list[str], log: str) -> None:
-    """Make sure the ticket never stays in-progress after a run."""
-    if ticket.status != "in-progress":
-        if denials and ticket.status != "blocked":
-            add_message(ticket, "runner", "Some actions were refused while working: " + "; ".join(denials))
+    """Make sure the ticket never stays in-progress after a run, and that refused actions are surfaced."""
+    needs_ok = f"{NEEDS_OK} " + "; ".join(denials)
+    if ticket.status == "in-progress":
+        if result.timed_out:
+            set_status(ticket, "blocked", "runner", f"{agent.name} took longer than the time limit and was stopped; see {log}")
+        elif denials:
+            set_status(ticket, "blocked", "runner", needs_ok)
+        elif text.strip():
+            add_message(ticket, "runner", f"{agent.name} didn't report through the ticket; its final answer was saved as the result.")
+            set_result(ticket, text, "runner")
+        else:
+            set_status(ticket, "blocked", "runner", f"The run ended without an answer (exit code {result.returncode}); see {log}")
         return
-    if result.timed_out:
-        set_status(ticket, "blocked", "runner", f"{agent.name} took longer than the time limit and was stopped; see {log}")
-    elif denials:
-        set_status(ticket, "blocked", "runner", f"{NEEDS_OK} " + "; ".join(denials))
-    elif text.strip():
-        add_message(ticket, "runner", f"{agent.name} didn't report through the ticket; its final answer was saved as the result.")
-        set_result(ticket, text, "runner")
+    if not denials:
+        return
+    if ticket.status in ("in-review", "blocked"):
+        if ticket.status == "blocked" and ticket.thread and NEEDS_OK in ticket.thread[-1]:
+            return
+        set_status(ticket, "blocked", "runner", needs_ok)
     else:
-        set_status(ticket, "blocked", "runner", f"The run ended without an answer (exit code {result.returncode}); see {log}")
+        add_message(ticket, "runner", "Some actions were refused while working: " + "; ".join(denials))
+
+
+def refusal(ticket, resume: bool) -> str | None:
+    """Why a ticket shouldn't be started now (None when it can be)."""
+    if ticket.status in ("done", "cancelled"):
+        return f"{ticket.id} is {ticket.status}; nothing to run."
+    if ticket.status == "in-review" and not resume:
+        return f"{ticket.id} is waiting for review; use --resume to continue it."
+    return None
+
+
+def _valid_previous(entry, agent, which) -> dict:
+    if not isinstance(entry, dict):
+        return {}
+    cli, session, length = entry.get("cli"), entry.get("session"), entry.get("thread_len")
+    if cli not in CLIS or not isinstance(session, str) or not session:
+        return {}
+    if not isinstance(length, int) or isinstance(length, bool) or length < 0:
+        return {}
+    if entry.get("agent") != agent.key:
+        return {}
+    if agent.runs_in in CLIS and agent.runs_in != cli:
+        return {}
+    if which(cli) is None:
+        return {}
+    return entry
+
+
+def _rescue(vault: Vault, tid: str, exc: BaseException, log: str) -> None:
+    """Best effort: a run that blew up must not leave its ticket in-progress."""
+    try:
+        with editing(vault, tid) as ticket:
+            if ticket.status == "in-progress":
+                set_status(ticket, "blocked", "runner", f"The run stopped unexpectedly ({exc.__class__.__name__}: {exc}); see {log}")
+        record(vault, ticket)
+    except BaseException:
+        pass
+
+
+def _remember(vault: Vault, tid: str, entry: dict) -> None:
+    try:
+        update_json(vault.state_dir / "runs.json", {}, lambda data: data.update({tid: entry}))
+    except (OSError, ValueError):
+        pass
 
 
 def run_ticket(
@@ -178,26 +248,38 @@ def run_ticket(
 ) -> RunOutcome:
     cfg = load(vault)
     try:
-        ticket = load_ticket(find_ticket(vault, ticket_id))
+        tid = load_ticket(find_ticket(vault, ticket_id)).id
     except TicketError as exc:
         return RunOutcome(ticket_id, "error", "", str(exc))
-    tid = ticket.id
-    if ticket.status in ("done", "cancelled"):
-        return RunOutcome(tid, ticket.status, "", f"{tid} is {ticket.status}; nothing to run.")
-    agent = cfg.agents.get(slug(ticket.assignee))
-    if agent is None:
-        return _block(vault, ticket, "", f"The assignee '{ticket.assignee}' isn't an agent in System/Agents/.")
-    runs_path = vault.state_dir / "runs.json"
-    previous = read_json(runs_path, {}).get(tid, {}) if resume else {}
-    cli = previous.get("cli") or choose_cli(cfg, agent, caller_cli)
-    if which(cli) is None:
-        return _block(vault, ticket, cli, f"{CLI_NAMES[cli]} isn't installed on this Mac, so {agent.name} can't work this ticket.")
-    if not _wait_for_slot(vault, cfg.settings, sleep, now):
-        return RunOutcome(tid, ticket.status, cli, "Too many tickets are running right now; try again shortly.")
+    settings = cfg.settings
     run_id = uuid.uuid4().hex[:12]
-    if not acquire(vault, tid, run_id, max_minutes=cfg.settings.max_minutes):
-        return RunOutcome(tid, ticket.status, cli, f"{tid} is already being worked on.")
+    deadline = now() + settings.max_minutes * 60
+    # Take the ticket's run lock first, then wait for a free slot without holding anything else up.
+    while True:
+        if not acquire(vault, tid, run_id, max_minutes=settings.max_minutes):
+            return RunOutcome(tid, "", "", f"{tid} is already being worked on.")
+        if len([lock for lock in active(vault, settings.max_minutes) if lock.ticket_id != tid]) < settings.max_parallel:
+            break
+        release(vault, tid, run_id)
+        if now() > deadline:
+            return RunOutcome(tid, "", "", "Too many tickets are running right now; try again shortly.")
+        sleep(5)
+    cli, log = "", ".bron/runs"
     try:
+        try:
+            ticket = load_ticket(find_ticket(vault, tid))
+        except TicketError as exc:
+            return RunOutcome(tid, "error", "", str(exc))
+        why = refusal(ticket, resume)
+        if why:
+            return RunOutcome(tid, ticket.status, "", why)
+        agent = cfg.agents.get(slug(ticket.assignee))
+        if agent is None:
+            return _block(vault, ticket, "", f"The assignee '{ticket.assignee}' isn't an agent in System/Agents/.")
+        previous = _valid_previous(read_json(vault.state_dir / "runs.json", {}).get(tid) if resume else None, agent, which)
+        cli = previous.get("cli") or choose_cli(cfg, agent, caller_cli)
+        if which(cli) is None:
+            return _block(vault, ticket, cli, f"{CLI_NAMES[cli]} isn't installed on this Mac, so {agent.name} can't work this ticket.")
         session = previous.get("session") or None
         if session:
             new = ticket.thread[int(previous.get("thread_len", 0)):]
@@ -216,25 +298,29 @@ def run_ticket(
         with editing(vault, tid) as current:
             set_status(current, "in-progress", "runner", f"{agent.name} started in {CLI_NAMES[cli]}" + (" (continuing)" if session else ""))
         spec = run_spec(cfg, agent, cli, prompt, session=session, ticket_id=tid)
-        result = run(spec.argv, env=spec.env, cwd=vault.root, timeout=cfg.settings.max_minutes * 60)
+        result = run(spec.argv, env=spec.env, cwd=vault.root, timeout=settings.max_minutes * 60)
         log = _write_log(vault, run_id, spec, result)
         if cli == "claude":
             found_session, text, denials = parse_claude(result.stdout)
         else:
             found_session, text, denials = parse_codex(result.stdout, result.stderr)
-        with editing(vault, tid) as ticket:
-            _settle(ticket, agent, result, text, denials, log)
-        entry = {
-            "cli": cli,
-            "session": found_session or session or "",
-            "agent": agent.key,
-            "thread_len": len(ticket.thread),
-            "updated": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        }
-        update_json(runs_path, {}, lambda data: data.update({tid: entry}))
+        entry = {"cli": cli, "session": found_session or session or "", "agent": agent.key, "thread_len": 0, "updated": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        try:
+            with editing(vault, tid) as ticket:
+                _settle(ticket, agent, result, text, denials, log)
+        except TicketError as exc:
+            _remember(vault, tid, entry)
+            return RunOutcome(tid, "error", cli, f"{tid} couldn't be read after the run: {exc}")
+        entry["thread_len"] = len(ticket.thread)
+        _remember(vault, tid, entry)
         record(vault, ticket)
         note = f": {ticket.thread[-1].split(': ', 1)[-1]}" if ticket.status == "blocked" else ""
         return RunOutcome(tid, ticket.status, cli, f"{tid} is now {ticket.status} ({agent.name}){note}")
+    except BaseException as exc:
+        _rescue(vault, tid, exc, log)
+        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            raise
+        return RunOutcome(tid, "blocked", cli, f"{tid} is blocked: the run stopped unexpectedly ({exc.__class__.__name__}: {exc}); see {log}")
     finally:
         release(vault, tid, run_id)
 

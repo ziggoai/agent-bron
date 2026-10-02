@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import time
 
+from .model import slug
 from .statefile import append_line, locked, read_json, read_lines, write_json
 from .vault import Vault
 
@@ -26,7 +27,7 @@ def record(vault: Vault, ticket) -> None:
 def take(vault: Vault, agent_key: str, default_key: str) -> list[dict]:
     """Unseen updates for this agent (tickets it asked for; the user's own tickets go to the default agent)."""
     seen_path = vault.state_dir / SEEN
-    with locked(seen_path):
+    with locked(vault.state_dir / FILE), locked(seen_path):
         lines = read_lines(vault.state_dir / FILE)
         seen = read_json(seen_path, {})
         start = int(seen.get(agent_key, 0)) if str(seen.get(agent_key, 0)).isdigit() else 0
@@ -39,7 +40,7 @@ def take(vault: Vault, agent_key: str, default_key: str) -> list[dict]:
             if not isinstance(entry, dict):
                 continue
             requester = entry.get("requested_by") or "you"
-            if requester == agent_key or (requester == "you" and agent_key == default_key):
+            if slug(str(requester)) == slug(agent_key) or (requester == "you" and agent_key == default_key):
                 updates.append(entry)
         seen[agent_key] = len(lines)
         write_json(seen_path, seen)
