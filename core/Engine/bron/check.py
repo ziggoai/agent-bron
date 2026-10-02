@@ -7,7 +7,7 @@ import tomllib
 from pathlib import Path
 
 from .loader import Config
-from .model import CLI_NAMES, Issue, conn_key, slug
+from .model import ALL, CLI_NAMES, Issue, conn_key, slug
 
 SECRET_WORDS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 
@@ -49,7 +49,7 @@ def _agents(cfg: Config) -> list[Issue]:
             if slug(helper) not in cfg.helpers:
                 bad("agent.helper-unknown", f"{agent.name} uses the helper '{helper}', which doesn't exist")
         for conn in agent.connections:
-            if conn_key(conn) not in cfg.connections:
+            if conn.strip().lower() != ALL and conn_key(conn) not in cfg.connections:
                 bad("agent.connection-unknown", f"{agent.name} uses the connection '{conn}', which isn't set up in System/Connections/")
         for other in agent.can_assign_to:
             other_key = slug(other)
@@ -85,7 +85,7 @@ def _helpers(cfg: Config) -> list[Issue]:
     out: list[Issue] = []
     for helper in cfg.helpers.values():
         for conn in helper.connections:
-            if conn_key(conn) not in cfg.connections:
+            if conn.strip().lower() != ALL and conn_key(conn) not in cfg.connections:
                 out.append(Issue("error", "helper.connection-unknown", f"The helper '{helper.name}' uses the connection '{conn}', which isn't set up", helper.path))
     return out
 

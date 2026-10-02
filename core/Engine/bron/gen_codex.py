@@ -9,10 +9,11 @@ import json
 
 import tomli_w
 
+from .access import allowed_keys
 from .catalog import Actions
 from .hookconfig import hooks_block
 from .loader import Config
-from .model import Helper, conn_key
+from .model import Helper
 from .prompts import agent_prompt, helper_prompt
 from .skills import skill_files
 
@@ -50,9 +51,11 @@ def _config(cfg: Config, ask: Actions, allow: Actions) -> dict:
 
 
 def _servers(cfg: Config, allowed: list[str], ask: Actions, allow: Actions) -> dict:
-    keep = {conn_key(c) for c in allowed}
+    keep = allowed_keys(cfg, allowed)
     out: dict = {}
     for key, conn in sorted(cfg.connections.items()):
+        if conn.type == "native":
+            continue  # defined in the user's own Codex config; per-agent limits are applied at launch
         if conn.type == "mcp-http":
             server: dict = {"url": conn.url}
         else:

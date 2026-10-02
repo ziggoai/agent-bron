@@ -294,7 +294,7 @@ def _connections(cfg: Config) -> None:
         if not name or not kind:
             continue
         if kind not in CONNECTION_TYPES:
-            f.problem("field.value", "'type' should be mcp-stdio or mcp-http")
+            f.problem("field.value", "'type' should be mcp-stdio, mcp-http or native")
             continue
         env = doc.meta.get("env") or {}
         if not isinstance(env, dict) or not all(isinstance(v, (str, int, float)) and not isinstance(v, bool) for v in env.values()):
@@ -309,7 +309,13 @@ def _connections(cfg: Config) -> None:
             env={str(k): str(v) for k, v in env.items()},
             url=f.text("url"),
             description=f.text("description"),
+            claude=f.text("claude"),
+            codex=f.text("codex"),
+            status=f.text("status"),
         )
+        if kind == "native" and not (conn.claude or conn.codex):
+            f.problem("field.missing", "A native connection needs 'claude' or 'codex' (the name each CLI uses for it)")
+            continue
         if kind == "mcp-stdio" and not conn.command:
             f.problem("field.missing", "'command' is missing (needed for mcp-stdio)")
             continue

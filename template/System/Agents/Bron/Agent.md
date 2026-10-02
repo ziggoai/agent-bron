@@ -7,7 +7,7 @@ models:
   codex: default
 runs_in: any
 helpers: [reader, researcher, reviewer]
-connections: []
+connections: [all]
 can_assign_to: []
 ask_before: [git-push, delete-files]
 always_allow: []

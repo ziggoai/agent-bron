@@ -9,7 +9,8 @@ from pathlib import Path
 CLIS = ("claude", "codex")
 CLI_NAMES = {"claude": "Claude Code", "codex": "Codex"}
 RUNS_IN = ("any", "claude", "codex")
-CONNECTION_TYPES = ("mcp-stdio", "mcp-http")
+CONNECTION_TYPES = ("mcp-stdio", "mcp-http", "native")
+ALL = "all"  # in an agent's or helper's connections: every registered connection
 DEFAULT_MODEL = "default"  # use whatever model the CLI itself is set to
 SKILL_NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
@@ -104,6 +105,9 @@ class Connection:
     env: dict[str, str] = field(default_factory=dict)
     url: str = ""
     description: str = ""
+    claude: str = ""  # native: the server id in Claude Code tool names (mcp__<claude>__<tool>)
+    codex: str = ""  # native: the server name in the user's Codex config
+    status: str = ""  # native: what the last scan saw (connected / needs sign-in / available / not found)
 
     @property
     def key(self) -> str:
