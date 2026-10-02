@@ -26,14 +26,14 @@ def test_session_start_syncs_and_briefs(in_vault):
     assert out.startswith("# Bron briefing\n")
     assert "You are Bron, working in Claude Code" in out
     assert "First-run setup isn't done yet" in out
-    assert "Bron applied recent setup changes" in out
+    assert "Setup note for you (mention it only if the user asks about setup)" in out
     assert (in_vault.root / ".codex/config.toml").is_file()
 
 
 def test_second_session_start_is_quiet_about_setup(in_vault):
     call("session-start")
     _, out = call("session-start")
-    assert "applied recent setup changes" not in out
+    assert "Setup note for you" not in out
 
 
 def test_briefing_uses_settings_and_memory_summary(in_vault):
@@ -154,3 +154,40 @@ def test_user_prompt_reads_stdin(in_vault):
     stdin = Stdin()
     assert hook("user-prompt", "claude", stdin=stdin, stdout=io.StringIO()) == 0
     assert stdin.read_called
+
+
+SIGN_OFF = '- Always end your replies with "—Bron".\n'
+
+
+def edit_bron(vault):
+    path = vault.agents_dir / "Bron" / "Agent.md"
+    path.write_text(path.read_text(encoding="utf-8") + SIGN_OFF, encoding="utf-8")
+
+
+@pytest.mark.parametrize("cli", ["claude", "codex"])
+def test_instruction_edit_takes_effect_in_the_same_session(in_vault, cli):
+    # The CLI loads its instruction files before the startup trigger regenerates them,
+    # so the briefing must carry the updated instructions itself.
+    call("session-start", cli)
+    edit_bron(in_vault)
+    _, out = call("session-start", cli)
+    assert "## Your updated instructions" in out
+    assert "replace the instructions this session started with" in out
+    assert "—Bron" in out
+    assert "# You are Bron" in out
+    _, again = call("session-start", cli)
+    assert "## Your updated instructions" not in again
+
+
+def test_unrelated_change_does_not_resend_instructions_but_flags_shared_rules(in_vault):
+    call("session-start", "claude")
+    add_agent(in_vault, "CFO")
+    _, out = call("session-start", "claude")
+    assert "## Your updated instructions" not in out
+    assert "The shared rules in AGENTS.md changed" in out
+
+
+def test_first_run_asks_for_name_and_saves_it_without_a_second_yes(in_vault):
+    _, out = call("session-start")
+    assert "save them to `user_name` and `company` in System/Settings.md" in out
+    assert "no separate yes" in out

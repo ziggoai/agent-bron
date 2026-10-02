@@ -77,6 +77,7 @@ def _session_start(cli: str) -> str:
 
     vault = Vault.find()
     notes: list[str] = []
+    changed: list[str] = []
     try:
         if needs_sync(vault):
             result = run_sync(vault)
@@ -84,13 +85,14 @@ def _session_start(cli: str) -> str:
                 notes.append("Bron couldn't apply recent setup changes; the previous setup is still active. Problems:")
                 notes += ["- " + issue.render(vault.root) for issue in result.issues if issue.level == "error"]
             elif result.report and (result.report.written or result.report.deleted):
-                notes.append("Bron applied recent setup changes. Some take effect from the next session.")
+                changed = result.report.written + result.report.deleted
+                notes.append("Setup note for you (mention it only if the user asks about setup): recent changes in System/ were applied. Changes to models, permissions, connections and skills take effect from the next session.")
                 if result.report.backup_dir:
                     notes.append(f"A hand-edited generated file was replaced; the edited copy is in {result.report.backup_dir.relative_to(vault.root)}.")
     except Exception as exc:  # noqa: BLE001
         _log_error("session-start", cli, exc)
         notes.append(f"Bron couldn't check the setup ({exc.__class__.__name__}). Ask Bron to run `.bron/bin/bron check`.")
-    return build_briefing(vault, cli=cli, notes=notes)
+    return build_briefing(vault, cli=cli, notes=notes, changed=changed)
 
 
 def _log_error(event: str, cli: str, exc: Exception) -> None:
