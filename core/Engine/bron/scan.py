@@ -21,7 +21,6 @@ from .vault import Vault
 _LINE = re.compile(r"^(?P<name>.+?): (?P<target>.+) - (?P<status>.+)$")
 _UNSAFE_ID = re.compile(r"[^A-Za-z0-9_-]")
 _UNSAFE_FILE = re.compile(r'[\\/:*?"<>|]')
-MANAGED = ("claude", "codex", "url", "status")
 BODY = (
     "Found automatically by Bron on {date}.\n"
     "You can edit the description or add notes below. Bron only updates the claude, codex, url and status lines.\n"
@@ -35,6 +34,7 @@ class Found:
     claude: str = ""
     codex: str = ""
     status: str = ""
+    origin: str = ""
 
 
 @dataclass
@@ -82,39 +82,48 @@ def parse_claude_list(text: str) -> list[Found]:
         if not match:
             continue
         raw, target, status = match["name"].strip(), match["target"].strip(), match["status"].strip()
+        origin = ""
         if raw.startswith("claude.ai "):
             name = raw[len("claude.ai "):].strip()
             server = "claude_ai_" + _UNSAFE_ID.sub("_", name)
+            origin = "claude.ai"
         elif raw.startswith("plugin:"):
-            name = raw.split(":")[-1]
+            parts = raw.split(":")
+            origin = parts[1] if len(parts) > 1 else ""
+            name = parts[-1]
             server = _UNSAFE_ID.sub("_", raw)
         else:
             name = raw
             server = raw
         url = target.split()[0] if target.startswith("http") else ""
-        out.append(Found(name=name, url=url, claude=server, status=_status(status)))
+        out.append(Found(name=name, url=url, claude=server, status=_status(status), origin=origin))
     return out
 
 
 def parse_codex_list(text: str) -> list[Found]:
-    start = text.find("[")
-    if start < 0:
-        return []
-    try:
-        data, _ = json.JSONDecoder().raw_decode(text[start:])
-    except ValueError:
-        return []
-    out: list[Found] = []
-    for server in data if isinstance(data, list) else []:
-        if not isinstance(server, dict) or not server.get("enabled", True):
+    lines = text.splitlines()
+    for line_idx, line in enumerate(lines):
+        start = line.find("[")
+        if start < 0:
             continue
-        name = str(server.get("name") or "").strip()
-        if not name:
+        # Try to decode from this line onwards, including all remaining lines
+        remaining_text = "\n".join(lines[line_idx:])[start:]
+        try:
+            data, _ = json.JSONDecoder().raw_decode(remaining_text)
+        except ValueError:
             continue
-        transport = server.get("transport")
-        url = str(transport.get("url") or "") if isinstance(transport, dict) else ""
-        out.append(Found(name=name, url=url, codex=name))
-    return out
+        out: list[Found] = []
+        for server in data if isinstance(data, list) else []:
+            if not isinstance(server, dict) or not server.get("enabled", True):
+                continue
+            name = str(server.get("name") or "").strip()
+            if not name:
+                continue
+            transport = server.get("transport")
+            url = str(transport.get("url") or "") if isinstance(transport, dict) else ""
+            out.append(Found(name=name, url=url, codex=name, origin="codex"))
+        return out
+    return []
 
 
 def _same_url(a: str, b: str) -> bool:
@@ -137,45 +146,69 @@ def merge(claude: list[Found], codex: list[Found], skip: set[str]) -> list[Found
     return merged
 
 
-def _new_path(vault: Vault, name: str) -> Path:
-    base = _UNSAFE_FILE.sub("-", name).strip(" .") or conn_key(name) or "connector"
-    path = vault.connections_dir / f"{base}.md"
-    n = 2
-    while path.exists():
-        path = vault.connections_dir / f"{base} {n}.md"
-        n += 1
-    return path
+def _safe_filename(name: str) -> str:
+    return _UNSAFE_FILE.sub("-", name).strip(" .") or conn_key(name) or "connector"
 
 
 def apply_found(vault: Vault, found: list[Found], *, scanned_claude: bool, scanned_codex: bool) -> ScanReport:
     cfg = load(vault)
     report = ScanReport()
     natives = {key: conn for key, conn in cfg.connections.items() if conn.type == "native"}
-    seen: set[str] = set()
+    used_keys: set[str] = set(cfg.connections.keys())
+    used_keys -= {key for key, conn in cfg.connections.items() if conn.type == "native"}
+
     for item in found:
-        key = conn_key(item.name)
-        if not key or (key in cfg.connections and cfg.connections[key].type != "native"):
-            continue
-        existing = next(
-            (
-                c
-                for c in natives.values()
-                if c is not None and ((item.claude and c.claude == item.claude) or (item.codex and c.codex == item.codex))
-            ),
-            None,
-        )
-        if existing is None and key in natives:
-            existing = natives[key]
-            if existing is None:  # a connector of the same name was already added in this scan
+        # Try to match by id (claude or codex id)
+        existing = None
+        if item.claude:
+            existing = next(
+                (c for c in natives.values() if c is not None and c.claude == item.claude),
+                None,
+            )
+        if existing is None and item.codex:
+            existing = next(
+                (c for c in natives.values() if c is not None and c.codex == item.codex),
+                None,
+            )
+
+        # Fallback to name match only if the existing record has no id on the side(s) the found item has
+        if existing is None:
+            key = conn_key(item.name)
+            if key and key in natives:
+                candidate = natives[key]
+                if candidate is not None:
+                    has_conflict = False
+                    if item.claude and candidate.claude and candidate.claude != item.claude:
+                        has_conflict = True
+                    if item.codex and candidate.codex and candidate.codex != item.codex:
+                        has_conflict = True
+                    if not has_conflict:
+                        existing = candidate
+
+        # Determine the name and key to use
+        use_name = item.name
+        use_key = conn_key(use_name)
+
+        if existing is None and use_key and use_key in used_keys:
+            # Key is taken, try with origin suffix
+            if item.origin:
+                use_name = f"{item.name} ({item.origin})"
+                use_key = conn_key(use_name)
+
+            if use_key and use_key in used_keys:
+                # Still taken, skip with note
+                report.notes.append(f"Couldn't add {item.name} ({item.origin}): a connector with that name already exists.")
                 continue
+
         values = {
             "claude": item.claude,
             "codex": item.codex,
             "url": item.url,
             "status": item.status or ("available" if item.codex else ""),
         }
+
         if existing is not None:
-            seen.add(existing.key)
+            # Update existing
             doc = fm.read(existing.path)
             changed = False
             for field_name, value in values.items():
@@ -185,31 +218,57 @@ def apply_found(vault: Vault, found: list[Found], *, scanned_claude: bool, scann
             if changed:
                 fm.write(existing.path, doc)
                 report.updated.append(existing.name)
+            used_keys.add(existing.key)
         else:
-            meta = {"name": item.name, "type": "native", **{k: v for k, v in values.items() if v}}
-            fm.write(_new_path(vault, item.name), fm.Document(meta, BODY.format(date=time.strftime("%Y-%m-%d"))))
-            report.created.append(item.name)
-            seen.add(key)
-            natives[key] = None  # reserve the key so a later duplicate updates instead of re-creating
+            # Create new file
+            if not use_key:
+                report.notes.append(f"Couldn't add {item.name}: the name doesn't contain any letters or numbers.")
+                continue
+
+            safe_name = _safe_filename(use_name)
+            path = vault.connections_dir / f"{safe_name}.md"
+
+            if path.exists():
+                # File already exists (may be hand-broken)
+                report.notes.append(f"{path.name} exists but couldn't be read as a connection; fix it and scan again.")
+                continue
+
+            meta = {"name": use_name, "type": "native", **{k: v for k, v in values.items() if v}}
+            fm.write(path, fm.Document(meta, BODY.format(date=time.strftime("%Y-%m-%d"))))
+            report.created.append(use_name)
+            used_keys.add(use_key)
+
         if item.status == "needs sign-in":
-            report.needs_sign_in.append(item.name)
+            report.needs_sign_in.append(use_name)
+
+    # Mark missing connectors
     for key, conn in natives.items():
-        if conn is None or key in seen or conn.status == "not found":
+        if conn is None or conn.status == "not found":
             continue
-        could_check = (conn.claude and scanned_claude) or (conn.codex and scanned_codex)
+
+        checks = [(conn.claude, scanned_claude), (conn.codex, scanned_codex)]
+        could_check = all(scanned for cid, scanned in checks if cid) and any(cid for cid, _ in checks)
+
         if could_check:
             doc = fm.read(conn.path)
             doc.meta["status"] = "not found"
             fm.write(conn.path, doc)
             report.missing.append(conn.name)
+
+    # Update default agent
     agent = cfg.default_agent
-    if agent is not None and not any(name.strip().lower() == ALL for name in agent.connections):
-        doc = fm.read(agent.path)
-        current = doc.meta.get("connections")
-        others = [str(c) for c in current] if isinstance(current, list) else []
-        doc.meta["connections"] = [ALL, *[c for c in others if c.strip().lower() != ALL]]
-        fm.write(agent.path, doc)
-        report.opened_for = agent.name
+    if agent is not None:
+        current = agent.connections
+        is_empty = not current or (isinstance(current, list) and all(not str(c).strip() for c in current))
+        has_all = any(name.strip().lower() == ALL for name in current) if current else False
+
+        if is_empty and (scanned_claude or scanned_codex):
+            doc = fm.read(agent.path)
+            others = [str(c) for c in current] if isinstance(current, list) else []
+            doc.meta["connections"] = [ALL, *[c for c in others if c.strip().lower() != ALL]]
+            fm.write(agent.path, doc)
+            report.opened_for = agent.name
+
     return report
 
 
@@ -222,6 +281,11 @@ def _ask(cli: str, argv: list[str], vault: Vault, run, notes: list[str]) -> str 
     except (OSError, subprocess.TimeoutExpired) as exc:
         notes.append(f"Couldn't ask {cli} for its connectors ({exc.__class__.__name__}).")
         return None
+
+    if done.returncode != 0:
+        notes.append(f"{'Claude Code' if cli == 'claude' else 'Codex'} couldn't list its connectors (exit {done.returncode}).")
+        return None
+
     return done.stdout
 
 
@@ -231,15 +295,30 @@ def scan(vault: Vault, *, claude_text: str | None = None, codex_text: str | None
         claude_text = _ask("claude", ["claude", "mcp", "list"], vault, run, notes)
     if codex_text is None:
         codex_text = _ask("codex", ["codex", "mcp", "list", "--json"], vault, run, notes)
+
+    # Determine what was actually scanned
+    scanned_claude = claude_text is not None
+    scanned_codex = codex_text is not None
+
+    # Parse the text
     claude = parse_claude_list(claude_text) if claude_text is not None else []
     codex = parse_codex_list(codex_text) if codex_text is not None else []
+
+    # If non-empty text parsed to nothing, treat as not scanned
+    if scanned_claude and claude_text and not claude:
+        scanned_claude = False
+        notes.append("Couldn't read Claude Code's connector list; nothing was marked missing.")
+    if scanned_codex and codex_text and not codex:
+        scanned_codex = False
+        notes.append("Couldn't read Codex's connector list; nothing was marked missing.")
+
     cfg = load(vault)
     skip = {key for key, conn in cfg.connections.items() if conn.type != "native"}
     report = apply_found(
         vault,
         merge(claude, codex, skip),
-        scanned_claude=claude_text is not None,
-        scanned_codex=codex_text is not None,
+        scanned_claude=scanned_claude,
+        scanned_codex=scanned_codex,
     )
     report.found_claude, report.found_codex = len(claude), len(codex)
     report.notes += notes

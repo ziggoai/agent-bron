@@ -53,8 +53,11 @@ def run_update(vault: Vault) -> tuple[int, str]:
     scan_note = ""
     if vault.bron_command.is_file():
         try:
-            scanned = subprocess.run([str(vault.bron_command), "connections", "scan"], capture_output=True, text=True, timeout=300)
-            scan_note = "\n" + scanned.stdout.strip() if scanned.stdout.strip() else ""
+            scanned = subprocess.run([str(vault.bron_command), "connections", "scan"], cwd=vault.root, capture_output=True, text=True, timeout=300)
+            if scanned.returncode != 0:
+                scan_note = "\nConnectors couldn't be re-checked this time."
+            elif scanned.stdout.strip():
+                scan_note = "\n" + scanned.stdout.strip()
         except (OSError, subprocess.TimeoutExpired):
             scan_note = "\nConnectors weren't re-checked this time."
     return 0, f"{headline} Your own files were kept.\n{tail}{scan_note}\nStart a new session so every change applies."
