@@ -328,3 +328,158 @@ def set_agent(cfg: Config, name: str, *, role=None, reports_to=None, models=None
             new = cfg.agents[new_key]
             change.writes[rel(cfg, new.path)] = _edit(cfg, new.path, {"can_assign_to": _merge(new.can_assign_to, [agent.name])})
     return change
+
+
+# ---- rename, retire, bring back ----
+
+def _open_tickets(cfg: Config):
+    from .tickets import OPEN, list_tickets
+
+    tickets, _ = list_tickets(cfg.vault)
+    return [t for t in tickets if t.status in OPEN]
+
+
+def rename_agent(cfg: Config, name: str, new_name: str) -> Change:
+    from .routines import load_runbooks
+    from .tickets import add_message, render
+
+    agent = find_agent(cfg, name)
+    if slug(new_name) == agent.key:
+        raise SetupError(f"That's the same name as {agent.name}.")
+    new_name = check_name(cfg, new_name)
+    old_folder, new_folder = f"System/Agents/{agent.path.parent.name}", f"System/Agents/{new_name}"
+    if (cfg.vault.root / new_folder).exists():
+        raise SetupError(f"The folder {new_folder} already exists.")
+    change = Change(done=f"Renamed {agent.name} to {new_name}. Tag it with @{slug(new_name)}.")
+    change.moves.append((old_folder, new_folder))
+    change.writes[f"{new_folder}/Agent.md"] = _edit(cfg, agent.path, {"name": new_name})
+    also: list[str] = []
+    for other in cfg.agents.values():
+        if other.key == agent.key:
+            continue
+        edits: dict = {}
+        if slug(other.reports_to) == agent.key:
+            edits["reports_to"] = new_name
+        if any(slug(x) == agent.key for x in other.can_assign_to):
+            edits["can_assign_to"] = [new_name if slug(x) == agent.key else x for x in other.can_assign_to]
+        if edits:
+            change.writes[rel(cfg, other.path)] = _edit(cfg, other.path, edits)
+            also.append(other.name)
+    if cfg.default_agent is not None and cfg.default_agent.key == agent.key:
+        change.writes[rel(cfg, cfg.settings.path)] = _edit(cfg, cfg.settings.path, {"default_agent": new_name})
+        also.append("your settings (it's your main agent)")
+    runbooks, _ = load_runbooks(cfg.vault)
+    owned = [rb for rb in runbooks if rb.owner and slug(rb.owner) == agent.key]
+    for rb in owned:
+        change.writes[rel(cfg, rb.path)] = _edit(cfg, rb.path, {"owner": new_name})
+    moved = 0
+    for ticket in _open_tickets(cfg):
+        touched = False
+        if ticket.assignee == agent.key:
+            ticket.assignee, touched = slug(new_name), True
+        if slug(ticket.requested_by) == agent.key:
+            ticket.requested_by, touched = slug(new_name), True
+        if touched:
+            add_message(ticket, "bron", f"{agent.name} was renamed {new_name}")
+            change.writes[rel(cfg, ticket.path)] = render(ticket)
+            moved += 1
+    change.summary = [f"Rename {agent.name} to {new_name}."]
+    if also:
+        change.summary.append("Also updates: " + ", ".join(also) + ".")
+    if owned:
+        change.summary.append(f"Routines it owns: {', '.join(rb.name for rb in owned)}.")
+    if moved:
+        change.summary.append(f"Open tickets that follow the new name: {moved}. Closed tickets keep the old name.")
+    return change
+
+
+def retire_agent(cfg: Config, name: str, hand_to: str = "") -> Change:
+    from .routines import load_runbooks
+    from .tickets import add_message, render, set_status
+
+    agent = find_agent(cfg, name)
+    if cfg.default_agent is not None and agent.key == cfg.default_agent.key:
+        raise SetupError(f"{agent.name} is your main agent and can't be retired; you can rename it instead.")
+    boss_key = slug(agent.reports_to)
+    boss = cfg.agents.get(boss_key)
+    target = find_agent(cfg, hand_to) if hand_to.strip() else (boss or cfg.default_agent)
+    if target is None or target.key == agent.key:
+        raise SetupError(f"Say who should take over {agent.name}'s work.")
+    mine = [t for t in _open_tickets(cfg) if t.assignee == agent.key]
+    busy = [t.id for t in mine if t.status == "in-progress"]
+    if busy:
+        raise SetupError(f"{agent.name} is working on {', '.join(busy)} right now; retire it once that's finished.")
+    archive = f"System/Archive/Agents/{agent.path.parent.name}"
+    if (cfg.vault.root / archive).exists():
+        raise SetupError(f"There's already a retired agent at {archive}; bring it back or move it first.")
+    new_boss = boss.name if boss is not None else "you"
+    owner = boss.name if boss is not None else (cfg.default_agent.name if cfg.default_agent else "")
+    change = Change(done=f"Retired {agent.name}. Its files are in {archive}; say 'bring back {agent.name}' to restore it.")
+    handed: list[str] = []
+    for ticket in mine:
+        if ticket.kind == "chat":
+            set_status(ticket, "done", "bron", f"chat ended ({agent.name} retired)")
+        else:
+            ticket.assignee = target.key
+            add_message(ticket, "bron", f"handed over from {agent.name} to {target.name} ({agent.name} retired)")
+            handed.append(ticket.id)
+        change.writes[rel(cfg, ticket.path)] = render(ticket)
+    team_lists: list[str] = []
+    reports: list[str] = []
+    for other in cfg.agents.values():
+        if other.key == agent.key:
+            continue
+        edits: dict = {}
+        if any(slug(x) == agent.key for x in other.can_assign_to):
+            edits["can_assign_to"] = [x for x in other.can_assign_to if slug(x) != agent.key]
+            team_lists.append(other.name)
+        if slug(other.reports_to) == agent.key:
+            edits["reports_to"] = new_boss
+            reports.append(other.name)
+        if edits:
+            change.writes[rel(cfg, other.path)] = _edit(cfg, other.path, edits)
+    runbooks, _ = load_runbooks(cfg.vault)
+    owned = [rb for rb in runbooks if rb.owner and slug(rb.owner) == agent.key]
+    for rb in owned:
+        change.writes[rel(cfg, rb.path)] = _edit(cfg, rb.path, {"owner": owner})
+    change.moves.append((f"System/Agents/{agent.path.parent.name}", archive))
+    change.summary = [f"Retire {agent.name}."]
+    change.summary.append(f"Open work handed to {target.name}: {', '.join(handed)}." if handed else "It has no open work.")
+    if team_lists:
+        change.summary.append(f"Removed from the team list of {', '.join(team_lists)}.")
+    if reports:
+        change.summary.append(f"{', '.join(reports)} will report to {new_boss}.")
+    if owned:
+        change.summary.append(f"Routines it owned move to {owner}: {', '.join(rb.name for rb in owned)}.")
+    change.summary.append(f"Its files move to {archive}; you can bring it back later.")
+    return change
+
+
+def restore_agent(cfg: Config, name: str) -> Change:
+    archive = cfg.vault.system / "Archive" / "Agents"
+    folders = [p for p in archive.iterdir() if p.is_dir() and slug(p.name) == slug(name)] if archive.is_dir() else []
+    if not folders:
+        raise SetupError(f"There's no retired agent called '{name}'.")
+    folder = folders[0]
+    if slug(folder.name) in cfg.agents or (cfg.vault.agents_dir / folder.name).exists():
+        raise SetupError(f"There's already an agent called {folder.name}.")
+    try:
+        text = (folder / "Agent.md").read_text(encoding="utf-8")
+        meta = fm.parse(text).meta
+    except (OSError, UnicodeDecodeError, fm.FrontmatterError) as exc:
+        raise SetupError(f"{folder.name}'s file can't be read ({exc}).") from exc
+    target = f"System/Agents/{folder.name}"
+    change = Change(done=f"{folder.name} is back.")
+    change.moves.append((rel(cfg, folder), target))
+    boss_key = slug(str(meta.get("reports_to") or ""))
+    change.summary = [f"Bring back {folder.name}."]
+    if boss_key not in ("", "you") and boss_key not in cfg.agents and cfg.default_agent is not None:
+        change.writes[f"{target}/Agent.md"] = _edit(cfg, folder / "Agent.md", {"reports_to": cfg.default_agent.name})
+        boss_key = cfg.default_agent.key
+        change.summary.append(f"Its old boss is gone, so it will report to {cfg.default_agent.name}.")
+    if boss_key in cfg.agents:
+        chief = cfg.agents[boss_key]
+        change.writes[rel(cfg, chief.path)] = _edit(cfg, chief.path, {"can_assign_to": _merge(chief.can_assign_to, [folder.name])})
+        change.summary.append(f"{chief.name} can hand it work again.")
+    change.summary.append("Tickets and routines it had before stay with whoever took them over.")
+    return change

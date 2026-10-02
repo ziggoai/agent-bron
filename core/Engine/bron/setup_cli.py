@@ -55,6 +55,17 @@ def add_agent_parser(sub) -> None:
     change.add_argument("--instructions-file", default="")
     change.add_argument("--no-defaults", action="store_true")
     _preview_flags(change)
+    rename = commands.add_parser("rename", help="rename a team member (or Bron)")
+    rename.add_argument("name")
+    rename.add_argument("new_name")
+    _preview_flags(rename)
+    retire = commands.add_parser("retire", help="retire a team member; its files are archived")
+    retire.add_argument("name")
+    retire.add_argument("--hand-to", default="", help="who takes over its open work (default: its boss)")
+    _preview_flags(retire)
+    restore = commands.add_parser("restore", help="bring back a retired team member")
+    restore.add_argument("name")
+    _preview_flags(restore)
 
 
 def run_change(vault, build, args) -> int:
@@ -114,4 +125,10 @@ def handle(args, vault) -> int:
                 instructions=read_file(args.instructions_file) or None,
                 defaults=not args.no_defaults,
             ), args)
+        if args.agent_command == "rename":
+            return run_change(vault, lambda: agents.rename_agent(cfg, args.name, args.new_name), args)
+        if args.agent_command == "retire":
+            return run_change(vault, lambda: agents.retire_agent(cfg, args.name, args.hand_to), args)
+        if args.agent_command == "restore":
+            return run_change(vault, lambda: agents.restore_agent(cfg, args.name), args)
     raise SystemExit(f"bron: unknown setup command {args.command}")
