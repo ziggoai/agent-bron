@@ -134,8 +134,17 @@ def test_quoted_commands_parse(vault):
 def test_the_delegate_skill_waits_for_the_answer_in_both_clis(vault):
     skill = (vault.core_skills / "delegate" / "SKILL.md").read_text(encoding="utf-8")
     assert "--run --caller-cli <claude|codex>" in skill
+    assert "**Quick work" in skill and "run it as an ordinary command and wait" in skill
     assert "`run_in_background: true`" in skill and "Never poll or sleep" in skill
-    assert "**In Codex:** run it and wait for it to finish" in skill
     assert "--resume --wait" in skill
+    assert "give the user the answer first" in skill
     rules = render_agents_md(load(vault))
     assert "your final reply becomes its Result" in rules
+
+
+def test_the_rules_say_when_to_hand_off_and_how_to_ask_quickly(vault):
+    rules = render_agents_md(load(vault))
+    assert "Hand work to a team member only when it needs their connections, their model or work they own" in rules
+    assert "--run --caller-cli <claude|codex>" in rules
+    assert "give the user the answer first" in rules
+    assert len(rules.encode()) < 8 * 1024
