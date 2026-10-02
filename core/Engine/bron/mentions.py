@@ -12,11 +12,16 @@ from .vault import Vault
 # '@' not preceded by a letter, digit, '.', '@' or '/', so emails and URL paths aren't tags.
 _TAG = re.compile(r"(?<![\w.@/])@([A-Za-z][\w-]*)")
 CONTINUABLE = ("blocked", "in-review")  # a chat whose agent has answered (or is waiting for an OK)
-# A chat the session's end (or 12 quiet hours) marked done is picked up again when the same session comes back
-# (e.g. `claude --resume`, or one-shot `claude -p` runs that share a session), so the agent keeps the conversation.
-RESUMABLE = (*CONTINUABLE, "done")
 STALE_HOURS = 12
+_BRON_CLOSES = (" · bron: status → done: chat ended", f" · bron: status → done: chat ended (no activity for {STALE_HOURS} hours)")
 TITLE_MAX = 60
+
+
+def resumable(ticket: Ticket) -> bool:
+    """Answered chats, plus chats Bron itself closed (session end or 12 quiet hours). Chats a person or agent closed stay closed."""
+    if ticket.status in CONTINUABLE:
+        return True
+    return ticket.status == "done" and bool(ticket.thread) and ticket.thread[-1].endswith(_BRON_CLOSES)
 
 
 class _StaleChat(Exception):
@@ -43,7 +48,7 @@ def open_chat(vault: Vault, session: str, agent_key: str) -> Ticket | None:
         return None
     tickets, _ = list_tickets(vault)
     for ticket in reversed(tickets):
-        if ticket.kind == "chat" and ticket.assignee == agent_key and ticket.status in RESUMABLE and _session_of(ticket) == session:
+        if ticket.kind == "chat" and ticket.assignee == agent_key and resumable(ticket) and _session_of(ticket) == session:
             return ticket
     return None
 
@@ -60,7 +65,7 @@ def start_chat(vault: Vault, *, agent: Agent, requester: str, session: str, mess
         try:
             with editing(vault, existing.id) as ticket:
                 # Re-check status under the ticket's lock: a run may have started it (leave the file untouched).
-                if ticket.status not in RESUMABLE:
+                if not resumable(ticket):
                     raise _StaleChat
                 add_message(ticket, "you", message)
                 # Back to todo without a Thread line: `ticket wait` then waits for the new run.
@@ -83,7 +88,10 @@ def start_chat(vault: Vault, *, agent: Agent, requester: str, session: str, mess
 
 
 def close_session_chats(vault: Vault, session: str) -> list[str]:
-    """When a session ends: its answered chats are done. Chats still running or about to run are left."""
+    """When a session ends: its answered chats are done. Chats still running or about to run are left.
+
+    A chat closed here (or by close_stale_chats) is reopened if the same session tags that agent again, since a
+    resumed session is the same conversation. Chats closed by the user or an agent stay closed."""
     if not session:
         return []
     closed: list[str] = []

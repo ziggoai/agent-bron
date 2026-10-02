@@ -5,7 +5,7 @@ import pytest
 
 from bron.loader import load
 from bron.mentions import chat_title, close_session_chats, close_stale_chats, start_chat, tagged_agents
-from bron.tickets import editing, load_ticket, new_ticket
+from bron.tickets import editing, load_ticket, new_ticket, set_status
 from vaultkit import add_agent
 
 
@@ -64,10 +64,42 @@ def test_a_chat_closed_by_a_session_end_continues_when_the_same_session_returns(
     first, _ = chat(team)
     set_state(team, first.id, "in-review")
     close_session_chats(team, "claude:s1")
+    assert load_ticket(first.path).status == "done"
     again, follow_up = chat(team, message="and next quarter?")
     assert follow_up is True and again.id == first.id
     loaded = load_ticket(first.path)
     assert loaded.status == "todo" and loaded.thread[-1].endswith("you: and next quarter?")
+
+
+def test_a_chat_closed_after_12_quiet_hours_continues_for_the_same_session(team):
+    old, _ = chat(team)
+    set_state(team, old.id, "in-review")
+    assert close_stale_chats(team, now=time.time() + 13 * 3600) == [old.id]
+    assert load_ticket(old.path).status == "done"
+    again, follow_up = chat(team, message="still there?")
+    assert follow_up is True and again.id == old.id
+
+
+def test_done_chats_of_another_session_or_agent_are_not_reopened(team):
+    first, _ = chat(team)
+    set_state(team, first.id, "in-review")
+    close_session_chats(team, "claude:s1")
+    other_session, follow_up = chat(team, session="claude:s2")
+    other_agent, follow_up_agent = chat(team, agent="coo")
+    assert follow_up is False and other_session.id != first.id
+    assert follow_up_agent is False and other_agent.id != first.id
+    assert load_ticket(first.path).status == "done"
+
+
+def test_chats_a_person_or_agent_closed_or_cancelled_stay_closed(team):
+    by_user, _ = chat(team)
+    with editing(team, by_user.id) as current:
+        set_status(current, "done", "you")
+    new_one, follow_up = chat(team)
+    assert follow_up is False and new_one.id != by_user.id
+    set_state(team, new_one.id, "cancelled")
+    newer, follow_up = chat(team)
+    assert follow_up is False and newer.id not in (by_user.id, new_one.id)
 
 
 def test_a_running_chat_or_another_sessions_chat_is_not_continued(team):

@@ -31,7 +31,7 @@ Out of scope: `create-routine` and the other setup skills (Plan 3); step-by-step
 - One chat ticket per (CLI session, tagged agent): `kind: chat`, `assignee: <agent>`, `requested_by: <session agent>`, new frontmatter `chat_session: <cli>:<session_id>`. Title: `Chat with <Agent>: <first words of the first message>` (max 60 chars).
 - **First message:** the ticket's Request is the user's message as written; its Context is the last exchanges (§3.3). **Follow-up** (an open chat ticket exists for this session and agent): the message is added to the Thread as `you: <message>` and the run resumes the agent's saved session, so the agent remembers the conversation.
 - Chat tickets are hidden from the board's main views (Board.base already has a Chats view).
-- **Closing:** the session-end trigger marks the session's chat tickets `done` (file edits only, within Codex's ~1 s budget). Fallback at session start: any chat ticket untouched for 12 hours is marked `done`.
+- **Closing:** the session-end trigger marks the session's chat tickets `done` (file edits only, within Codex's ~1 s budget). Fallback at session start: any chat ticket untouched for 12 hours is marked `done`. A chat Bron closed this way is reopened if the same session tags that agent again (a resumed session is the same conversation); chats closed by the user or an agent stay closed.
 
 ### 3.3 Context: last exchanges
 - Read from the trigger's `transcript_path` (both CLIs provide it; formats verified in Task 1).
