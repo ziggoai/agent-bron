@@ -94,7 +94,7 @@ Body
     assert "# this is important\n---" in new
 
 
-def test_trailing_comment_on_edited_key_is_preserved():
+def test_trailing_comment_two_spaces_is_preserved():
     text = """---
 role: Chief Financial Officer  # keep
 ---
@@ -104,7 +104,56 @@ Body
     new = edit_meta(text, {"role": "Finance lead"})
     parsed = fm.parse(new)
     assert parsed.meta["role"] == "Finance lead"
-    assert "# keep\n" in new
+    assert "role: Finance lead  # keep\n" in new
+    # Verify no blank line after the comment
+    assert "# keep\n\n" not in new
+
+
+def test_trailing_comment_one_space_is_preserved():
+    text = """---
+role: Chief Financial Officer # keep
+---
+
+Body
+"""
+    new = edit_meta(text, {"role": "Finance lead"})
+    parsed = fm.parse(new)
+    assert parsed.meta["role"] == "Finance lead"
+    assert "role: Finance lead # keep\n" in new
+    # Verify spacing is preserved (one space)
+    assert "role: Finance lead  # keep" not in new
+    assert "# keep\n\n" not in new
+
+
+def test_quoted_value_with_hash_is_not_treated_as_comment():
+    text = """---
+role: "Chief: Financial # Officer"
+---
+
+Body
+"""
+    new = edit_meta(text, {"role": "Finance lead"})
+    parsed = fm.parse(new)
+    assert parsed.meta["role"] == "Finance lead"
+    # The hash is part of the quoted value, not a trailing comment
+    assert "# Officer" not in new
+
+
+def test_scalar_with_trailing_comment_not_duplicated():
+    text = """---
+role: Chief Financial Officer  # keep
+runs_in: codex
+---
+
+Body
+"""
+    new = edit_meta(text, {"role": "Finance lead"})
+    parsed = fm.parse(new)
+    assert parsed.meta["role"] == "Finance lead"
+    # The comment should appear exactly once
+    assert new.count("# keep") == 1
+    # And no blank line after the comment
+    assert "# keep\n\n" not in new
 
 
 def test_quoted_keys_are_matched_and_not_duplicated():
@@ -134,18 +183,18 @@ Body
     assert meta["role"] == "Finance lead"
 
 
-def test_keys_in_meta_but_with_unusual_form_raise_error():
-    # This tests the edge case where YAML parses a key but we can't find it in lines
-    # (this is a theoretical case and hard to construct, so we test the guard logic)
+def test_unusual_yaml_key_form_raises_error():
+    # Using YAML's explicit key form: ? key\n: value
+    # The key is in parsed meta but doesn't match the regex
     text = """---
-role: Chief Financial Officer
+? role
+: Chief Financial Officer
 ---
 
 Body
 """
-    new = edit_meta(text, {"role": "Finance lead"})
-    # Verify it was edited successfully
-    assert fm.parse(new).meta["role"] == "Finance lead"
+    with pytest.raises(EditError):
+        edit_meta(text, {"role": "Finance lead"})
 
 
 def test_replace_body_preserves_leading_indentation():

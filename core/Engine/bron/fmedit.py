@@ -26,6 +26,69 @@ def scalar(value) -> str:
     return json.dumps(text, ensure_ascii=False)
 
 
+def _extract_trailing_comment(line: str, parsed_value) -> tuple[str, str]:
+    """Extract a trailing comment from a line, respecting quotes and parsed value.
+
+    Returns (value_text_without_comment, trailing_comment_with_spacing_and_hash).
+    Only returns a comment if it's not part of the quoted value.
+    """
+    line = line.rstrip("\n")
+
+    # Find the colon that separates key from value
+    colon_idx = line.find(":")
+    if colon_idx == -1:
+        return line, ""
+
+    # Value part is everything after the colon
+    value_part = line[colon_idx + 1:].lstrip(" \t")
+    if not value_part:
+        return line, ""
+
+    # For dict/list values, no trailing comment on the key line
+    if value_part.startswith(("[", "{")):
+        return line, ""
+
+    # Convert parsed_value to string for comparison
+    str_parsed = str(parsed_value) if parsed_value is not None else ""
+
+    # Scan for the last # outside of quotes that is preceded by whitespace
+    in_single = False
+    in_double = False
+    hash_pos = -1
+
+    for i, char in enumerate(value_part):
+        if char == "'" and (i == 0 or value_part[i - 1] != "\\"):
+            in_single = not in_single
+        elif char == '"' and (i == 0 or value_part[i - 1] != "\\"):
+            in_double = not in_double
+        elif char == "#" and not in_single and not in_double:
+            hash_pos = i
+
+    # If we found a # preceded by whitespace, it's a trailing comment
+    if hash_pos > 0 and value_part[hash_pos - 1] in " \t":
+        # Find where the whitespace starts (preserving spacing)
+        ws_start = hash_pos - 1
+        while ws_start > 0 and value_part[ws_start - 1] in " \t":
+            ws_start -= 1
+
+        # Extract value without the comment and spacing
+        value_without = value_part[:ws_start]
+        trailing = value_part[ws_start:]
+
+        # Only treat as trailing comment if parsed value is found in the value part
+        if not str_parsed or str_parsed in value_without:
+            # Reconstruct the line without comment
+            prefix = line[:colon_idx + 1]
+            # Add back any leading spaces that were in the original
+            original_value_start = colon_idx + 1
+            while original_value_start < len(line) and line[original_value_start] in " \t":
+                prefix += line[original_value_start]
+                original_value_start += 1
+            return prefix + value_without, trailing
+
+    return line, ""
+
+
 def _value_lines(key: str, value, trailing_comment: str = "") -> list[str]:
     if isinstance(value, list):
         return [f"{key}: [" + ", ".join(scalar(v) for v in value) + "]" + trailing_comment + "\n"]
@@ -67,13 +130,9 @@ def edit_meta(text: str, changes: dict) -> str:
                 end += len(new)
             continue
 
-        # Extract trailing comment from the old first line (don't modify lines yet)
+        # Extract trailing comment from the old first line
         old_line = lines[index]
-        trailing_comment = ""
-        if "  #" in old_line:
-            # Extract the trailing comment (only from scalar values on first line)
-            parts = old_line.split("  #", 1)
-            trailing_comment = "  #" + parts[1]
+        _, trailing_comment = _extract_trailing_comment(old_line, before.get(key))
 
         # Scan for content lines and comments that are part of this value
         stop, comments = index + 1, []
@@ -104,10 +163,10 @@ def edit_meta(text: str, changes: dict) -> str:
                 break
             stop += 1
 
-        # Update the new lines with trailing comment
+        # Update the new lines with trailing comment (pass to _value_lines, not appended after)
         if new and trailing_comment:
-            # Add trailing comment to the first new line
-            new[0] = new[0].rstrip("\n") + trailing_comment + "\n"
+            # Recreate new lines with the trailing comment
+            new = _value_lines(key, value, trailing_comment)
 
         lines[index:stop] = comments + new
         end += len(comments) + len(new) - (stop - index)
