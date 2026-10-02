@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import re
 
+import yaml
+
 from . import frontmatter as fm
 
 _PLAIN = re.compile(r"^[A-Za-z][A-Za-z0-9 _.()'&+/-]*$")
@@ -26,65 +28,67 @@ def scalar(value) -> str:
     return json.dumps(text, ensure_ascii=False)
 
 
-def _extract_trailing_comment(line: str, parsed_value) -> tuple[str, str]:
-    """Extract a trailing comment from a line, respecting quotes and parsed value.
+def _extract_trailing_comment(line: str, key: str) -> tuple[str, str]:
+    """Extract a trailing comment from a line using YAML parsing.
 
-    Returns (value_text_without_comment, trailing_comment_with_spacing_and_hash).
-    Only returns a comment if it's not part of the quoted value.
+    Returns (line_without_comment, trailing_comment_with_spacing_and_hash).
+
+    Strategy: Split into head (key:) and rest. If rest is empty or starts with #,
+    the comment is from the first # preceded by whitespace (or rest itself when it starts with #).
+    Otherwise, try parsing at each # position to find where the actual value ends.
     """
     line = line.rstrip("\n")
 
-    # Find the colon that separates key from value
+    # Find the colon after the key
     colon_idx = line.find(":")
     if colon_idx == -1:
         return line, ""
 
-    # Value part is everything after the colon
-    value_part = line[colon_idx + 1:].lstrip(" \t")
-    if not value_part:
+    head = line[:colon_idx + 1]
+    rest = line[colon_idx + 1:]
+
+    # Check if rest is empty or is just whitespace + comment
+    if not rest.strip():
+        # Only whitespace; if there's a #, find it
+        if "#" in rest:
+            hash_idx = rest.find("#")
+            # Verify there's whitespace before the #
+            if hash_idx > 0 and rest[hash_idx - 1] in " \t":
+                ws_start = hash_idx - 1
+                while ws_start > 0 and rest[ws_start - 1] in " \t":
+                    ws_start -= 1
+                return head, rest[ws_start:]
+            elif hash_idx == 0:
+                # Hash at the start of rest (after spaces)
+                return head, rest.lstrip()
         return line, ""
 
-    # For dict/list values, no trailing comment on the key line
-    if value_part.startswith(("[", "{")):
-        return line, ""
+    # If rest starts with # after optional spaces
+    if rest.lstrip().startswith("#"):
+        stripped_start = len(rest) - len(rest.lstrip())
+        return head, rest[stripped_start:]
 
-    # Convert parsed_value to string for comparison
-    str_parsed = str(parsed_value) if parsed_value is not None else ""
-
-    # Scan for the last # outside of quotes that is preceded by whitespace
-    in_single = False
-    in_double = False
-    hash_pos = -1
-
-    for i, char in enumerate(value_part):
-        if char == "'" and (i == 0 or value_part[i - 1] != "\\"):
-            in_single = not in_single
-        elif char == '"' and (i == 0 or value_part[i - 1] != "\\"):
-            in_double = not in_double
-        elif char == "#" and not in_single and not in_double:
-            hash_pos = i
-
-    # If we found a # preceded by whitespace, it's a trailing comment
-    if hash_pos > 0 and value_part[hash_pos - 1] in " \t":
-        # Find where the whitespace starts (preserving spacing)
-        ws_start = hash_pos - 1
-        while ws_start > 0 and value_part[ws_start - 1] in " \t":
-            ws_start -= 1
-
-        # Extract value without the comment and spacing
-        value_without = value_part[:ws_start]
-        trailing = value_part[ws_start:]
-
-        # Only treat as trailing comment if parsed value is found in the value part
-        if not str_parsed or str_parsed in value_without:
-            # Reconstruct the line without comment
-            prefix = line[:colon_idx + 1]
-            # Add back any leading spaces that were in the original
-            original_value_start = colon_idx + 1
-            while original_value_start < len(line) and line[original_value_start] in " \t":
-                prefix += line[original_value_start]
-                original_value_start += 1
-            return prefix + value_without, trailing
+    # Otherwise, look for # positions that could be comment boundaries
+    # Try each position where we see # preceded by whitespace
+    for i, char in enumerate(rest):
+        if char == "#" and i > 0 and rest[i - 1] in " \t":
+            # Found a # preceded by whitespace
+            # Try parsing up to this point
+            try:
+                candidate = head + rest[:i]
+                parsed = yaml.safe_load(candidate)
+                if isinstance(parsed, dict) and key in parsed:
+                    # Get the value from parsing the full line and the candidate
+                    full_parsed = yaml.safe_load(head + rest)
+                    if isinstance(full_parsed, dict) and full_parsed.get(key) == parsed.get(key):
+                        # This is the comment boundary
+                        ws_start = i - 1
+                        while ws_start > 0 and rest[ws_start - 1] in " \t":
+                            ws_start -= 1
+                        return head + rest[:ws_start], rest[ws_start:]
+            except (yaml.YAMLError, ValueError):
+                # This position doesn't parse; continue
+                continue
 
     return line, ""
 
@@ -132,7 +136,7 @@ def edit_meta(text: str, changes: dict) -> str:
 
         # Extract trailing comment from the old first line
         old_line = lines[index]
-        _, trailing_comment = _extract_trailing_comment(old_line, before.get(key))
+        _, trailing_comment = _extract_trailing_comment(old_line, key)
 
         # Scan for content lines and comments that are part of this value
         stop, comments = index + 1, []
