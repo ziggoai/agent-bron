@@ -8,7 +8,8 @@ from .hookconfig import HOOK_NAMES
 from .model import CLIS
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """Build and return the argument parser for bron commands."""
     parser = argparse.ArgumentParser(prog="bron", description="Bron keeps your agents' setup in sync across Claude Code and Codex.")
     sub = parser.add_subparsers(dest="command", required=True)
     p_sync = sub.add_parser("sync", help="regenerate the Claude Code and Codex setup from System/")
@@ -32,6 +33,13 @@ def main(argv: list[str] | None = None) -> int:
     from . import tickets_cli
 
     tickets_cli.add_parser(sub)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    from . import tickets_cli
+
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.command == "hook":

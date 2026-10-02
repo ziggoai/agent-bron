@@ -17,4 +17,5 @@ def render_agents_md(cfg: Config) -> str:
         user=cfg.settings.user_name or "the user",
         team="\n".join(rows),
         version=cfg.vault.version(),
+        BRON_TICKET="(in the environment)",
     )
