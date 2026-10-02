@@ -26,6 +26,9 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--resume", action="store_true", help="continue the same conversation after new messages")
     p_run.add_argument("--background", action="store_true", help="start it and return straight away")
     p_run.add_argument("--caller-cli", choices=CLIS, help="the CLI asking (used when the agent can run in either)")
+    p_chat = sub.add_parser("chat", help="open a session as one agent")
+    p_chat.add_argument("agent", nargs="?", default="")
+    p_chat.add_argument("--cli", choices=CLIS)
     from . import tickets_cli
 
     tickets_cli.add_parser(sub)
@@ -65,6 +68,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "run":
         return _run(vault, args)
+    if args.command == "chat":
+        return _chat(vault, args.agent, args.cli)
     if args.command == "ticket":
         return tickets_cli.handle(args, vault)
     return _sync(vault, dry_run=args.dry_run)
@@ -141,3 +146,32 @@ def _sync(vault, *, dry_run: bool) -> int:
             print(f"Hand-edited files were backed up to {report.backup_dir.relative_to(vault.root)}.")
     _print_issues(vault, result.issues)
     return 0
+
+
+def _chat(vault, name: str, cli: str | None) -> int:
+    import os
+    import shutil
+
+    from .launch import chat_spec
+    from .loader import load
+    from .model import CLI_NAMES, slug
+
+    cfg = load(vault)
+    key = slug(name) if name else (cfg.default_agent.key if cfg.default_agent else "")
+    agent = cfg.agents.get(key)
+    if agent is None:
+        names = ", ".join(a.name for a in cfg.agents.values())
+        print(f"bron: There's no agent called '{name}'. Agents: {names}")
+        return 1
+    pinned = agent.runs_in if agent.runs_in in CLIS else None
+    if cli and pinned and cli != pinned:
+        print(f"bron: {agent.name} only runs in {CLI_NAMES[pinned]}.")
+        return 1
+    chosen = cli or pinned or cfg.settings.default_cli
+    if shutil.which(chosen) is None:
+        print(f"bron: {CLI_NAMES[chosen]} isn't installed on this Mac.")
+        return 1
+    spec = chat_spec(cfg, agent, chosen)
+    os.chdir(vault.root)
+    os.execvpe(spec.argv[0], spec.argv, {**os.environ, **spec.env})
+    return 0  # not reached

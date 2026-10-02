@@ -61,6 +61,12 @@ def _agents(cfg: Config) -> list[Issue]:
         for field_name in ("ask_before", "always_allow"):
             for entry in cfg.catalog.resolve_actions(getattr(agent, field_name)).unknown:
                 bad("agent.action-unknown", f"{agent.name}'s {field_name} lists '{entry}', which Bron doesn't recognise (see System/Core/Manual/permissions.md)", "warning")
+        if agent.runs_in in CLI_NAMES and agent.runs_in not in agent.models:
+            bad(
+                "agent.model-missing",
+                f"{agent.name} only runs in {CLI_NAMES[agent.runs_in]} but has no {agent.runs_in} model set; it will use {CLI_NAMES[agent.runs_in]}'s default model",
+                "warning",
+            )
     return out
 
 
