@@ -13,7 +13,7 @@ Out of scope: choosing Drive folders for the knowledge base (knowledge-base sub-
 - **D1. Previews are plain-language summaries**, for example *"New agent: COO, runs on Opus 5.5 in Claude Code, reports to Bron, can use Google Drive, asks before sending email or deleting files. OK?"*. "Show me the file" shows the exact text.
 - **D2. Safety defaults:** every new agent asks before deleting files, pushing (git), and every send/share/post action group that touches one of its connections. Read-only connections add nothing. The summary lists them; the user can remove any.
 - **D3. Retiring archives:** open tickets are handed to the agent's boss (or whoever the user names), then the folder moves to `System/Archive/Agents/<Name>/`. "Bring back <Name>" restores it.
-- **D4. Onboarding is quick (about 2 minutes):** the user's name, role and company; Bron's name and role; the user's main app; a connector check. It ends by asking whether to set tone and preferences now or later, and whether to set up team members.
+- **D4. Onboarding is quick (about 2 minutes):** the user's name, role and company; Bron's name and role; Bron's model (default Opus 5.5 in Claude Code; Codex keeps its own default unless the user names one); the user's main app; a connector check. It ends by asking whether to set tone and preferences now or later, and whether to set up team members.
 - **D5. Commands do the changes:** each skill gathers what's missing, shows the engine's summary, and runs one `bron` command that writes the files, syncs and runs the health check. No hand-editing of setup files.
 
 ## 3. How every setup skill works
@@ -63,11 +63,13 @@ Writes those fields in `System/Settings.md` (in place; other lines kept). New fi
 
 ## 5. Skills (Core/Skills)
 Each is a short instruction file that says when it applies, what to infer, what to ask, which command to preview and apply, and how to report:
-- `onboarding`: triggered by the briefing's first-run line (no user name yet) or "let's redo setup". Order: the user's name, role and company → Bron's name and role (renaming through `bron agent rename` when changed) → the main app → connector check (`bron connections scan`, then "Use these?") → "Tone and preferences now or later?" → "Want to set up any team members now?" (hands over to `create-agent`). In Codex it explains the one-time trigger approval (`/hooks`). The existing "save the name straight away" exception stays.
+- `onboarding`: triggered by the briefing's first-run line (no user name yet) or "let's redo setup". Order: the user's name, role and company → Bron's name and role (renaming through `bron agent rename` when changed) → Bron's model: "I'll run on Opus 5.5 in Claude Code — OK, or another model?" (`bron agent set <Bron> --model claude=<model>`; a Codex model only if the user names one) → the main app → connector check (`bron connections scan`, then "Use these?") → "Tone and preferences now or later?" → "Want to set up any team members now?" (hands over to `create-agent`). In Codex it explains the one-time trigger approval (`/hooks`). The existing "save the name straight away" exception stays.
 - `create-agent`, `edit-agent`, `remove-agent` (retire and bring back), `add-connection`, `create-project`, `create-routine` (replaces the "A new routine" part of the `routines` skill), `create-skill`.
 - After `create-agent` applies, the skill runs the quick ask from the shared rules: *"Introduce yourself in one sentence."* and shows the answer, so the user sees the new agent working.
 
 The briefing's first-run line points to the onboarding skill. The manual gets a `setup.md` page listing the commands; `index.md` links it.
+
+The framework's template gives the default agent `models: {claude: opus-5.5, codex: default}` for new installs.
 
 ## 6. Error handling
 - Every command validates first; a change that would make the health check report an error is refused with the problem in plain words, and nothing is written.
