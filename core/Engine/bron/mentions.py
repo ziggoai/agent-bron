@@ -11,7 +11,8 @@ from .vault import Vault
 
 # '@' not preceded by a letter, digit, '.', '@' or '/', so emails and URL paths aren't tags; and the name not followed
 # by '/' or '.' plus a letter, so file mentions (@cfo/notes.md, @cfo.md) aren't either. "@cfo." and "@cfo," still are.
-_TAG = re.compile(r"(?<![\w.@/])@([A-Za-z][\w-]*)(?![\w/-]|\.\w)")
+# Claude Code's agent picker inserts @"cfo (agent)", which counts too.
+_TAG = re.compile(r'(?<![\w.@/])@(?:"([^"\n]+?)(?:\s*\(agent\))?"|([A-Za-z][\w-]*)(?![\w/-]|\.\w))')
 CONTINUABLE = ("blocked", "in-review")  # a chat whose agent has answered (or is waiting for an OK)
 STALE_HOURS = 12
 _BRON_CLOSES = (" · bron: status → done: chat ended", f" · bron: status → done: chat ended (no activity for {STALE_HOURS} hours)")
@@ -34,7 +35,7 @@ def tagged_agents(text: str, agents: dict[str, Agent], self_key: str) -> list[Ag
     """Agents tagged in the message, in order, each once; never the session's own agent."""
     found: list[Agent] = []
     for match in _TAG.finditer(text):
-        agent = agents.get(slug(match.group(1)))
+        agent = agents.get(slug(match.group(1) or match.group(2)))
         if agent is not None and agent.key != self_key and all(a.key != agent.key for a in found):
             found.append(agent)
     return found

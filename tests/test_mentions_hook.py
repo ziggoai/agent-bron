@@ -173,3 +173,11 @@ def test_one_agent_failing_never_drops_the_others(team, monkeypatch):
     assert "@COO is answering this message" in out
     assert "Couldn't pass the message to @CFO (odd ticket); tell the user." in out
     assert [tid for tid, _ in started] == ["T-0001"]
+
+
+def test_the_agent_picker_form_routes_the_message(team):
+    vault, started = team
+    out = send({"prompt": '@"cfo (agent)" which one matters most for us?', "session_id": "s1"})
+    assert [tid for tid, _ in started] == ["T-0001"]
+    assert out.startswith("@CFO is answering this message (chat ticket T-0001).")
+    assert ticket(vault, "T-0001").request == '@"cfo (agent)" which one matters most for us?'

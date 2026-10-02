@@ -159,3 +159,8 @@ def test_the_rules_and_manual_explain_tagged_chats(vault):
     assert "don't answer for them: wait with `.bron/bin/bron ticket wait <id>`" in rules
     manual = (vault.core_manual / "tickets.md").read_text(encoding="utf-8")
     assert "## Chats with @-mentions" in manual and "`.bron/bin/bron ticket wait <id>`" in manual
+
+
+def test_quick_asks_pass_on_the_users_own_words(vault):
+    rules = render_agents_md(load(vault))
+    assert "use their own words: don't add tasks, sources or checks they didn't ask for" in rules

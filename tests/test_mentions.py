@@ -185,3 +185,12 @@ def test_follow_up_with_deleted_ticket_file(team):
     # Verify the new ticket can be loaded
     loaded = load_ticket(follow_up_ticket.path)
     assert loaded.kind == "chat" and loaded.status == "todo"
+
+
+def test_claude_codes_agent_picker_form_is_a_tag(team):
+    # Picking an agent from Claude Code's @ list inserts @"name (agent)".
+    assert names('@"cfo (agent)" what are the three checks?', team) == ["CFO"]
+    assert names('@"CFO (agent)" and @"coo (agent)" thoughts?', team) == ["CFO", "COO"]
+    assert names('@"cfo" hi', team) == ["CFO"]
+    assert names('see @"notes.md" and @"nobody (agent)"', team) == []
+    assert names('@"cfo (agent)" hi', team, self_key="cfo") == []
