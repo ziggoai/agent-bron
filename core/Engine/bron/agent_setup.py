@@ -571,6 +571,11 @@ def restore_agent(cfg: Config, name: str) -> Change:
     if gone_conns:
         edits["connections"] = [c for c in conns if c not in gone_conns]
         change.summary.append(f"Its connection {gone_conns[0]} is gone." if len(gone_conns) == 1 else f"Its connections {', '.join(gone_conns)} are gone.")
+    helpers = [str(x) for x in (meta.get("helpers") or [])] if isinstance(meta.get("helpers"), list) else []
+    gone_helpers = [h for h in helpers if slug(h) not in cfg.helpers]
+    if gone_helpers:
+        edits["helpers"] = [h for h in helpers if h not in gone_helpers]
+        change.summary.append(f"Its helper {gone_helpers[0]} is gone." if len(gone_helpers) == 1 else f"Its helpers {', '.join(gone_helpers)} are gone.")
     if edits:
         change.writes[f"{target}/Agent.md"] = _edit(cfg, folder / "Agent.md", edits)
     if boss_key in cfg.agents:

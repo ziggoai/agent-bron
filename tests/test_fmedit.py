@@ -264,3 +264,11 @@ def test_comment_on_a_block_key_moves_onto_a_new_scalar():
     assert new == _block("models: p  # c")
     new = edit_meta(_block("models: # c", "  claude: default"), {"models": "p"})
     assert new == _block("models: p # c")
+
+
+@pytest.mark.parametrize("marker", ["|", ">", "|-", ">+"])
+def test_block_text_with_hashes_is_replaced_not_turned_into_comments(marker):
+    text = f"---\nname: Bron\nrole: {marker}\n  Owns the #1 list\n  # not a comment\n\n  and more\n# real note\nreports_to: you\n---\nBody.\n"
+    out = edit_meta(text, {"role": "New"})
+    assert out == "---\nname: Bron\nrole: New\n# real note\nreports_to: you\n---\nBody.\n"
+    assert "#1 list" not in out and "not a comment" not in out

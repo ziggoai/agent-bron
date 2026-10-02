@@ -9,6 +9,7 @@ import yaml
 from . import frontmatter as fm
 
 _PLAIN = re.compile(r"^[A-Za-z][A-Za-z0-9 _.()'&+/-]*$")
+_BLOCK_HEADER = re.compile(r"^\s*[|>][0-9+-]*\s*(#.*)?$")
 _RESERVED = {"true", "false", "yes", "no", "on", "off", "null", "y", "n"}
 
 
@@ -128,8 +129,16 @@ def edit_meta(text: str, changes: dict) -> str:
 
         # Scan for content lines and comments that are part of this value
         stop, comments = index + 1, []
+        block = _BLOCK_HEADER.match(lines[index].rstrip("\n")[len(re.match(_key_pattern(key), lines[index]).group(0)):])
         while stop < end:
             line = lines[stop]
+            if block:
+                # Block text (`key: |`): every indented line is text, even one that starts with `#`.
+                following = next((l for l in lines[stop + 1:end] if l.strip()), "")  # a blank line stays in the block if text follows
+                if line[:1] in (" ", "\t") or (not line.strip() and following[:1] in (" ", "\t")):
+                    stop += 1
+                    continue
+                break
             # Check if it's a comment line
             if line.lstrip().startswith("#"):
                 # Look ahead to see if this comment is part of the value or belongs to the next key

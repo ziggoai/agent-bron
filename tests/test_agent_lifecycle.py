@@ -229,3 +229,18 @@ def test_a_renamed_bron_is_not_told_it_is_bron(team):
 def test_long_names_are_refused(team):
     with pytest.raises(SetupError, match="Keep the name under 80 characters."):
         rename_agent(load(team), "CFO", "B" * 300)
+
+
+def test_bringing_back_an_agent_whose_helper_is_gone(team):
+    from vaultkit import write_md
+
+    helper = write_md(team.helpers_dir / "Auditor.md", {"name": "Auditor", "description": "Double-checks numbers."}, "\nCheck.\n")
+    set_meta(team.agents_dir / "Analyst" / "Agent.md", helpers=["reader", "Auditor"])
+    assert run_sync(team).ok
+    apply(team, retire_agent(load(team), "Analyst"))
+    helper.unlink()
+    assert run_sync(team).ok
+    change = restore_agent(load(team), "Analyst")
+    assert "Its helper Auditor is gone." in change.summary
+    apply(team, change)
+    assert meta(team, "Analyst")["helpers"] == ["reader"] and run_sync(team).ok
