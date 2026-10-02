@@ -5,7 +5,7 @@ import pytest
 from bron.locks import acquire, read_lock
 from bron.runner import APPROVAL_SIGNAL, Execution, parse_claude, parse_codex, run_ticket, start_background
 from bron.statefile import read_json
-from bron.tickets import add_message, load_ticket, new_ticket, save_ticket, set_result, set_status
+from bron.tickets import add_message, editing, load_ticket, new_ticket, save_ticket, set_result, set_status
 from vaultkit import add_agent, set_meta
 
 DEAD_PID = 999_999
@@ -555,3 +555,142 @@ def test_run_wait_and_ticket_new_run_wait_for_the_answer(team, monkeypatch, caps
 
     assert main(["run", live.id]) == 0
     assert calls[-1][1]["shown"] is False
+
+
+# ---- plan 2b: chats, shown runs, waiting ----
+
+def chat_for(vault, assignee="cfo"):
+    return new_ticket(
+        vault, title="Chat with CFO", assignee=assignee, request="@cfo what's our cash?", context="User: hi",
+        requested_by="bron", kind="chat", extra_meta={"chat_session": "claude:s1"},
+    )
+
+
+def test_a_chat_run_uses_the_chat_prompt_and_records_the_reply(team):
+    ticket = chat_for(team)
+    fake = FakeCLI(team, Execution(0, claude_json(result="Cash is $12M."), ""))
+    outcome = run_ticket(team, ticket.id, caller_cli="claude", run=fake, which=found, shown=True)
+    prompt = fake.calls[0]["argv"][2]
+    assert "The user is talking to you directly" in prompt and "@cfo what's our cash?" in prompt and "User: hi" in prompt
+    assert "Your final reply becomes the ticket's Result" not in prompt
+    loaded = load_ticket(ticket.path)
+    assert loaded.status == "in-review" and loaded.result == "Cash is $12M."
+    assert loaded.thread[-1].endswith("cfo: Cash is $12M.")
+    assert take(team, "bron", "bron") == []
+    assert outcome.message.endswith("Result:\nCash is $12M.")
+
+
+def test_a_chat_follow_up_resumes_with_the_users_new_message(team):
+    ticket = chat_for(team)
+    run_ticket(team, ticket.id, caller_cli="claude", run=FakeCLI(team, Execution(0, claude_json(session="s7", result="Cash is $12M."), "")), which=found, shown=True)
+    with editing(team, ticket.id) as current:
+        add_message(current, "you", "and next quarter?")
+        current.status = "todo"
+    fake = FakeCLI(team, Execution(0, claude_json(session="s7", result="About $10M."), ""))
+    run_ticket(team, ticket.id, caller_cli="claude", resume=True, run=fake, which=found, shown=True)
+    argv = fake.calls[0]["argv"]
+    assert argv[argv.index("--resume") + 1] == "s7"
+    assert "The user replied in the chat" in argv[2] and "you: and next quarter?" in argv[2]
+    assert load_ticket(ticket.path).result == "About $10M."
+
+
+def test_a_chat_without_a_saved_session_repeats_the_later_messages(team):
+    ticket = chat_for(team)
+    with editing(team, ticket.id) as current:
+        add_message(current, "you", "and next quarter?")
+    fake = FakeCLI(team, Execution(0, claude_json(), ""))
+    run_ticket(team, ticket.id, caller_cli="claude", resume=True, run=fake, which=found)
+    prompt = fake.calls[0]["argv"][2]
+    assert "The user is talking to you directly" in prompt
+    assert "Later messages:" in prompt and "you: and next quarter?" in prompt
+
+
+def test_background_runs_can_be_marked_shown(team, monkeypatch, capsys):
+    seen = {}
+
+    def popen(argv, **kwargs):
+        seen["argv"] = argv
+        return type("P", (), {"pid": 5})()
+
+    start_background(team, "T-0001", caller_cli="codex", resume=True, shown=True, popen=popen)
+    assert seen["argv"][2:] == ["T-0001", "--caller-cli", "codex", "--resume", "--shown"]
+
+    from bron.runner import RunOutcome
+
+    calls = []
+    monkeypatch.chdir(team.root)
+    monkeypatch.setattr("bron.runner.run_ticket", lambda vault, tid, **kw: calls.append(kw) or RunOutcome(tid, "in-review", "claude", "ok"))
+    live = ticket_for(team)
+    assert main(["run", live.id, "--shown"]) == 0
+    assert calls[-1]["shown"] is True
+
+
+def test_wait_prints_each_reply_once_the_run_is_done(team):
+    from bron.runner import wait_for
+
+    done = ticket_for(team)
+    with editing(team, done.id) as current:
+        set_result(current, "Q3 drafted.", "cfo")
+    stuck = ticket_for(team, "pinned")
+    with editing(team, stuck.id) as current:
+        set_status(current, "blocked", "pinned", "Needs your OK: send the email to LPs")
+    assert wait_for(team, [done.id, stuck.id], sleep=lambda s: None) == [
+        "CFO: Q3 drafted.",
+        f"{stuck.id} is blocked (Pinned): Needs your OK: send the email to LPs",
+    ]
+
+
+def test_wait_keeps_waiting_while_the_run_holds_its_lock(team):
+    from bron.locks import release
+    from bron.runner import wait_for
+
+    ticket = ticket_for(team)
+    assert acquire(team, ticket.id, "run1", max_minutes=30)
+    ticks = []
+
+    def sleep(_):
+        ticks.append(1)
+        if len(ticks) == 3:
+            with editing(team, ticket.id) as current:
+                set_result(current, "Done now.", "cfo")
+            release(team, ticket.id, "run1")
+
+    assert wait_for(team, [ticket.id], sleep=sleep) == ["CFO: Done now."]
+    assert len(ticks) == 3
+
+
+def clock(step=5):
+    values = iter(range(0, 100_000, step))
+    return lambda: next(values)
+
+
+def test_wait_gives_up_on_a_run_that_never_started_or_stopped_midway(team):
+    from bron.runner import wait_for
+
+    never = ticket_for(team)
+    assert wait_for(team, [never.id], sleep=lambda s: None, now=clock()) == [f"{never.id} hasn't started; see .bron/runs/background-{never.id}.log"]
+    midway = ticket_for(team)
+    with editing(team, midway.id) as current:
+        current.status = "in-progress"
+    assert wait_for(team, [midway.id], sleep=lambda s: None, now=clock()) == [f"{midway.id} stopped before it finished; see .bron/runs/"]
+
+
+def test_wait_stops_waiting_after_the_time_limit(team):
+    from bron.runner import wait_for
+
+    ticket = ticket_for(team)
+    assert acquire(team, ticket.id, "run1", max_minutes=30)
+    assert wait_for(team, [ticket.id], sleep=lambda s: None, now=clock(step=10_000)) == [
+        f"{ticket.id} is still running after 30 minutes; check it later with `.bron/bin/bron ticket show {ticket.id}`."
+    ]
+
+
+def test_ticket_wait_command(team, monkeypatch, capsys):
+    monkeypatch.chdir(team.root)
+    ticket = ticket_for(team)
+    with editing(team, ticket.id) as current:
+        set_result(current, "Q3 drafted.", "cfo")
+    assert main(["ticket", "wait", ticket.id]) == 0
+    assert capsys.readouterr().out == "CFO: Q3 drafted.\n"
+    assert main(["ticket", "wait", "T-9999"]) == 0
+    assert "There's no ticket T-9999" in capsys.readouterr().out

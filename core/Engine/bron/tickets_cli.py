@@ -49,6 +49,9 @@ def add_parser(sub) -> None:
     given.add_argument("--file")
     result.add_argument("--as", dest="author", default="you")
 
+    wait = commands.add_parser("wait", help="wait for tickets' runs to finish and print each answer")
+    wait.add_argument("ids", nargs="+")
+
     listing = commands.add_parser("list", help="list tickets")
     listing.add_argument("--for", dest="for_agent", default="")
     listing.add_argument("--open", action="store_true")
@@ -125,6 +128,11 @@ def handle(args, vault) -> int:
             outcome = runner.run_ticket(vault, ticket.id, caller_cli=args.caller_cli, resume=False, shown=True)
             print(outcome.message)
             return 1 if outcome.status == "error" else 0
+        if command == "wait":
+            from . import runner
+
+            print("\n\n".join(runner.wait_for(vault, args.ids)))
+            return 0
         if command == "list":
             tickets, problems = list_tickets(vault)
             wanted = slug(args.for_agent) if args.for_agent else ""

@@ -46,6 +46,25 @@ RESUME_PROMPT = """New messages on ticket {id} since your last turn:
 Continue working the ticket with the same rules as before: your final reply becomes the Result; to ask a question, mark it blocked with `.bron/bin/bron ticket status` (text in single quotes, or `--note-file` when it contains one), and mark it blocked with '{needs_ok} …' for anything that needs approval."""
 
 
+CHAT_PROMPT = """You are {agent}. The user is talking to you directly from a chat in this Bron vault (chat ticket {id}).
+
+## Earlier in the chat
+{context}
+
+## The user's message
+{request}{later}
+
+Reply to the user directly, in your own voice: your final reply is shown to them word for word, so make it the answer itself, with nothing about tickets. Don't look around the vault unless the message needs it.
+If something needs the user's OK (sending, sharing, deleting, pushing, or anything on your ask-before list), don't do it and don't look for a way around it. Run
+.bron/bin/bron ticket status {id} blocked --as {key} --note '{needs_ok} <the exact action, with every detail needed to do it>'
+and stop. Put the text in single quotes; if the text contains a single quote, write it to a file and use `--file` (result) or `--note-file` (status)."""
+
+CHAT_RESUME_PROMPT = """The user replied in the chat (ticket {id}):
+{messages}
+
+Reply to them directly, the same way as before: your final reply is shown to them word for word. For anything that needs their OK, mark the ticket blocked with '{needs_ok} …' and stop."""
+
+
 @dataclass
 class Execution:
     returncode: int
@@ -227,7 +246,14 @@ def _settle(ticket, agent, result: Execution, text: str, denials: list[str], log
             why = _first_line(failure, text, result.stderr) or f"exit code {result.returncode}"
             set_status(ticket, "blocked", "runner", f"The run failed: {why}; see {log}")
         elif text.strip():
-            set_result(ticket, text, agent.key)
+            if ticket.kind == "chat":
+                # The chat ticket is the conversation's record: every reply goes in the Thread.
+                add_message(ticket, agent.key, text)
+                ticket.result = text.strip()
+                ticket.status = "in-review"
+                ticket.invalid.pop("status", None)
+            else:
+                set_result(ticket, text, agent.key)
         else:
             set_status(ticket, "blocked", "runner", f"The run ended without an answer (exit code {result.returncode}); see {log}")
         return
@@ -336,7 +362,19 @@ def run_ticket(
         session = previous.get("session") or None
         if session:
             new = ticket.thread[int(previous.get("thread_len", 0)):]
-            prompt = RESUME_PROMPT.format(id=tid, messages="\n".join(new) or "(no new messages; carry on)", needs_ok=NEEDS_OK, key=agent.key)
+            template = CHAT_RESUME_PROMPT if ticket.kind == "chat" else RESUME_PROMPT
+            prompt = template.format(id=tid, messages="\n".join(new) or "(no new messages; carry on)", needs_ok=NEEDS_OK, key=agent.key)
+        elif ticket.kind == "chat":
+            later = [entry for entry in ticket.thread if " · you: " in entry]
+            prompt = CHAT_PROMPT.format(
+                agent=agent.name,
+                id=tid,
+                key=agent.key,
+                request=ticket.request or "(none)",
+                context=ticket.context or "(none)",
+                later=("\n\nLater messages:\n" + "\n".join(later)) if later else "",
+                needs_ok=NEEDS_OK,
+            )
         else:
             prompt = TASK_PROMPT.format(
                 agent=agent.name,
@@ -417,7 +455,16 @@ def recover_orphans(vault: Vault) -> list[str]:
     return blocked
 
 
-def start_background(vault: Vault, ticket_id: str, *, caller_cli: str | None = None, resume: bool = False, popen=subprocess.Popen) -> int:
+def start_background(
+    vault: Vault,
+    ticket_id: str,
+    *,
+    caller_cli: str | None = None,
+    resume: bool = False,
+    shown: bool = False,
+    popen=subprocess.Popen,
+) -> int:
+    """Start `bron run` detached (its own session, so it outlives the caller). `shown`: the caller shows the outcome itself."""
     tid = normalize_id(ticket_id)
     log = vault.bron_dir / "runs" / f"background-{tid}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -426,6 +473,58 @@ def start_background(vault: Vault, ticket_id: str, *, caller_cli: str | None = N
         argv += ["--caller-cli", caller_cli]
     if resume:
         argv.append("--resume")
+    if shown:
+        argv.append("--shown")
     with open(log, "a", encoding="utf-8") as out:
         process = popen(argv, cwd=vault.root, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
     return process.pid
+
+
+def describe_outcome(cfg, ticket) -> str:
+    """What the requester shows: the agent's reply, or why it stopped."""
+    agent = cfg.agents.get(slug(ticket.assignee))
+    name = agent.name if agent else ticket.assignee
+    if ticket.status == "in-review":
+        return f"{name}: {ticket.result}" if ticket.result else f"{ticket.id} is in-review ({name}) without an answer."
+    if ticket.status == "blocked":
+        last = ticket.thread[-1] if ticket.thread else ""
+        marker = "status → blocked: "
+        note = last.split(marker, 1)[1] if marker in last else last.split(": ", 1)[-1]
+        return f"{ticket.id} is blocked ({name}): {note}"
+    return f"{ticket.id} is {ticket.status} ({name})."
+
+
+def wait_for(vault: Vault, ticket_ids: list[str], *, grace: float = 15.0, poll: float = 0.5, sleep=time.sleep, now=time.time) -> list[str]:
+    """Wait until each ticket's run has finished, then describe it. A run that hasn't taken its lock gets `grace` seconds."""
+    cfg = load(vault)
+    limit = cfg.settings.max_minutes * 60 + 60
+    start = now()
+    out: list[str] = []
+    for raw in ticket_ids:
+        try:
+            tid = normalize_id(raw)
+        except TicketError as exc:
+            out.append(str(exc))
+            continue
+        while True:
+            try:
+                ticket = load_ticket(find_ticket(vault, tid))
+            except TicketError as exc:
+                out.append(str(exc))
+                break
+            running = read_lock(vault, tid) is not None
+            if not running and ticket.status not in ("todo", "in-progress"):
+                out.append(describe_outcome(cfg, ticket))
+                break
+            waited = now() - start
+            if not running and waited > grace:
+                if ticket.status == "todo":
+                    out.append(f"{tid} hasn't started; see .bron/runs/background-{tid}.log")
+                else:
+                    out.append(f"{tid} stopped before it finished; see .bron/runs/")
+                break
+            if waited > limit:
+                out.append(f"{tid} is still running after {cfg.settings.max_minutes} minutes; check it later with `.bron/bin/bron ticket show {tid}`.")
+                break
+            sleep(poll)
+    return out
