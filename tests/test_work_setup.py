@@ -90,13 +90,13 @@ def test_a_connection_that_runs_on_the_mac_or_on_the_web(vault):
 
 
 def test_settings_and_about_the_user(vault):
-    change = set_settings(load(vault), user_name="Alex", user_role="Head of Finance", company="Example Capital", tone="brief and direct")
-    assert change.summary == ["Update your settings:", "- Your name: Alex", "- Your role: Head of Finance", "- Company: Example Capital", "- Tone: brief and direct"]
+    change = set_settings(load(vault), user_name="Alex", user_role="Finance lead", company="Example Capital", tone="brief and direct")
+    assert change.summary == ["Update your settings:", "- Your name: Alex", "- Your role: Finance lead", "- Company: Example Capital", "- Tone: brief and direct"]
     apply(vault, change)
     cfg = load(vault)
-    assert cfg.settings.user_role == "Head of Finance" and cfg.settings.tone == "brief and direct"
+    assert cfg.settings.user_role == "Finance lead" and cfg.settings.tone == "brief and direct"
     rules = render_agents_md(cfg)
-    assert "## About the user\n\n- Name: Alex\n- Role: Head of Finance\n- Company: Example Capital\n- Tone: brief and direct\n" in rules
+    assert "## About the user\n\n- Name: Alex\n- Role: Finance lead\n- Company: Example Capital\n- Tone: brief and direct\n" in rules
     with pytest.raises(SetupError, match="claude or codex"):
         set_settings(load(vault), default_cli="cursor")
     with pytest.raises(SetupError, match="Nothing to change"):
@@ -168,3 +168,56 @@ def test_settings_file_missing_is_plain(vault):
 def test_web_address_message_mentions_both(vault):
     with pytest.raises(SetupError, match=r"https:// or http://"):
         add_connection(load(vault), name="X", url="ftp://b")
+
+
+@pytest.mark.parametrize("args", [
+    "tool --auth-token abc123",
+    "tool --access-token=abc123",
+    "tool --client-secret abc123",
+    "tool --github-token abc123",
+    "tool --api-key abc123",
+    "tool --api_key=abc123",
+    "tool --apikey abc123",
+    "tool --key abc123",
+    "tool --db-password abc123",
+    "tool --header 'Authorization: Bearer abc123'",
+    "tool --header 'authorization:abc123'",
+    "tool 'Bearer abc123'",
+    "tool bearer abc123",
+])
+def test_common_secret_forms_are_refused(vault, args):
+    with pytest.raises(SetupError, match="looks like a password or key") as err:
+        add_connection(load(vault), name="Secretive", command="uvx", args=args)
+    assert "abc" not in str(err.value)
+
+
+@pytest.mark.parametrize("args", ["tool --keyboard us", "tool --key-file /a", "tool --max-tokens 5", "tool --local-timezone America/Sao_Paulo", "tool --token"])
+def test_harmless_flags_are_accepted(vault, args):
+    add_connection(load(vault), name="Harmless", command="uvx", args=args)
+
+
+def test_a_command_with_spaces_is_split(vault):
+    apply(vault, add_connection(load(vault), name="Foo", command="npx -y foo", args="--bar 'a b'"))
+    meta = fm.read(vault.connections_dir / "Foo.md").meta
+    assert meta["command"] == "npx" and meta["args"] == ["-y", "foo", "--bar", "a b"]
+    with pytest.raises(SetupError, match="looks like a password or key"):
+        add_connection(load(vault), name="Bar", command="npx -y foo --token abc123")
+
+
+@pytest.mark.parametrize("owner", ["you", "Ghost"])
+def test_a_routine_for_you_or_an_unknown_owner_is_looked_after_by_the_main_agent(vault, owner):
+    change = create_routine(load(vault), "LP Reports", DRAFT.replace("owner: bron", f"owner: {owner}"))
+    assert change.summary[0] == "New routine: LP Reports (quarterly), looked after by Bron (the main agent)."
+
+
+def test_show_files_on_settings_and_routines(vault, monkeypatch, capsys, tmp_path):
+    monkeypatch.chdir(vault.root)
+    draft = tmp_path / "draft.md"
+    draft.write_text(DRAFT, encoding="utf-8")
+    assert main(["settings", "set", "--tone", "brief", "--preview", "--show-files"]) == 0
+    out = capsys.readouterr().out
+    assert "--- System/Settings.md" in out and "tone: brief" in out
+    assert main(["routine", "create", "--name", "LP Reports", "--file", str(draft), "--preview", "--show-files"]) == 0
+    out = capsys.readouterr().out
+    assert "--- Routines/LP Reports/Runbook.md" in out and "cadence: quarterly" in out
+    assert not (vault.routines_dir / "LP Reports").exists() and fm.read(vault.settings_file).meta.get("tone") != "brief"

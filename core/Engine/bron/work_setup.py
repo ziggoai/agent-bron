@@ -7,7 +7,7 @@ import time
 from urllib.parse import urlsplit
 
 from . import frontmatter as fm
-from .agent_setup import _edit
+from .agent_setup import MAX_NAME, _edit
 from .loader import Config
 from .model import ALL, CLIS, SKILL_NAME, conn_key, slug
 from .setup import Change, SetupError
@@ -15,20 +15,34 @@ from .setup import Change, SetupError
 _UNSAFE = re.compile(r'[\\/:*?"<>|#^\[\]\n\r\t]')
 
 
-MAX_NAME = 80
 _LIMITS = {"user_name": 100, "user_role": 100, "company": 100, "tone": 400, "preferences": 400}
 _SECRET_MSG = "That looks like a password or key. Keep it in the tool's own sign-in or settings, not in Bron's files."
-_SECRET_FLAG = re.compile(r"^--?(api[-_]?key|token|secret|password|passwd|key)(=.+)?$", re.I)
+_FLAG = re.compile(r"^--?([A-Za-z0-9_-]+)(=.+)?$")
+_SECRET_WORDS = {"token", "secret", "password", "passwd"}  # anywhere in a flag's name: --auth-token, --client-secret
+_SECRET_LAST = {"key", "apikey"}  # the last part of a flag's name: --api-key, --key (not --key-file)
 _SECRET_ASSIGN = re.compile(r"^[A-Za-z0-9_]*(key|token|secret|password)[A-Za-z0-9_]*=.+", re.I)
 _SECRET_VALUE = re.compile(r"(^|=)(sk-|ghp_|xox)", re.I)
+_AUTH_HEADER = re.compile(r"authorization\s*:", re.I)
+_BEARER = re.compile(r"^bearer(\s|$)", re.I)
+
+
+def _secret_flag(token: str) -> re.Match | None:
+    flag = _FLAG.match(token)
+    if not flag:
+        return None
+    parts = [part.lower() for part in re.split(r"[-_]", flag.group(1)) if part]
+    return flag if parts and (set(parts) & _SECRET_WORDS or parts[-1] in _SECRET_LAST) else None
 
 
 def _looks_secret(tokens: list[str]) -> bool:
     for i, tok in enumerate(tokens):
-        flag = _SECRET_FLAG.match(tok)
-        if flag and (flag.group(2) or i + 1 < len(tokens)):
+        has_next = i + 1 < len(tokens)
+        flag = _secret_flag(tok)
+        if flag and (flag.group(2) or has_next):
             return True
-        if _SECRET_ASSIGN.match(tok) or _SECRET_VALUE.search(tok):
+        if _SECRET_ASSIGN.match(tok) or _SECRET_VALUE.search(tok) or _AUTH_HEADER.search(tok):
+            return True
+        if _BEARER.match(tok) and (tok.strip().lower() != "bearer" or has_next):
             return True
     return False
 
@@ -73,12 +87,14 @@ def create_routine(cfg: Config, name: str, draft: str) -> Change:
     errors = [i.message for i in issues if i.level == "error"]
     if runbook is None or errors:
         raise SetupError("The routine has problems:\n" + "\n".join(f"- {e}" for e in errors))
-    owner = runbook.owner or (cfg.default_agent.name if cfg.default_agent else "the main agent")
-    owner_agent = cfg.agents.get(slug(owner))
+    main = cfg.default_agent.name if cfg.default_agent else "the main agent"
+    owner_agent = cfg.agents.get(slug(runbook.owner)) if runbook.owner else cfg.default_agent
+    # 'you' or an unknown owner: the main agent looks after it (as the health check says)
+    keeper = owner_agent.name if owner_agent else (f"{main} (the main agent)" if cfg.default_agent else main)
     change = Change(done=f"Created the routine {name}. Say 'start <period>' when it's time.")
     change.writes[f"Routines/{name}/Runbook.md"] = draft if draft.endswith("\n") else draft + "\n"
     change.summary = [
-        f"New routine: {name} ({runbook.cadence}), looked after by {owner_agent.name if owner_agent else owner}.",
+        f"New routine: {name} ({runbook.cadence}), looked after by {keeper}.",
         f"Due: {runbook.due or 'no due date rule'}.",
     ]
     for key, value in runbook.lists.items():
@@ -139,13 +155,10 @@ def add_connection(cfg: Config, *, name: str, command: str = "", args: str = "",
             raise SetupError(_SECRET_MSG)
     meta: dict = {"name": name, "type": "mcp-stdio" if command.strip() else "mcp-http"}
     if command.strip():
-        meta["command"] = command.strip()
-        try:
-            parts = shlex.split(args) if args.strip() else []
-        except ValueError as exc:
-            raise SetupError(f"The command's arguments have an unclosed quote ({exc}).") from exc
-        if parts:
-            meta["args"] = parts
+        # 'npx -y foo': the first word is the command, the rest go before --args.
+        meta["command"] = cmd_tokens[0]
+        if cmd_tokens[1:] + arg_tokens:
+            meta["args"] = cmd_tokens[1:] + arg_tokens
         where = f"Runs on this Mac: {command.strip()}" + (f" {args.strip()}" if args.strip() else "") + "."
     else:
         if not re.match(r"^https?://\S+$", url.strip()):
