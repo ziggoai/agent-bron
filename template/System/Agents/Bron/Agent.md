@@ -3,7 +3,7 @@ name: Bron
 role: Chief of Staff
 reports_to: you
 models:
-  claude: default
+  claude: opus-5.5
   codex: default
 runs_in: any
 helpers: [reader, researcher, reviewer]

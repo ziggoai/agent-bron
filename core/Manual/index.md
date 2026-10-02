@@ -9,6 +9,7 @@ How the Bron framework works, one page per topic. Read the page you need before 
 | [connections.md](connections.md) | Connectors: how Bron finds them and which agent may use which |
 | [tickets.md](tickets.md) | Tickets: handing work between agents, statuses, approvals |
 | [routines.md](routines.md) | Routines: repeating work per period, checklists and due dates |
+| [setup.md](setup.md) | Setup commands: agents, projects, routines, skills, connectors and settings, each previewed first |
 
 ## The basics
 

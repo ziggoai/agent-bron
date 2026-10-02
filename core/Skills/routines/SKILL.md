@@ -23,4 +23,4 @@ Put free text in single quotes; if the text contains a single quote, write it to
 - A step for a team member: hand it off with a ticket linked to the routine (`--project '<Routine>'`), as in the delegate skill. Outputs go in the period folder.
 
 ## A new routine
-Write `Routines/<Routine>/Runbook.md` in the manual's format, show the user the whole file first, and write it only after their yes.
+Follow the create-routine skill.

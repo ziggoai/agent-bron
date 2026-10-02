@@ -60,7 +60,7 @@ def test_team_member_file(vault):
 
 def test_default_model_and_empty_block_list_are_left_out(vault):
     doc = fm.parse(generate(load(vault))[".claude/agents/bron.md"].decode())
-    assert "model" not in doc.meta
+    assert doc.meta["model"] == "claude-opus-5-5"
     assert "disallowedTools" not in doc.meta
 
 

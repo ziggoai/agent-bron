@@ -66,14 +66,13 @@ def test_manual_index_links_resolve(vault):
 def test_quoted_commands_parse(vault):
     """Extract and verify all .bron/bin/bron commands from the documentation."""
     # Collect all command text from the three files
-    skill_text = (vault.core_skills / "delegate" / "SKILL.md").read_text(encoding="utf-8")
-    manual_text = (vault.core_manual / "tickets.md").read_text(encoding="utf-8")
+    skill_text = "\n".join(p.read_text(encoding="utf-8") for p in sorted(vault.core_skills.glob("*/SKILL.md")))
+    manual_text = (vault.core_manual / "tickets.md").read_text(encoding="utf-8") + "\n" + (vault.core_manual / "setup.md").read_text(encoding="utf-8")
     agents_text = render_agents_md(load(vault))
 
     # Find all `.bron/bin/bron` commands
     pattern = r"\.bron/bin/bron\s+[^\n`]+"
-    routines_text = (vault.core_skills / "routines" / "SKILL.md").read_text(encoding="utf-8") + "\n" + (vault.core_manual / "routines.md").read_text(encoding="utf-8")
-    commands = re.findall(pattern, skill_text + "\n" + manual_text + "\n" + agents_text + "\n" + routines_text)
+    commands = re.findall(pattern, skill_text + "\n" + manual_text + "\n" + agents_text)
 
     # Normalize and parse each command
     parser = build_parser()
@@ -98,6 +97,28 @@ def test_quoted_commands_parse(vault):
         "<Routine>": "x",
         "<period>": "2026-Q3",
         "<date>": "2026-11-14",
+        "<Name>": "Coo",
+        "<NewName>": "Ops",
+        "<role>": "x",
+        "<model>": "opus-5.5",
+        "<connection>": "Carta",
+        "<connections>": "Carta",
+        "<entry>": "x",
+        "<skill-name>": "lp-report",
+        "<description>": "x",
+        "<goal>": "x",
+        "<url>": "https://x.example",
+        "<command>": "uvx",
+        "<args>": "x",
+        "<tone>": "x",
+        "<preferences>": "x",
+        "<company>": "x",
+        "<user name>": "x",
+        "<user role>": "x",
+        "<cli>": "claude",
+        "<Bron>": "Bron",
+        "<Routine>": "x",
+        "<options>": "--role x",
     }
 
     for cmd in commands:

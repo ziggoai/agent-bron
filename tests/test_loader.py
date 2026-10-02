@@ -8,7 +8,7 @@ def test_template_loads_cleanly(vault):
     assert cfg.issues == []
     assert list(cfg.agents) == ["bron"]
     assert cfg.default_agent.name == "Bron"
-    assert cfg.default_agent.models == {"claude": "default", "codex": "default"}
+    assert cfg.default_agent.models == {"claude": "opus-5.5", "codex": "default"}
     assert set(cfg.helpers) == {"reader", "researcher", "reviewer"}
     assert cfg.helpers["reader"].read_only is True
     assert "check" in cfg.skills
