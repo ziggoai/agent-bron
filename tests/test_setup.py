@@ -388,3 +388,47 @@ def test_each_apply_gets_its_own_backup_folder(vault):
     for n in range(2):
         apply(vault, Change(summary=["x"], writes={"System/Agents/Bron/Agent.md": bron.read_text() + f"\nRound {n}.\n"}))
     assert len(list(vault.backups_dir.glob("setup-*"))) == 2
+
+
+def test_a_click_that_lands_while_the_command_is_being_built_is_kept(vault):
+    add_connection(vault, "Gmail", type="native", claude="claude_ai_Gmail")
+    assert run_sync(vault).ok
+    calls = []
+
+    def build(cfg):
+        calls.append(1)
+        if len(calls) == 1:
+            click(vault, "mcp__claude_ai_Gmail__reply")  # lands after the setup was loaded, before it is recorded
+        bron = cfg.agents["bron"].path
+        return Change(summary=["x"], writes={"System/Agents/Bron/Agent.md": bron.read_text() + "\nMore.\n"}, done="Done it.")
+
+    assert run(vault, build, preview_only=False) == ["Done it."]
+    assert len(calls) == 2
+    assert "mcp:Gmail:reply" in load(vault).agents["bron"].always_allow
+    assert "More." in (vault.agents_dir / "Bron" / "Agent.md").read_text()
+
+
+def test_a_setup_that_keeps_changing_is_refused_after_three_tries(vault):
+    add_connection(vault, "Gmail", type="native", claude="claude_ai_Gmail")
+    assert run_sync(vault).ok
+    calls = []
+
+    def build(cfg):
+        calls.append(1)
+        click(vault, f"Bash(tool{len(calls)}:*)")
+        return Change(summary=["x"], writes={"Projects/P/README.md": "x\n"})
+
+    with pytest.raises(SetupError, match="Bron's setup keeps changing; try again in a moment."):
+        run(vault, build, preview_only=False)
+    assert len(calls) == 3 and not (vault.root / "Projects" / "P").exists()
+
+
+def test_a_broken_vault_cant_hide_a_new_size_error(vault):
+    add_agent(vault, "Broken", reports_to="Ghost")
+    assert not run_sync(vault).ok
+    big = agent_text("Huge", role="r" * 40 * 1024)
+    with pytest.raises(SetupError, match=r"AGENTS.md would be \d+ KB"):
+        run(vault, lambda cfg: Change(summary=["x"], writes={"System/Agents/Huge/Agent.md": big}), preview_only=True)
+    with pytest.raises(SetupError, match=r"AGENTS.md would be \d+ KB"):
+        run(vault, lambda cfg: Change(summary=["x"], writes={"System/Agents/Huge/Agent.md": big}), preview_only=False)
+    assert not (vault.agents_dir / "Huge").exists()

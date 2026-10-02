@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
+from .agents_md import render_agents_md
 from .check import has_errors, run_checks
 from .loader import Config, load
 from .model import Issue
@@ -60,6 +61,12 @@ def _errors(root: Path) -> list[Issue]:
             issues += output_issues(plan_files(cfg))
         except (OSError, KeyError, ValueError) as exc:
             issues.append(Issue("error", "sync.failed", f"Bron couldn't build the setup ({exc})"))
+    else:
+        # Other problems must not hide a size error the change itself would add.
+        try:
+            issues += output_issues({"AGENTS.md": render_agents_md(cfg).encode("utf-8")})
+        except Exception:  # noqa: BLE001 - the broken setup is already reported
+            pass
     return [issue for issue in issues if issue.level == "error"]
 
 
@@ -190,6 +197,14 @@ def _catch_up(vault: Vault) -> set[tuple[str, str, str]]:
     return {_key(issue, vault.root) for issue in first.issues if issue.level == "error"}
 
 
+_TRIES = 3
+
+
+def _clicks(vault: Vault) -> list[bytes | None]:
+    """Claude Code's settings files, where a "don't ask again" click lands until the next sync imports it."""
+    return [_state(vault.root / ".claude" / name) for name in ("settings.json", "settings.local.json")]
+
+
 def run(vault: Vault, build: Callable[[Config], Change], *, preview_only: bool) -> list[str]:
     """Build a change from the setup as it is now, then preview or apply it; one setup command at a time.
 
@@ -198,8 +213,17 @@ def run(vault: Vault, build: Callable[[Config], Change], *, preview_only: bool) 
     """
     with locked(vault.state_dir / "setup.json"):
         before = None if preview_only else _catch_up(vault)
-        change = build(load(vault))
-        record(vault, change)
+        for attempt in range(_TRIES):
+            clicks = _clicks(vault)
+            change = build(load(vault))
+            record(vault, change)
+            # A "don't ask again" click may have landed while this was being built (and a session's own sync
+            # may import it before the change is applied): catch up again and rebuild from the new setup.
+            if preview_only or _clicks(vault) == clicks or not needs_sync(vault):
+                break
+            before = _catch_up(vault)
+            if attempt == _TRIES - 1:
+                raise SetupError("Bron's setup keeps changing; try again in a moment.")
         lines = preview(vault, change)
         if preview_only:
             return lines
