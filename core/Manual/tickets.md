@@ -15,8 +15,8 @@ The body has four parts: **Request** (what to do), **Context** (what they need t
 
 ## Commands (from the vault folder)
 Put free text in single quotes; if the text contains a single quote, write it to a file and use `--file` (result) or `--note-file` (status).
-- `.bron/bin/bron ticket new --to <Agent> --from <requester> --title '…' --request '…' [--context '…'] [--project '…'] [--run --caller-cli claude|codex]` (or `--request-file` / `--context-file`); `--run` starts it straight away and waits for the answer
-- `.bron/bin/bron run <id> [--resume] [--wait | --background] [--caller-cli claude|codex]`: the assignee works it, in its own CLI and model. `--wait` prints the answer when it's ready; `--background` returns straight away and the update arrives in the requester's next message
+- `.bron/bin/bron ticket new --to <Agent> --from <requester> --title '…' --request '…' [--context '…'] [--project '…'] [--run --caller-cli <claude|codex>]` (or `--request-file` / `--context-file`); `--run` starts it straight away and waits for the answer
+- `.bron/bin/bron run <id> [--resume] [--wait | --background] [--caller-cli <claude|codex>]`: the assignee works it, in its own CLI and model. `--wait` prints the answer when it's ready; `--background` returns straight away and the update arrives in the requester's next message
 - `.bron/bin/bron ticket say <id> '<text>' --as <name>`
 - `.bron/bin/bron ticket status <id> <status> [--note '…' | --note-file <path>] --as <name>` (`--note-file -` reads standard input)
 - `.bron/bin/bron ticket result <id> --text '…' | --file <path> --as <name>`

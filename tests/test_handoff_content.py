@@ -67,7 +67,7 @@ def test_quoted_commands_parse(vault):
     """Extract and verify all .bron/bin/bron commands from the documentation."""
     # Collect all command text from the three files
     skill_text = "\n".join(p.read_text(encoding="utf-8") for p in sorted(vault.core_skills.glob("*/SKILL.md")))
-    manual_text = (vault.core_manual / "tickets.md").read_text(encoding="utf-8") + "\n" + (vault.core_manual / "setup.md").read_text(encoding="utf-8")
+    manual_text = "\n".join((vault.core_manual / page).read_text(encoding="utf-8") for page in ("tickets.md", "setup.md", "routines.md"))
     agents_text = render_agents_md(load(vault))
 
     # Find all `.bron/bin/bron` commands
@@ -116,19 +116,25 @@ def test_quoted_commands_parse(vault):
         "<user name>": "x",
         "<user role>": "x",
         "<cli>": "claude",
+        "<app>": "any",
         "<Bron>": "Bron",
         "<options>": "--role x",
     }
 
-    for cmd in commands:
+    assert any("routine start" in cmd for cmd in commands)
+
+    def normalize(cmd: str, *, keep_optional: bool) -> str:
         # Remove leading `.bron/bin/bron` and strip whitespace
         normalized = cmd.replace(".bron/bin/bron", "").strip()
 
         # Remove trailing ellipsis
         normalized = re.sub(r"\s+\.\.\.$", "", normalized)
 
-        # Remove optional parts (contents of brackets)
-        normalized = re.sub(r"\s*\[.*?\]\s*", " ", normalized)
+        # Optional parts: keep their contents (brackets removed), or remove them entirely
+        if keep_optional:
+            normalized = re.sub(r"\[(.*?)\]", r"\1", normalized)
+        else:
+            normalized = re.sub(r"\s*\[.*?\]\s*", " ", normalized)
 
         # Remove pipe alternatives
         normalized = re.sub(r"\s+\|.*$", "", normalized)
@@ -142,17 +148,20 @@ def test_quoted_commands_parse(vault):
             normalized = normalized.replace(placeholder, replacement)
 
         # Clean up extra spaces
-        normalized = " ".join(normalized.split())
+        return " ".join(normalized.split())
 
-        # Split into argv and parse
-        try:
-            argv = shlex.split(normalized)
-            if argv:  # Only parse if there's content
-                parser.parse_args(argv)
-        except SystemExit:
-            raise AssertionError(f"Failed to parse command: {cmd}\nNormalized: {normalized}")
-        except Exception as e:
-            raise AssertionError(f"Failed to parse command: {cmd}\nNormalized: {normalized}\nError: {e}")
+    for cmd in commands:
+        for keep_optional in (False, True):
+            normalized = normalize(cmd, keep_optional=keep_optional)
+            # Split into argv and parse
+            try:
+                argv = shlex.split(normalized)
+                if argv:  # Only parse if there's content
+                    parser.parse_args(argv)
+            except SystemExit:
+                raise AssertionError(f"Failed to parse command: {cmd}\nNormalized: {normalized}")
+            except Exception as e:
+                raise AssertionError(f"Failed to parse command: {cmd}\nNormalized: {normalized}\nError: {e}")
 
 
 def test_the_delegate_skill_waits_for_the_answer_in_both_clis(vault):

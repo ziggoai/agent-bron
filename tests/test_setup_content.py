@@ -72,3 +72,18 @@ def test_no_skill_or_template_tells_agents_to_edit_files_by_hand(vault):
 
     for phrase in bad_phrases:
         assert phrase not in combined_text, f"Found hand-editing instruction: {phrase}"
+
+
+def test_onboarding_uses_the_agents_own_name_and_previews_the_role(vault):
+    text = (vault.core_skills / "onboarding" / "SKILL.md").read_text(encoding="utf-8")
+    assert "agent rename Bron" not in text and "agent set Bron" not in text
+    assert "`.bron/bin/bron agent rename '<your name>' '<NewName>' --preview`" in text
+    assert "`.bron/bin/bron agent set '<your name>' --role '<role>' --preview`, show the summary, wait for a yes" in text
+    assert "`.bron/bin/bron agent set '<your name>' --model 'claude=<model>' --preview`" in text
+
+
+def test_who_you_means_in_the_create_skills(vault):
+    agent = (vault.core_skills / "create-agent" / "SKILL.md").read_text(encoding="utf-8")
+    assert "leave `--reports-to` out and it reports to the main agent; `--reports-to you` means the user" in agent
+    routine = (vault.core_skills / "create-routine" / "SKILL.md").read_text(encoding="utf-8")
+    assert "owner: your own name, unless the user says otherwise" in routine

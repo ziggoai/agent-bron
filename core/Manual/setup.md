@@ -5,7 +5,7 @@ Every setup change is made with one of these commands, from the vault folder. Ad
 | Command | What it does |
 |---|---|
 | `.bron/bin/bron agent create --name '<Name>' --role '<role>' [--model '<model>'] [--reports-to '<Name>'] [--connections '<connections>'] [--ask-before '<entry>'] [--instructions-file <path>]` | New team member, with safety defaults |
-| `.bron/bin/bron agent set '<Name>' [--role …] [--model …] [--runs-in …] [--add-connection …] [--remove-connection …] [--add-ask …] [--remove-ask …] [--reports-to …] [--instructions-file …]` | Change a team member or Bron |
+| `.bron/bin/bron agent set '<Name>' [--role '<role>'] [--model '<model>'] [--runs-in <app>] [--add-connection '<connection>'] [--remove-connection '<connection>'] [--add-ask '<entry>'] [--remove-ask '<entry>'] [--reports-to '<Name>'] [--instructions-file <path>]` | Change a team member or Bron (`<app>`: any, claude or codex) |
 | `.bron/bin/bron agent rename '<Name>' '<NewName>'` | Rename, updating every reference |
 | `.bron/bin/bron agent retire '<Name>' [--hand-to '<Name>']` | Hand over its work and archive it in `System/Archive/Agents/` |
 | `.bron/bin/bron agent restore '<Name>'` | Bring a retired agent back |
