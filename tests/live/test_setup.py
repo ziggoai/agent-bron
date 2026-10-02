@@ -18,6 +18,10 @@ def bron(vault: Path, *args: str) -> str:
     return done.stdout
 
 
+def snapshot(vault: Path) -> dict:
+    return {str(p.relative_to(vault)): p.read_bytes() for p in vault.rglob("*") if p.is_file() and ".bron" not in p.relative_to(vault).parts}
+
+
 @pytest.fixture(scope="module")
 def vault(tmp_path_factory) -> Path:
     root = tmp_path_factory.mktemp("setup") / "Setup Vault"
@@ -26,17 +30,26 @@ def vault(tmp_path_factory) -> Path:
 
 
 def test_create_a_codex_agent_and_hear_from_it(vault):
+    before = snapshot(vault)
     preview = bron(vault, "agent", "create", "--name", "Opsy", "--role", "Operations test agent", "--model", "codex=default", "--runs-in", "codex", "--preview")
     assert preview.startswith("New agent: Opsy (Operations test agent).")
     assert not (vault / "System" / "Agents" / "Opsy").exists()
+    assert snapshot(vault) == before
     assert bron(vault, "agent", "create", "--name", "Opsy", "--role", "Operations test agent", "--model", "codex=default", "--runs-in", "codex").startswith("Created Opsy.")
     out = bron(vault, "ticket", "new", "--to", "Opsy", "--from", "Bron", "--title", "Introduce yourself", "--request", "Introduce yourself in one sentence and include your name.", "--run", "--caller-cli", "claude")
-    assert "Opsy" in out.split("Result:", 1)[-1], out
+    assert "is now in-review" in out, out
+    assert "Result:" in out, out
+    reply = out.split("Result:", 1)[1]
+    print("\nOpsy replied:", reply.strip())
+    assert "Opsy" in reply, out
 
 
 def test_retire_and_bring_back(vault):
     assert "Retired Opsy" in bron(vault, "agent", "retire", "Opsy")
     assert (vault / "System" / "Archive" / "Agents" / "Opsy" / "Agent.md").is_file()
+    assert not (vault / "System" / "Agents" / "Opsy").exists()
+    assert "Opsy" not in (fm.read(vault / "System" / "Agents" / "Bron" / "Agent.md").meta.get("can_assign_to") or [])
     assert "Opsy is back" in bron(vault, "agent", "restore", "Opsy")
+    assert not (vault / "System" / "Archive" / "Agents" / "Opsy").exists()
     assert fm.read(vault / "System" / "Agents" / "Bron" / "Agent.md").meta["can_assign_to"] == ["Opsy"]
-    assert "all good" in bron(vault, "check") or "0 problem(s)" in bron(vault, "check")
+    assert "all good" in bron(vault, "check")
