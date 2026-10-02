@@ -90,3 +90,30 @@ def test_tricky_instructions_survive_toml(vault):
     path.write_text(path.read_text() + '\nQuote: """triple""" and \\backslash and "quotes" and ção.\n', encoding="utf-8")
     loaded = load(vault)
     assert config(vault)["developer_instructions"] == agent_prompt(loaded.agents["bron"], loaded)
+
+
+def test_shell_asks_of_any_agent_apply_to_every_codex_session(vault):
+    add_agent(vault, "CFO", ask_before=["shell:curl"])
+    rules = generate(load(vault))[".codex/rules/bron.rules"].decode()
+    assert 'prefix_rule(pattern=["curl"], decision="prompt")' in rules
+    assert 'prefix_rule(pattern=["rm"], decision="prompt")' in rules
+
+
+def test_a_shell_allow_needs_every_agent_to_allow_it(vault):
+    set_meta(vault.root.joinpath(*BRON), ask_before=[], always_allow=["git-push"])
+    rules = generate(load(vault))[".codex/rules/bron.rules"].decode()
+    assert 'prefix_rule(pattern=["git", "push"], decision="allow")' in rules  # only Bron: Bron's allows
+    add_agent(vault, "CFO", ask_before=["git-push"])
+    rules = generate(load(vault))[".codex/rules/bron.rules"].decode()
+    assert 'decision="allow"' not in rules
+    assert 'prefix_rule(pattern=["git", "push"], decision="prompt")' in rules
+
+
+def test_tool_approvals_follow_the_whole_team(vault):
+    add_connection(vault, "Gmail")
+    set_meta(vault.root.joinpath(*BRON), connections=["all"], ask_before=[], always_allow=["mcp:gmail:reply_to_message", "mcp:gmail:list_labels"])
+    add_agent(vault, "CFO", ask_before=["send-email"], always_allow=["mcp:gmail:list_labels"])
+    tools = config(vault)["mcp_servers"]["gmail"]["tools"]
+    assert tools["send_message"]["approval_mode"] == "prompt"
+    assert tools["reply_to_message"]["approval_mode"] == "prompt"  # CFO asks; Bron's allow doesn't cover CFO
+    assert tools["list_labels"]["approval_mode"] == "approve"  # every agent allows it

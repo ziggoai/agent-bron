@@ -125,3 +125,22 @@ def test_untrusted_message_points_at_codex(vault, tmp_path, monkeypatch):
     monkeypatch.setattr("bron.check.shutil.which", lambda name: f"/usr/bin/{name}")
     msg = next(i.message for i in run_checks(load(vault)) if i.code == "codex.untrusted")
     assert "accept its trust prompt" in msg
+
+
+def test_a_codex_connector_codex_cannot_switch_off_is_a_warning(vault, monkeypatch):
+    import os
+    from pathlib import Path
+
+    from vaultkit import add_agent, write_md
+
+    monkeypatch.setattr("bron.check.shutil.which", lambda name: f"/usr/bin/{name}")
+    (Path(os.environ["CODEX_HOME"]) / "config.toml").write_text('[mcp_servers.carta]\ncommand = "x"\n', encoding="utf-8")
+    write_md(vault.connections_dir / "Computer.md", {"name": "Computer", "type": "native", "codex": "cua_repl"})
+    write_md(vault.connections_dir / "Carta.md", {"name": "Carta", "type": "native", "codex": "carta"})
+    add_agent(vault, "CFO", runs_in="any", connections=[])
+    add_agent(vault, "Claudia", runs_in="claude", connections=[])
+    add_agent(vault, "Gpt", runs_in="codex", connections=["Computer"])
+    found = [i for i in run_checks(load(vault)) if i.code == "connection.codex-unswitchable"]
+    assert [(i.level, i.message) for i in found] == [
+        ("warning", "CFO can't be kept away from Computer in Codex (Codex doesn't let Bron switch it off); it is still kept away in Claude Code.")
+    ]

@@ -1,11 +1,9 @@
 """The health check: everything Bron can validate without changing anything."""
 from __future__ import annotations
 
-import os
 import shutil
-import tomllib
-from pathlib import Path
 
+from .access import allowed_keys, codex_defined_servers, codex_server, codex_switchable, codex_trusts
 from .loader import Config
 from .model import ALL, CLI_NAMES, Issue, conn_key, slug
 
@@ -139,18 +137,28 @@ def _environment(cfg: Config) -> list[Issue]:
             out.append(Issue("warning", "cli.missing", f"{CLI_NAMES[cli]} isn't installed (or isn't on PATH), but your setup uses it"))
     if shutil.which("codex") is not None and not codex_trusts(cfg.vault.root):
         out.append(Issue("warning", "codex.untrusted", "Codex doesn't trust this vault yet, so Codex sessions here ignore Bron's setup. Open Codex in this vault once and accept its trust prompt."))
+    if shutil.which("codex") is not None:
+        out += _codex_unswitchable(cfg)
     return out
 
 
-def codex_trusts(root: Path) -> bool:
-    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-    try:
-        data = tomllib.loads((home / "config.toml").read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return False
-    projects = data.get("projects") or {}
-    for candidate in {str(root), str(root.resolve())}:
-        entry = projects.get(candidate)
-        if isinstance(entry, dict) and entry.get("trust_level") == "trusted":
-            return True
-    return False
+def _codex_unswitchable(cfg: Config) -> list[Issue]:
+    """Connectors Codex lists but won't let Bron switch off by flag (for example plugin servers)."""
+    defined = codex_defined_servers(cfg.vault)
+    out: list[Issue] = []
+    for _, agent in sorted(cfg.agents.items()):
+        if agent.runs_in not in ("codex", "any"):
+            continue
+        keep = allowed_keys(cfg, agent.connections)
+        for key, conn in sorted(cfg.connections.items()):
+            # Vault connections are either switchable (Codex loads the vault setup) or absent (it doesn't).
+            if key in keep or conn.type != "native" or conn.status == "not found" or not codex_server(conn):
+                continue
+            if not codex_switchable(conn, defined):
+                out.append(Issue(
+                    "warning",
+                    "connection.codex-unswitchable",
+                    f"{agent.name} can't be kept away from {conn.name} in Codex (Codex doesn't let Bron switch it off); it is still kept away in Claude Code.",
+                    agent.path,
+                ))
+    return out

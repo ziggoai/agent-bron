@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import tomli_w
 
-from .access import allowed_keys, blocked_claude_servers, codex_server
+from .access import allowed_claude_servers, allowed_keys, blocked_claude_servers, codex_defined_servers, codex_switchable
 from .model import CLIS, Agent
 from .prompts import agent_prompt
 from .vault import Vault
@@ -21,6 +21,10 @@ if TYPE_CHECKING:
 # No --dangerously-bypass-hook-trust: Bron's trigger config is fixed, so the user approves it once in Codex
 # and ticket runs use it from then on (Task 1 ruling). Untrusted triggers simply don't run.
 CODEX_EXEC = ["--json", "--skip-git-repo-check"]
+# Ticket runs don't depend on the user's personal sandbox setting. `codex exec resume` has no
+# --sandbox flag, so a resume sets the same mode through -c.
+CODEX_SANDBOX = ["--sandbox", "workspace-write"]
+CODEX_RESUME_SANDBOX = ["-c", 'sandbox_mode="workspace-write"']
 
 
 @dataclass
@@ -62,9 +66,11 @@ def _codex_connection_flags(cfg: "Config", agent: Agent) -> list[str]:
     keep = allowed_keys(cfg, agent.connections)
     default = cfg.default_agent
     default_keep = allowed_keys(cfg, default.connections) if default is not None else set()
+    defined = codex_defined_servers(cfg.vault)
     flags: list[str] = []
     for key, conn in sorted(cfg.connections.items()):
-        server = codex_server(conn)
+        # Only servers a Codex config file defines: Codex won't start if -c names any other (C1).
+        server = codex_switchable(conn, defined)
         if not server:
             continue
         if key not in keep:
@@ -73,6 +79,26 @@ def _codex_connection_flags(cfg: "Config", agent: Agent) -> list[str]:
             # The project config switches this server off for the default agent; switch it back on.
             flags += ["-c", f"mcp_servers.{server}.enabled=true"]
     return flags
+
+
+def _codex_ask_flags(cfg: "Config", agent: Agent) -> list[str]:
+    """Background runs can't ask, so the agent's ask-before tools are simply not there; its prompt says to ask instead."""
+    ask, _ = cfg.catalog.permissions_for(agent)
+    keep = allowed_keys(cfg, agent.connections)
+    defined = codex_defined_servers(cfg.vault)
+    hidden: dict[str, set[str]] = {}
+    for key, tools in ask.mcp.items():
+        conn = cfg.connections.get(key)
+        if conn is None or key not in keep or not tools:
+            continue
+        server = codex_switchable(conn, defined)
+        if server:
+            hidden.setdefault(server, set()).update(tools)
+    return [
+        flag
+        for server, tools in sorted(hidden.items())
+        for flag in ("-c", f"mcp_servers.{server}.disabled_tools=[{', '.join(toml_string(t) for t in sorted(tools))}]")
+    ]
 
 
 def codex_flags(cfg: "Config", agent: Agent, *, with_instructions: bool = True) -> list[str]:
@@ -98,13 +124,18 @@ def run_spec(cfg: "Config", agent: Agent, cli: str, prompt: str, *, session: str
         if session:
             argv += ["--resume", session]
         argv += claude_flags(cfg, agent)
-        argv += ["--output-format", "json", "--permission-mode", "acceptEdits", "--allowedTools", "Bash"]
+        # -p refuses any tool not allowed up front, so the agent's own connections are allowed here;
+        # ask-before rules still win over this list (verification V2, C4).
+        allowed = ",".join(["Bash", *allowed_claude_servers(cfg, agent.connections)])
+        argv += ["--output-format", "json", "--permission-mode", "acceptEdits", "--allowedTools", allowed]
     else:
+        asks = _codex_ask_flags(cfg, agent)
         if session:
             # The thread keeps its instructions (verification X2); connection limits are per invocation.
-            argv = ["codex", "exec", "resume", *CODEX_EXEC, *codex_flags(cfg, agent, with_instructions=False), session, prompt]
+            flags = codex_flags(cfg, agent, with_instructions=False)
+            argv = ["codex", "exec", "resume", *CODEX_EXEC, *CODEX_RESUME_SANDBOX, *flags, *asks, session, prompt]
         else:
-            argv = ["codex", "exec", *CODEX_EXEC, *codex_flags(cfg, agent), prompt]
+            argv = ["codex", "exec", *CODEX_EXEC, *CODEX_SANDBOX, *codex_flags(cfg, agent), *asks, prompt]
     return LaunchSpec(cli, argv, _env(agent, ticket_id))
 
 

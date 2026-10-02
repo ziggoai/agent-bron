@@ -108,4 +108,16 @@ def _json(data: dict) -> bytes:
 def _agent_permissions(cfg: Config, agent: Agent) -> dict:
     """Passed with --settings when this agent runs a ticket or a direct session; merges with the project file."""
     ask, allow = cfg.catalog.permissions_for(agent)
+    default = cfg.default_agent
+    if default is not None and default.key != agent.key:
+        # The project file allows what the default agent always allows, for every agent. A team member
+        # asks for those actions unless it allows them itself (an ask rule beats an allow rule).
+        _, default_allow = cfg.catalog.permissions_for(default)
+        for conn, tools in default_allow.mcp.items():
+            extra = tools - allow.mcp.get(conn, set())
+            if extra:
+                ask.mcp.setdefault(conn, set()).update(extra)
+        for words in default_allow.shell:
+            if words not in allow.shell:
+                ask.add_shell(words)
     return {"permissions": {"ask": rules(ask, cfg), "allow": rules(allow, cfg)}}

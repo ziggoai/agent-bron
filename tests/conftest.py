@@ -9,6 +9,14 @@ REPO = Path(__file__).resolve().parents[1]
 IGNORE = shutil.ignore_patterns(".venv", "__pycache__", "*.egg-info", "uv.lock", ".pytest_cache")
 
 
+@pytest.fixture(autouse=True)
+def _private_codex_home(request, tmp_path_factory, monkeypatch):
+    """Unit tests never read the user's own Codex config (live tests need the real one)."""
+    if "live" in request.node.path.parts:
+        return
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path_factory.mktemp("codex-home")))
+
+
 @pytest.fixture
 def vault(tmp_path, monkeypatch) -> Vault:
     """A fresh vault from template/ + core/, in a folder whose name has a space and an accent."""

@@ -56,9 +56,9 @@ def found(_cli):
 
 
 def test_parsers():
-    assert parse_claude(claude_json("s9", "Hi", [{"tool_name": "Bash", "tool_input": {"command": "rm a.txt"}}])) == ("s9", "Hi", ["Bash: rm a.txt"])
-    assert parse_claude("garbage") == ("", "", [])
-    assert parse_codex(codex_jsonl("th-9", "Hi"), "") == ("th-9", "Hi", [])
+    assert parse_claude(claude_json("s9", "Hi", [{"tool_name": "Bash", "tool_input": {"command": "rm a.txt"}}])) == ("s9", "Hi", ["Bash: rm a.txt"], False)
+    assert parse_claude("garbage") == ("", "", [], False)
+    assert parse_codex(codex_jsonl("th-9", "Hi"), "") == ("th-9", "Hi", [], "")
     assert parse_codex("", f"exec_command failed: {APPROVAL_SIGNAL}")[2]
 
 
@@ -274,7 +274,7 @@ def test_a_failing_run_log_blocks(team):
 
 def test_denials_that_are_not_a_list_do_not_crash(team):
     stdout = json.dumps({"session_id": "s", "result": "", "permission_denials": 5})
-    assert parse_claude(stdout) == ("s", "", [])
+    assert parse_claude(stdout) == ("s", "", [], False)
     ticket = ticket_for(team)
     run_ticket(team, ticket.id, run=FakeCLI(team, Execution(0, stdout, "")), which=found)
     assert load_ticket(ticket.path).status == "blocked"
@@ -414,3 +414,81 @@ def test_background_cli_refuses_finished_tickets_and_reports_failures(team, monk
     assert main(["run", live.id, "--background"]) == 0
     assert "Started T-" in capsys.readouterr().out
     assert main(["run", "T-9999", "--background"]) == 1
+
+
+# ---- final fix wave ----
+
+from vaultkit import write_md
+
+
+def asking_team(vault):
+    write_md(vault.connections_dir / "Gmail.md", {"name": "Gmail", "type": "native", "claude": "claude_ai_Gmail", "codex": "gmail"})
+    add_agent(vault, "CFO", runs_in="codex", connections=["Gmail"], ask_before=["send-email", "shell:curl"], always_allow=["mcp:gmail:forward_message"])
+    set_meta(vault.agents_dir / "Bron" / "Agent.md", can_assign_to=["CFO"])
+    return vault
+
+
+def test_the_prompt_lists_the_agents_own_ask_before_actions(vault):
+    team = asking_team(vault)
+    ticket = ticket_for(team)
+    fake = FakeCLI(team, Execution(0, codex_jsonl(), ""), act=lambda t: set_status(t, "blocked", "cfo", "Q?"))
+    run_ticket(team, ticket.id, run=fake, which=found)
+    prompt = fake.calls[0]["argv"][-1]
+    line = next(ln for ln in prompt.splitlines() if ln.startswith("These actions need the user's OK"))
+    assert "never do them yourself, mark the ticket blocked with 'Needs your OK: …' instead:" in line
+    assert "shell `curl`" in line and "gmail/send_message" in line and "gmail/reply_to_message" in line
+    assert "forward_message" not in line  # always allowed
+    resume = FakeCLI(team, Execution(0, codex_jsonl(), ""), act=lambda t: set_result(t, "ok", "cfo"))
+    run_ticket(team, ticket.id, resume=True, run=resume, which=found)
+    assert "shell `curl`" in resume.calls[0]["argv"][-1]
+
+
+def test_no_ask_before_line_without_ask_before_actions(team):
+    ticket = ticket_for(team)
+    fake = FakeCLI(team, Execution(0, claude_json(), ""), act=lambda t: set_result(t, "ok", "cfo"))
+    run_ticket(team, ticket.id, run=fake, which=found)
+    assert "These actions need the user's OK" not in fake.calls[0]["argv"][2]
+
+
+def test_a_logged_out_claude_run_is_blocked_with_the_error(team):
+    stdout = json.dumps({"is_error": True, "result": "Not logged in · Please run /login", "session_id": "s1"})
+    ticket = ticket_for(team)
+    run_ticket(team, ticket.id, run=FakeCLI(team, Execution(1, stdout, "")), which=found)
+    loaded = load_ticket(ticket.path)
+    assert loaded.status == "blocked" and loaded.result == ""
+    assert "The run failed: Not logged in · Please run /login; see .bron/runs/" in loaded.thread[-1]
+
+
+def test_an_erroring_claude_run_with_exit_zero_is_blocked(team):
+    stdout = json.dumps({"is_error": True, "result": "API Error: overloaded\nmore detail", "session_id": "s1"})
+    ticket = ticket_for(team)
+    run_ticket(team, ticket.id, run=FakeCLI(team, Execution(0, stdout, "")), which=found)
+    loaded = load_ticket(ticket.path)
+    assert loaded.status == "blocked" and loaded.result == ""
+    assert "The run failed: API Error: overloaded; see" in loaded.thread[-1]
+
+
+def test_a_failed_codex_turn_is_blocked_even_after_a_partial_answer(team):
+    events = [
+        {"type": "thread.started", "thread_id": "th-1"},
+        {"type": "item.completed", "item": {"id": "a", "type": "agent_message", "text": "Working on it"}},
+        {"type": "turn.failed", "error": {"message": "rate limit"}},
+    ]
+    stdout = "\n".join(json.dumps(e) for e in events) + "\n"
+    assert parse_codex(stdout, "")[3] == "rate limit"
+    ticket = ticket_for(team, "pinned")
+    run_ticket(team, ticket.id, run=FakeCLI(team, Execution(0, stdout, "")), which=found)
+    loaded = load_ticket(ticket.path)
+    assert loaded.status == "blocked" and loaded.result == ""
+    assert "The run failed: rate limit; see .bron/runs/" in loaded.thread[-1]
+
+
+def test_a_codex_error_followed_by_a_completed_turn_is_not_a_failure():
+    events = [
+        {"type": "thread.started", "thread_id": "th-1"},
+        {"type": "error", "message": "Reconnecting... 1/5"},
+        {"type": "item.completed", "item": {"id": "a", "type": "agent_message", "text": "42"}},
+        {"type": "turn.completed"},
+    ]
+    assert parse_codex("\n".join(json.dumps(e) for e in events), "") == ("th-1", "42", [], "")
+    assert parse_codex(json.dumps({"type": "error", "message": "stream closed"}), "")[3] == "stream closed"

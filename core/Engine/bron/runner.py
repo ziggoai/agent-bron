@@ -105,7 +105,22 @@ def execute(argv: list[str], *, env: dict[str, str], cwd, timeout: int) -> Execu
     return Execution(proc.returncode, stdout, stderr)
 
 
-def parse_claude(stdout: str) -> tuple[str, str, list[str]]:
+def ask_line(cfg, agent) -> str:
+    """The agent's own ask-before actions, spelled out for a background run ('' when there are none)."""
+    ask, _ = cfg.catalog.permissions_for(agent)
+    parts = []
+    if ask.shell:
+        parts.append("shell " + ", ".join(f"`{' '.join(words)}`" for words in ask.shell))
+    tools = [f"{conn}/{tool}" for conn, names in sorted(ask.mcp.items()) if conn in cfg.connections for tool in sorted(names)]
+    if tools:
+        parts.append("tool " + ", ".join(tools))
+    if not parts:
+        return ""
+    return f"These actions need the user's OK — never do them yourself, mark the ticket blocked with '{NEEDS_OK} …' instead: " + "; ".join(parts)
+
+
+def parse_claude(stdout: str) -> tuple[str, str, list[str], bool]:
+    """(session id, final text, refused actions, whether Claude reported an error)."""
     data = None
     for line in reversed(stdout.strip().splitlines()):
         try:
@@ -114,7 +129,7 @@ def parse_claude(stdout: str) -> tuple[str, str, list[str]]:
         except ValueError:
             continue
     if not isinstance(data, dict):
-        return "", "", []
+        return "", "", [], False
     denials: list[str] = []
     raw = data.get("permission_denials")
     for denial in raw if isinstance(raw, list) else []:
@@ -125,11 +140,24 @@ def parse_claude(stdout: str) -> tuple[str, str, list[str]]:
         if isinstance(detail, dict):
             detail = detail.get("command") or json.dumps(detail, ensure_ascii=False)
         denials.append(f"{tool}: {str(detail)[:300]}" if detail else tool)
-    return str(data.get("session_id") or ""), str(data.get("result") or ""), denials
+    return str(data.get("session_id") or ""), str(data.get("result") or ""), denials, data.get("is_error") is True
 
 
-def parse_codex(stdout: str, stderr: str) -> tuple[str, str, list[str]]:
-    thread, text = "", ""
+def _codex_error(event: dict) -> str:
+    error = event.get("error")
+    if isinstance(error, dict):
+        error = error.get("message")
+    message = error or event.get("message")
+    return str(message).strip() if message else "Codex reported an error"
+
+
+def parse_codex(stdout: str, stderr: str) -> tuple[str, str, list[str], str]:
+    """(thread id, final text, refused actions, failure message or '').
+
+    A `turn.failed` or `error` event is a failure unless a later turn completes (Codex reports
+    transient errors such as reconnects as `error` events and then carries on).
+    """
+    thread, text, failure = "", "", ""
     for line in stdout.splitlines():
         try:
             event = json.loads(line)
@@ -137,8 +165,13 @@ def parse_codex(stdout: str, stderr: str) -> tuple[str, str, list[str]]:
             continue
         if not isinstance(event, dict):
             continue
-        if event.get("type") == "thread.started":
+        kind = event.get("type")
+        if kind == "thread.started":
             thread = str(event.get("thread_id") or thread)
+        elif kind in ("turn.failed", "error"):
+            failure = _codex_error(event)
+        elif kind == "turn.completed":
+            failure = ""
         item = event.get("item")
         if event.get("type") == "item.completed" and isinstance(item, dict) and item.get("type") == "agent_message":
             text = str(item.get("text") or text)
@@ -146,7 +179,7 @@ def parse_codex(stdout: str, stderr: str) -> tuple[str, str, list[str]]:
     if APPROVAL_SIGNAL in stderr:
         line = next((ln.strip() for ln in stderr.splitlines() if APPROVAL_SIGNAL in ln), "")
         denials = [f"a command that needs approval (Codex: {line[:300]})" if line else "a command that needs approval (Codex: approval required by policy)"]
-    return thread, text, denials
+    return thread, text, denials, failure
 
 
 def _block(vault: Vault, ticket, cli: str, note: str) -> RunOutcome:
@@ -167,14 +200,28 @@ def _write_log(vault: Vault, run_id: str, spec: LaunchSpec, result: Execution) -
     return str(path.relative_to(vault.root))
 
 
-def _settle(ticket, agent, result: Execution, text: str, denials: list[str], log: str) -> None:
-    """Make sure the ticket never stays in-progress after a run, and that refused actions are surfaced."""
+def _first_line(*texts: str) -> str:
+    for text in texts:
+        for line in (text or "").splitlines():
+            if line.strip():
+                return line.strip()[:300]
+    return ""
+
+
+def _settle(ticket, agent, result: Execution, text: str, denials: list[str], log: str, failure: str = "") -> None:
+    """Make sure the ticket never stays in-progress after a run, and that refused actions are surfaced.
+
+    `failure` is the CLI's own error text when it reported one (Claude `is_error`, a failed Codex turn).
+    """
     needs_ok = f"{NEEDS_OK} " + "; ".join(denials)
     if ticket.status == "in-progress":
         if result.timed_out:
             set_status(ticket, "blocked", "runner", f"{agent.name} took longer than the time limit and was stopped; see {log}")
         elif denials:
             set_status(ticket, "blocked", "runner", needs_ok)
+        elif failure or result.returncode != 0:
+            why = _first_line(failure, text, result.stderr) or f"exit code {result.returncode}"
+            set_status(ticket, "blocked", "runner", f"The run failed: {why}; see {log}")
         elif text.strip():
             add_message(ticket, "runner", f"{agent.name} didn't report through the ticket; its final answer was saved as the result.")
             set_result(ticket, text, "runner")
@@ -283,7 +330,7 @@ def run_ticket(
         session = previous.get("session") or None
         if session:
             new = ticket.thread[int(previous.get("thread_len", 0)):]
-            prompt = RESUME_PROMPT.format(id=tid, messages="\n".join(new) or "(no new messages; carry on)", needs_ok=NEEDS_OK)
+            prompt = RESUME_PROMPT.format(id=tid, messages="\n".join(new) or "(no new messages; carry on)", needs_ok=NEEDS_OK, key=agent.key)
         else:
             prompt = TASK_PROMPT.format(
                 agent=agent.name,
@@ -293,6 +340,9 @@ def run_ticket(
                 path=ticket.path.relative_to(vault.root),
                 needs_ok=NEEDS_OK,
             )
+        asks = ask_line(cfg, agent)
+        if asks:
+            prompt += "\n\n" + asks
         if needs_sync(vault) and not run_sync(vault).ok:
             return _block(vault, ticket, cli, f"Bron's setup has problems, so {agent.name} can't start; run `.bron/bin/bron check`.")
         with editing(vault, tid) as current:
@@ -301,13 +351,14 @@ def run_ticket(
         result = run(spec.argv, env=spec.env, cwd=vault.root, timeout=settings.max_minutes * 60)
         log = _write_log(vault, run_id, spec, result)
         if cli == "claude":
-            found_session, text, denials = parse_claude(result.stdout)
+            found_session, text, denials, is_error = parse_claude(result.stdout)
+            failure = (text.strip() or "Claude Code reported an error") if is_error else ""
         else:
-            found_session, text, denials = parse_codex(result.stdout, result.stderr)
+            found_session, text, denials, failure = parse_codex(result.stdout, result.stderr)
         entry = {"cli": cli, "session": found_session or session or "", "agent": agent.key, "thread_len": 0, "updated": time.strftime("%Y-%m-%dT%H:%M:%S")}
         try:
             with editing(vault, tid) as ticket:
-                _settle(ticket, agent, result, text, denials, log)
+                _settle(ticket, agent, result, text, denials, log, failure)
         except TicketError as exc:
             _remember(vault, tid, entry)
             return RunOutcome(tid, "error", cli, f"{tid} couldn't be read after the run: {exc}")

@@ -22,6 +22,13 @@ def test_agents_md_has_the_ticket_protocol_and_stays_small(vault):
     assert "in the environment" not in text
 
 
+def test_codex_notes_in_the_skill_and_manual(vault):
+    skill = (vault.core_skills / "delegate" / "SKILL.md").read_text(encoding="utf-8")
+    assert "if Codex asks for permission to run it outside the sandbox, approve it" in skill
+    permissions = (vault.core_manual / "permissions.md").read_text(encoding="utf-8")
+    assert "## Codex notes" in permissions and "every agent in Codex" in permissions
+
+
 def test_tickets_board_is_valid_and_hides_chats(vault):
     board = yaml.safe_load((vault.tickets_dir / "Board.base").read_text(encoding="utf-8"))
     names = [view["name"] for view in board["views"]]

@@ -15,6 +15,7 @@ description: Hand work to a team member through a ticket and follow it up, inclu
 4. Start it in the background, naming the CLI you are in:
    `.bron/bin/bron run <ticket id> --background --caller-cli <claude|codex>`
    If the output doesn't start with "Started", tell the user what it said instead.
+   In Codex, `bron run` starts another program that needs the network; if Codex asks for permission to run it outside the sandbox, approve it (or ask the user to).
 5. Tell the user in one line who is working on what, and that you'll report back.
 
 ## When an update arrives (in your briefing or before a message)

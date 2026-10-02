@@ -29,3 +29,8 @@ An entry is one of:
 - **A shell command prefix:** `shell:<words>`, such as `shell:git push`.
 
 Groups only take effect for connections that exist in `System/Connections/`. Bron turns these rules into each CLI's own approval settings, so they work the same in Claude Code and Codex.
+
+## Codex notes
+
+- Codex can't ask before a native connector's tool in an interactive session, so an ask-before on a native connector isn't prompted there. Bron still enforces it in background ticket runs (the tool is switched off and the agent asks through the ticket) and in Claude Code.
+- All Codex sessions in the vault share one set of shell rules: a shell command any agent asks before is asked for every agent in Codex, and a shell "always allow" only applies in Codex when every agent allows it.
