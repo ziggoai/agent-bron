@@ -80,6 +80,7 @@ def handle(args, vault) -> int:
         OPEN,
         TicketError,
         add_message,
+        editing,
         find_ticket,
         list_tickets,
         load_ticket,
@@ -124,19 +125,33 @@ def handle(args, vault) -> int:
             for problem in problems:
                 print(f"! {problem}")
             return 0
-        ticket = load_ticket(find_ticket(vault, args.id))
         if command == "show":
+            ticket = load_ticket(find_ticket(vault, args.id))
             print(ticket.path.read_text(encoding="utf-8"), end="")
+            for problem in ticket.problems:
+                print(f"! {problem}", file=sys.stderr)
             return 0
         if command == "say":
-            add_message(ticket, _author(args.author), args.text)
-        elif command == "status":
-            set_status(ticket, args.status, _author(args.author), args.note)
-        elif command == "result":
-            set_result(ticket, _read(args.text, args.file), _author(args.author))
-        save_ticket(ticket)
-        print(f"{ticket.id} is now {ticket.status}.")
-        return 0
+            with editing(vault, args.id) as ticket:
+                add_message(ticket, _author(args.author), args.text)
+            for problem in ticket.problems:
+                print(f"! {problem}", file=sys.stderr)
+            print(f"{ticket.id} is now {ticket.status}.")
+            return 0
+        if command == "status":
+            with editing(vault, args.id) as ticket:
+                set_status(ticket, args.status, _author(args.author), args.note)
+            for problem in ticket.problems:
+                print(f"! {problem}", file=sys.stderr)
+            print(f"{ticket.id} is now {ticket.status}.")
+            return 0
+        if command == "result":
+            with editing(vault, args.id) as ticket:
+                set_result(ticket, _read(args.text, args.file), _author(args.author))
+            for problem in ticket.problems:
+                print(f"! {problem}", file=sys.stderr)
+            print(f"{ticket.id} is now {ticket.status}.")
+            return 0
     except (TicketError, OSError) as exc:
         print(f"bron: {exc}", file=sys.stderr)
         return 1

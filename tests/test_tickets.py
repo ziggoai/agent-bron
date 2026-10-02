@@ -137,3 +137,150 @@ def test_cli_refuses_assignment_outside_can_assign_to(team, capsys):
 def test_cli_explains_unknown_agent(team, capsys):
     code, _, err = run(capsys, "ticket", "new", "--to", "Nobody", "--title", "x", "--request", "y")
     assert code == 1 and "There's no agent called 'Nobody'" in err
+
+
+def test_hand_edited_with_extra_meta_preamble_invalid_repeated_sections_raw_threads(vault):
+    """Test that load→save preserves hand-edited content."""
+    import textwrap
+    ticket = make(vault)
+
+    # Hand-edit the file with extra metadata, preamble, invalid status/priority, repeated sections, raw thread lines
+    content = textwrap.dedent("""\
+        ---
+        id: T-0001
+        title: Prepare Q3 LP report
+        kind: task
+        status: waiting
+        priority: Important
+        assignee: cfo
+        requested_by: bron
+        created: 2026-10-01T00:00
+        tags: [lp, q3]
+        cssclasses: wide
+        ---
+
+        This is a preamble line before the first section.
+
+        ## Request
+        Draft the Q3 report.
+
+        ## Context
+        Use the 30 Sep NAV.
+
+        ## Context
+        Also check Sep balance sheet.
+
+        ## Thread
+        - 2026-10-01 12:00 · bron: created for cfo
+        ## Notes
+        This is a custom section
+        - 2026-10-01 13:00 · cfo: Looks good
+        	This is a tab-indented continuation
+
+        ## Result
+
+    """)
+
+    ticket.path.write_text(content, encoding="utf-8")
+    loaded = load_ticket(ticket.path)
+
+    # Verify extra_meta preserved
+    assert loaded.extra_meta.get("tags") == ["lp", "q3"]
+    assert loaded.extra_meta.get("cssclasses") == "wide"
+
+    # Verify preamble preserved
+    assert "preamble" in loaded.preamble or "This is a preamble" in loaded.preamble
+
+    # Verify invalid status/priority preserved (defaults to todo/normal, but stored)
+    assert loaded.status == "todo"  # Default due to invalid
+    assert loaded.priority == "normal"  # Default due to invalid
+    assert "waiting" in loaded.invalid.get("status", "")
+    assert "Important" in loaded.invalid.get("priority", "")
+    assert any("waiting" in p for p in loaded.problems)
+    assert any("Important" in p for p in loaded.problems)
+
+    # Verify repeated Context sections joined
+    assert "Use the 30 Sep NAV" in loaded.context
+    assert "Also check Sep balance sheet" in loaded.context
+
+    # Verify raw thread lines preserved (## Notes without - prefix)
+    assert any("## Notes" in entry for entry in loaded.thread)
+
+    # Verify tab continuation preserved
+    assert any("tab-indented" in entry for entry in loaded.thread)
+
+    # Add a message and save
+    add_message(loaded, "cfo", "Adding new message")
+    save_ticket(loaded)
+
+    # Load again and verify everything is still there
+    again = load_ticket(ticket.path)
+    assert again.extra_meta.get("tags") == ["lp", "q3"]
+    assert again.extra_meta.get("cssclasses") == "wide"
+    assert "preamble" in again.preamble or "This is a preamble" in again.preamble
+    assert "Use the 30 Sep NAV" in again.context
+    assert "Also check Sep balance sheet" in again.context
+    assert any("## Notes" in entry for entry in again.thread)
+    assert any("Adding new message" in entry for entry in again.thread)
+    assert again.invalid.get("status") == "waiting"
+    assert again.invalid.get("priority") == "Important"
+
+    # After set_status, invalid status should be cleared
+    set_status(again, "todo", "cfo", "Changed to todo")
+    assert "status" not in again.invalid
+    assert again.status == "todo"
+
+
+def test_cli_say_status_result_print_problems_to_stderr(team, capsys):
+    """Test that problems from hand-edited tickets are printed to stderr."""
+    # Create and hand-edit a ticket with invalid status and priority
+    code, out, _ = run(capsys, "ticket", "new", "--to", "CFO", "--from", "bron", "--title", "Q3", "--request", "draft")
+    assert code == 0
+    ticket_path = team.tickets_dir / "T-0001 Q3.md"
+
+    # Hand-edit to have invalid status and priority
+    text = ticket_path.read_text(encoding="utf-8")
+    text = text.replace("status: todo", "status: invalid_status")
+    text = text.replace("priority: normal", "priority: Critical")
+    ticket_path.write_text(text, encoding="utf-8")
+
+    # Run say and check problems printed to stderr
+    code, out, err = run(capsys, "ticket", "say", "1", "test message", "--as", "bron")
+    assert code == 0
+    assert "! " in err and "invalid_status" in err
+    assert "Critical" in err
+
+    # Run status which fixes status in memory/file but problems list still shows old issue
+    code, out, err = run(capsys, "ticket", "status", "1", "blocked", "--as", "cfo")
+    assert code == 0
+    # Both problems still appear because file wasn't fully fixed by say
+    assert "! " in err and "Critical" in err
+
+    # Run result - problems list still shows old issues
+    code, out, err = run(capsys, "ticket", "result", "1", "--as", "cfo", "--text", "done")
+    assert code == 0
+    assert "! " in err and "Critical" in err
+
+
+def test_concurrent_updates(vault):
+    """Test that concurrent ticket updates don't lose messages."""
+    import concurrent.futures
+
+    ticket = make(vault)
+
+    def update_ticket(i):
+        from bron.tickets import editing
+        with editing(vault, "1") as t:
+            add_message(t, f"w{i}", "hi")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(update_ticket, i) for i in range(10)]
+        for future in futures:
+            future.result()
+
+    # Load and verify all 10 messages are present
+    loaded = load_ticket(ticket.path)
+    # Original message + 10 new ones = 11 total
+    assert len(loaded.thread) == 11
+    for i in range(10):
+        assert any(f"w{i}: hi" in entry for entry in loaded.thread)

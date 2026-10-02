@@ -1,13 +1,15 @@
 """Tickets: the notes in Tickets/ that agents and the user use to hand each other work."""
 from __future__ import annotations
 
+import contextlib
+import os
 import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import frontmatter as fm
-from .statefile import update_json
+from .statefile import locked, update_json
 from .vault import Vault
 
 STATUSES = ("backlog", "todo", "in-progress", "blocked", "in-review", "done", "cancelled")
@@ -42,6 +44,9 @@ class Ticket:
     thread: list[str] = field(default_factory=list)
     result: str = ""
     problems: list[str] = field(default_factory=list)
+    extra_meta: dict = field(default_factory=dict)
+    preamble: str = ""
+    invalid: dict[str, str] = field(default_factory=dict)
 
 
 def _stamp() -> str:
@@ -56,7 +61,11 @@ def normalize_id(text: str) -> str:
 
 
 def _safe_title(title: str) -> str:
-    return _UNSAFE.sub("-", title).strip().strip(".")[:60].rstrip(" .") or "Untitled"
+    # Replace control characters and newlines with space
+    title = re.sub(r'[\x00-\x1f\x7f\n\r]', ' ', title)
+    # Replace unsafe filename chars with dash
+    title = _UNSAFE.sub("-", title).strip().strip(".")[:60].rstrip(" .") or "Untitled"
+    return title
 
 
 def _highest_existing(vault: Vault) -> int:
@@ -73,7 +82,11 @@ def _next_id(vault: Vault) -> str:
     holder: dict = {}
 
     def bump(data: dict) -> dict:
-        number = max(int(data.get("next", 1)), _highest_existing(vault) + 1)
+        try:
+            next_val = int(data.get("next", 1))
+        except (ValueError, TypeError):
+            next_val = 1
+        number = max(next_val, _highest_existing(vault) + 1)
         holder["n"] = number
         data["next"] = number + 1
         return data
@@ -145,7 +158,13 @@ def _sections(body: str) -> dict[str, str]:
     marks = list(_SECTION.finditer(body))
     for index, mark in enumerate(marks):
         end = marks[index + 1].start() if index + 1 < len(marks) else len(body)
-        out[mark.group(1)] = body[mark.end():end].strip("\n")
+        section_name = mark.group(1)
+        section_text = body[mark.end():end].strip("\n")
+        # Join repeated sections with blank line between
+        if section_name in out:
+            out[section_name] = out[section_name] + "\n\n" + section_text
+        else:
+            out[section_name] = section_text
     return out
 
 
@@ -154,9 +173,14 @@ def _thread(text: str) -> list[str]:
     for line in text.splitlines():
         if line.startswith("- "):
             entries.append(line.rstrip())
-        elif line.strip() and entries and line.startswith(" "):
+        elif line.startswith("#"):
+            # Raw heading lines: keep as-is
+            entries.append(line.rstrip())
+        elif line.strip() and entries and (line.startswith(" ") or line.startswith("\t")):
+            # Continuation of previous entry: append with proper indentation
             entries[-1] += "\n  " + line.strip()
         elif line.strip():
+            # Other non-empty lines: convert to bullet format
             entries.append("- " + line.strip())
     return entries
 
@@ -170,15 +194,52 @@ def load_ticket(path: Path) -> Ticket:
         raise TicketError(f"{path.name} can't be opened ({exc.__class__.__name__})") from exc
     meta = doc.meta
     problems: list[str] = []
-    raw_id = str(meta.get("id") or path.name.split(" ")[0])
-    ticket_id = normalize_id(raw_id)
+    invalid: dict[str, str] = {}
+
+    # Extract ID from filename, check against frontmatter ID
+    file_id = path.name.split(" ")[0]
+    try:
+        file_ticket_id = normalize_id(file_id)
+    except TicketError:
+        file_ticket_id = None
+
+    raw_id = str(meta.get("id") or file_id)
+    try:
+        ticket_id = normalize_id(raw_id)
+    except TicketError:
+        ticket_id = file_ticket_id or "T-0000"
+        problems.append(f"Invalid ticket id '{raw_id}'")
+
+    # If file name and frontmatter id differ, use file name id
+    if file_ticket_id and file_ticket_id != ticket_id:
+        problems.append(f"the file name says {file_ticket_id} but the id inside says {ticket_id}; using {file_ticket_id}")
+        ticket_id = file_ticket_id
 
     def choice(key: str, allowed: tuple, default: str) -> str:
-        value = str(meta.get(key) or default).strip().lower()
+        raw_value = str(meta.get(key) or default).strip()
+        value = raw_value.lower()
         if value not in allowed:
-            problems.append(f"{key} '{value}' isn't one of {', '.join(allowed)}; treated as {default}")
+            problems.append(f"{key} '{raw_value}' isn't one of {', '.join(allowed)}; treated as {default}")
+            invalid[key] = raw_value
             return default
         return value
+
+    # Known keys
+    known_keys = {"id", "title", "kind", "status", "assignee", "requested_by", "parent", "project", "due", "priority", "created"}
+
+    # Extract extra_meta (unknown keys)
+    extra_meta = {}
+    for key, value in meta.items():
+        if key not in known_keys:
+            extra_meta[key] = value
+
+    # Extract preamble (text before first section)
+    preamble = ""
+    first_section_pos = _SECTION.search(doc.body)
+    if first_section_pos:
+        preamble = doc.body[:first_section_pos.start()].strip("\n")
+    else:
+        preamble = doc.body.strip("\n")
 
     sections = _sections(doc.body)
     return Ticket(
@@ -199,6 +260,9 @@ def load_ticket(path: Path) -> Ticket:
         thread=_thread(sections.get("Thread", "")),
         result=sections.get("Result", "").strip(),
         problems=problems,
+        extra_meta=extra_meta,
+        preamble=preamble,
+        invalid=invalid,
     )
 
 
@@ -206,8 +270,8 @@ def render(ticket: Ticket) -> str:
     meta: dict = {
         "id": ticket.id,
         "title": ticket.title,
-        "kind": ticket.kind,
-        "status": ticket.status,
+        "kind": ticket.kind if "kind" not in ticket.invalid else ticket.invalid["kind"],
+        "status": ticket.status if "status" not in ticket.invalid else ticket.invalid["status"],
         "assignee": ticket.assignee,
         "requested_by": ticket.requested_by,
     }
@@ -215,21 +279,40 @@ def render(ticket: Ticket) -> str:
         value = getattr(ticket, key)
         if value:
             meta[key] = value
-    meta["priority"] = ticket.priority
+    meta["priority"] = ticket.priority if "priority" not in ticket.invalid else ticket.invalid["priority"]
     meta["created"] = ticket.created
+
+    # Add extra_meta keys in their original order
+    for key, value in ticket.extra_meta.items():
+        meta[key] = value
+
+    # Build body with preamble and sections
     thread = "".join(entry + "\n" for entry in ticket.thread)
-    body = (
-        f"\n## Request\n{ticket.request}\n\n## Context\n{ticket.context}\n\n"
-        f"## Thread\n{thread}\n## Result\n{ticket.result}\n"
+    body = ""
+    if ticket.preamble:
+        body += ticket.preamble + "\n\n"
+    body += (
+        f"## Request\n{ticket.request}\n\n## Context\n{ticket.context}\n\n"
+        f"## Thread\n{thread}## Result\n{ticket.result}\n"
     )
     return fm.dump(fm.Document(meta, body))
 
 
 def save_ticket(ticket: Ticket) -> None:
     ticket.path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = ticket.path.with_name(ticket.path.name + ".bron-tmp")
+    tmp = ticket.path.with_name(f"{ticket.path.name}.{os.getpid()}.bron-tmp")
     tmp.write_text(render(ticket), encoding="utf-8")
     tmp.replace(ticket.path)
+
+
+@contextlib.contextmanager
+def editing(vault: Vault, ticket_id: str):
+    """Load a ticket under its lock, yield it, save it on success."""
+    path = find_ticket(vault, ticket_id)
+    with locked(path):
+        ticket = load_ticket(path)
+        yield ticket
+        save_ticket(ticket)
 
 
 def add_message(ticket: Ticket, author: str, text: str) -> None:
@@ -240,6 +323,8 @@ def add_message(ticket: Ticket, author: str, text: str) -> None:
 
 def set_status(ticket: Ticket, status: str, author: str, note: str = "") -> None:
     ticket.status = _check(status.strip().lower(), STATUSES, "status")
+    # Remove status from invalid if it was there
+    ticket.invalid.pop("status", None)
     add_message(ticket, author, f"status → {ticket.status}" + (f": {note.strip()}" if note.strip() else ""))
 
 
