@@ -28,8 +28,13 @@ def main(event: str, cli: str, stdin=None, stdout=None) -> int:
             except Exception:  # noqa: BLE001
                 pass
         elif event == "user-prompt":
-            # Plan 2 routes @-mentions from the prompt; for now just drain stdin.
-            _payload(stdin)
+            _payload(stdin)  # drain the prompt; @-mention routing arrives in Plan 2b
+            text = _ticket_updates()
+            if text:
+                try:
+                    stdout.write(text)
+                except Exception:  # noqa: BLE001
+                    pass
     except Exception as exc:  # noqa: BLE001 - a trigger must never fail the session
         _log_error(event, cli, exc)
     return 0
@@ -93,6 +98,33 @@ def _session_start(cli: str) -> str:
         _log_error("session-start", cli, exc)
         notes.append(f"Bron couldn't check the setup ({exc.__class__.__name__}). Ask Bron to run `.bron/bin/bron check`.")
     return build_briefing(vault, cli=cli, notes=notes, changed=changed)
+
+
+def _ticket_updates() -> str:
+    from .model import slug
+    from .notifications import FILE, describe, take
+    from .vault import Vault
+
+    vault = Vault.find()
+    if not (vault.state_dir / FILE).is_file():
+        return ""
+    default_name = _default_agent(vault)
+    agent = os.environ.get("BRON_AGENT") or default_name
+    updates = take(vault, slug(agent), slug(default_name))
+    if not updates:
+        return ""
+    lines = ["Ticket updates since your last message:", *[f"- {describe(u)}" for u in updates]]
+    lines.append("Read the ticket (.bron/bin/bron ticket show <id>) and tell the user what changed.")
+    return "\n".join(lines) + "\n"
+
+
+def _default_agent(vault) -> str:
+    from . import frontmatter as fm
+
+    try:
+        return str(fm.read(vault.settings_file).meta.get("default_agent") or "Bron")
+    except Exception:  # noqa: BLE001
+        return "Bron"
 
 
 def _log_error(event: str, cli: str, exc: Exception) -> None:

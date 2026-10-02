@@ -6,7 +6,9 @@ import os
 from . import frontmatter as fm
 from .loader import load
 from .model import CLI_NAMES, slug
+from .notifications import describe, take
 from .prompts import agent_prompt
+from .tickets import list_tickets
 from .vault import Vault
 
 MAX_CHARS = 6000
@@ -28,9 +30,19 @@ def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None, ch
         )
     if notes:
         lines += ["", *notes]
+    key = slug(agent)
+    default_key = cfg.default_agent.key if cfg.default_agent else ""
+    tickets, _ = list_tickets(vault)
+    assigned = [t for t in tickets if t.assignee == key and t.status in ("todo", "in-progress", "blocked")][:8]
+    updates = take(vault, key, default_key)
+    if assigned or updates:
+        lines += ["", "## Tickets"]
+        lines += [f"- Assigned to you: {t.id} [{t.status}] {t.title}" for t in assigned]
+        lines += [f"- Update: {describe(u)}" for u in updates]
+        if any(u.get("status") == "blocked" for u in updates):
+            lines.append("For blocked tickets, tell the user what is needed; for 'Needs your OK' follow the delegate skill.")
     # Each CLI reads its instruction files before the startup trigger regenerates them, so an edit
     # made since the last session would only apply next time. Carry the fresh instructions here.
-    key = slug(agent)
     own_file = f".claude/agents/{key}.md" if cli == "claude" else ".codex/config.toml"
     if own_file in changed and key in cfg.agents:
         lines += [
