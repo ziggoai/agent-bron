@@ -12,9 +12,9 @@ from dataclasses import dataclass
 
 from .launch import LaunchSpec, choose_cli, run_spec
 from .loader import load
-from .locks import acquire, active, is_stale, read_lock, release
+from .locks import acquire, is_stale, read_lock, release, take_slot
 from .model import CLI_NAMES, CLIS, slug
-from .notifications import record
+from .notifications import acknowledge, record
 from .statefile import read_json, update_json
 from .sync import needs_sync, run_sync
 from .tickets import TicketError, add_message, editing, find_ticket, list_tickets, load_ticket, normalize_id, set_result, set_status
@@ -333,16 +333,21 @@ def run_ticket(
     settings = cfg.settings
     run_id = uuid.uuid4().hex[:12]
     deadline = now() + settings.max_minutes * 60
-    # Take the ticket's run lock first, then wait for a free slot without holding anything else up.
-    while True:
-        if not acquire(vault, tid, run_id, max_minutes=settings.max_minutes):
-            return RunOutcome(tid, "", "", f"{tid} is already being worked on.")
-        if len([lock for lock in active(vault, settings.max_minutes) if lock.ticket_id != tid]) < settings.max_parallel:
-            break
+    # Take the ticket's run lock first, marked waiting, then wait for a free slot. The lock stays held while the
+    # run is queued, so `ticket wait` keeps waiting for it; a waiting lock doesn't count as a running slot.
+    if not acquire(vault, tid, run_id, max_minutes=settings.max_minutes, waiting=True):
+        return RunOutcome(tid, "", "", f"{tid} is already being worked on.")
+    try:
+        while (slot := take_slot(vault, tid, run_id, max_parallel=settings.max_parallel, max_minutes=settings.max_minutes)) == "full":
+            if now() > deadline:
+                release(vault, tid, run_id)
+                return RunOutcome(tid, "", "", "Too many tickets are running right now; try again shortly.")
+            sleep(5)
+    except BaseException:
         release(vault, tid, run_id)
-        if now() > deadline:
-            return RunOutcome(tid, "", "", "Too many tickets are running right now; try again shortly.")
-        sleep(5)
+        raise
+    if slot == "lost":
+        return RunOutcome(tid, "", "", f"{tid} is already being worked on.")
     cli, log = "", ".bron/runs"
     try:
         try:
@@ -461,10 +466,10 @@ def start_background(
     *,
     caller_cli: str | None = None,
     resume: bool = False,
-    shown: bool = False,
     popen=subprocess.Popen,
 ) -> int:
-    """Start `bron run` detached (its own session, so it outlives the caller). `shown`: the caller shows the outcome itself."""
+    """Start `bron run` detached (its own session, so it outlives the caller). Its update is recorded as usual;
+    a `ticket wait` that prints the outcome acknowledges it, so the requester isn't told twice."""
     tid = normalize_id(ticket_id)
     log = vault.bron_dir / "runs" / f"background-{tid}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -473,8 +478,6 @@ def start_background(
         argv += ["--caller-cli", caller_cli]
     if resume:
         argv.append("--resume")
-    if shown:
-        argv.append("--shown")
     with open(log, "a", encoding="utf-8") as out:
         process = popen(argv, cwd=vault.root, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
     return process.pid
@@ -494,17 +497,33 @@ def describe_outcome(cfg, ticket) -> str:
     return f"{ticket.id} is {ticket.status} ({name})."
 
 
-def wait_for(vault: Vault, ticket_ids: list[str], *, grace: float = 15.0, poll: float = 0.5, sleep=time.sleep, now=time.time) -> list[str]:
-    """Wait until each ticket's run has finished, then describe it. A run that hasn't taken its lock gets `grace` seconds."""
+def wait_for(
+    vault: Vault, ticket_ids: list[str], *, grace: float = 15.0, poll: float = 0.5, sleep=time.sleep, now=time.time, show=None
+) -> list[str]:
+    """Wait until each ticket's run has finished, then describe it. A run that hasn't taken its lock gets `grace` seconds
+    (a run queued for a free slot already holds its lock). `show` is called with each line as soon as it's ready; once
+    a ticket's outcome has been shown, its update is acknowledged so the requester isn't told about it again. An outcome
+    that was never shown (the wait gave up or was cut off) is announced in the requester's next message."""
     cfg = load(vault)
     limit = cfg.settings.max_minutes * 60 + 60
     start = now()
     out: list[str] = []
+
+    def emit(line: str, outcome_of: str = "") -> None:
+        out.append(line)
+        if show is not None:
+            show(line)
+        if outcome_of:
+            try:
+                acknowledge(vault, outcome_of)
+            except OSError:
+                pass  # worst case the update is announced once more
+
     for raw in ticket_ids:
         try:
             tid = normalize_id(raw)
         except TicketError as exc:
-            out.append(str(exc))
+            emit(str(exc))
             continue
         began = now()
         while True:
@@ -513,20 +532,20 @@ def wait_for(vault: Vault, ticket_ids: list[str], *, grace: float = 15.0, poll: 
             try:
                 ticket = load_ticket(find_ticket(vault, tid))
             except TicketError as exc:
-                out.append(str(exc))
+                emit(str(exc))
                 break
             if not running and ticket.status not in ("todo", "in-progress"):
-                out.append(describe_outcome(cfg, ticket))
+                emit(describe_outcome(cfg, ticket), tid)
                 break
             current = now()
             if not running and current - began > grace:
                 if ticket.status == "todo":
-                    out.append(f"{tid} hasn't started; see .bron/runs/background-{tid}.log")
+                    emit(f"{tid} hasn't started; see .bron/runs/background-{tid}.log")
                 else:
-                    out.append(f"{tid} stopped before it finished; see .bron/runs/")
+                    emit(f"{tid} stopped before it finished; see .bron/runs/")
                 break
             if current - start > limit:
-                out.append(f"{tid} is still running after {cfg.settings.max_minutes} minutes; check it later with `.bron/bin/bron ticket show {tid}`.")
+                emit(f"{tid} is still running after {cfg.settings.max_minutes} minutes; check it later with `.bron/bin/bron ticket show {tid}`.")
                 break
             sleep(poll)
     return out

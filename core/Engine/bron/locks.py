@@ -3,6 +3,9 @@
 Every operation runs under a single exclusive guard (.bron/locks/.guard), and records are written
 to a temp file and renamed into place, so two runs can never both hold a ticket and a lock is never
 seen half-written. A crashed or expired run's lock is recovered by the next acquire.
+
+A run queued behind full slots holds its ticket's lock marked `waiting`: the ticket is taken (and
+`ticket wait` keeps waiting for it), but it doesn't count as one of the running slots.
 """
 from __future__ import annotations
 
@@ -28,6 +31,7 @@ class Lock:
     run_id: str
     pid: int
     started: float
+    waiting: bool = False
 
 
 def _dir(vault: Vault) -> Path:
@@ -81,7 +85,16 @@ def _read(path: Path, ticket_id: str) -> Lock | None:
         return Lock(ticket_id, "", -1, 0.0)
     if not (0 < pid < 2**31) or not math.isfinite(started):
         return Lock(ticket_id, run_id, -1, 0.0)
-    return Lock(ticket_id, run_id, pid, started)
+    return Lock(ticket_id, run_id, pid, started, data.get("waiting") is True)
+
+
+def _write(path: Path, run_id: str, pid: int, started: float, waiting: bool) -> None:
+    record = {"run_id": run_id, "pid": pid, "started": started}
+    if waiting:
+        record["waiting"] = True
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(record), encoding="utf-8")
+    tmp.replace(path)
 
 
 def read_lock(vault: Vault, ticket_id: str) -> Lock | None:
@@ -96,17 +109,37 @@ def is_stale(lock: Lock, max_minutes: int, now: float | None = None) -> bool:
     return now - lock.started > (max_minutes + 5) * 60
 
 
-def acquire(vault: Vault, ticket_id: str, run_id: str, *, pid: int | None = None, max_minutes: int = 30, now: float | None = None) -> bool:
+def acquire(
+    vault: Vault, ticket_id: str, run_id: str, *, pid: int | None = None, max_minutes: int = 30, now: float | None = None, waiting: bool = False
+) -> bool:
+    """Take the ticket's lock. `waiting`: the run is queued for a free slot and doesn't count as running yet."""
     path = _path(vault, ticket_id)
     with _guard(vault):
         current = _read(path, ticket_id)
         if current is not None and not is_stale(current, max_minutes, now):
             return False
-        record = {"run_id": run_id, "pid": os.getpid() if pid is None else pid, "started": time.time() if now is None else now}
-        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-        tmp.write_text(json.dumps(record), encoding="utf-8")
-        tmp.replace(path)
+        _write(path, run_id, os.getpid() if pid is None else pid, time.time() if now is None else now, waiting)
         return True
+
+
+def take_slot(vault: Vault, ticket_id: str, run_id: str, *, max_parallel: int, max_minutes: int, now: float | None = None) -> str:
+    """Turn this run's waiting lock into a running one if a slot is free, in one step so two queued runs can't
+    both take the last slot. Returns "running", "full", or "lost" (the lock isn't this run's any more)."""
+    path = _path(vault, ticket_id)
+    with _guard(vault):
+        current = _read(path, ticket_id)
+        if current is None or current.run_id != run_id:
+            return "lost"
+        if not current.waiting:
+            return "running"
+        others = [other for other in sorted(_dir(vault).glob("*.lock")) if other.stem != ticket_id]
+        held = [_read(other, other.stem) for other in others]
+        running = [lock for lock in held if lock is not None and not lock.waiting and not is_stale(lock, max_minutes, now)]
+        if len(running) >= max_parallel:
+            return "full"
+        # The run's time limit starts now, not when it joined the queue.
+        _write(path, run_id, current.pid, time.time() if now is None else now, False)
+        return "running"
 
 
 def release(vault: Vault, ticket_id: str, run_id: str | None = None) -> None:
@@ -127,7 +160,8 @@ def _all(vault: Vault) -> list[Lock]:
 
 
 def active(vault: Vault, max_minutes: int, now: float | None = None) -> list[Lock]:
-    return [lock for lock in _all(vault) if not is_stale(lock, max_minutes, now)]
+    """Runs holding a slot (a queued run's waiting lock doesn't)."""
+    return [lock for lock in _all(vault) if not lock.waiting and not is_stale(lock, max_minutes, now)]
 
 
 def stale(vault: Vault, max_minutes: int, now: float | None = None) -> list[Lock]:

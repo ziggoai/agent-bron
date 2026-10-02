@@ -28,7 +28,6 @@ def build_parser() -> argparse.ArgumentParser:
     when = p_run.add_mutually_exclusive_group()
     when.add_argument("--background", action="store_true", help="start it and return straight away")
     when.add_argument("--wait", action="store_true", help="wait for the answer and print it (you will show it, so it isn't announced again)")
-    p_run.add_argument("--shown", action="store_true", help=argparse.SUPPRESS)
     p_run.add_argument("--caller-cli", choices=CLIS, help="the CLI asking (used when the agent can run in either)")
     p_chat = sub.add_parser("chat", help="open a session as one agent")
     p_chat.add_argument("agent", nargs="?", default="")
@@ -112,7 +111,7 @@ def _run(vault, args) -> int:
         return 0
     # A SIGTERM should unwind through run_ticket so the ticket is never left in-progress.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
-    outcome = run_ticket(vault, args.id, caller_cli=args.caller_cli, resume=args.resume, shown=args.wait or args.shown)
+    outcome = run_ticket(vault, args.id, caller_cli=args.caller_cli, resume=args.resume, shown=args.wait)
     print(outcome.message)
     return 1 if outcome.status == "error" else 0
 

@@ -605,24 +605,15 @@ def test_a_chat_without_a_saved_session_repeats_the_later_messages(team):
     assert "Later messages:" in prompt and "you: and next quarter?" in prompt
 
 
-def test_background_runs_can_be_marked_shown(team, monkeypatch):
+def test_background_runs_record_their_update_normally(team):
     seen = {}
 
     def popen(argv, **kwargs):
         seen["argv"] = argv
         return type("P", (), {"pid": 5})()
 
-    start_background(team, "T-0001", caller_cli="codex", resume=True, shown=True, popen=popen)
-    assert seen["argv"][2:] == ["T-0001", "--caller-cli", "codex", "--resume", "--shown"]
-
-    from bron.runner import RunOutcome
-
-    calls = []
-    monkeypatch.chdir(team.root)
-    monkeypatch.setattr("bron.runner.run_ticket", lambda vault, tid, **kw: calls.append(kw) or RunOutcome(tid, "in-review", "claude", "ok"))
-    live = ticket_for(team)
-    assert main(["run", live.id, "--shown"]) == 0
-    assert calls[-1]["shown"] is True
+    start_background(team, "T-0001", caller_cli="codex", resume=True, popen=popen)
+    assert seen["argv"][2:] == ["T-0001", "--caller-cli", "codex", "--resume"]
 
 
 def test_wait_prints_each_reply_once_the_run_is_done(team):
@@ -745,3 +736,91 @@ def test_wait_measures_the_grace_period_for_each_ticket(team):
                 release(team, second.id, "run2")
 
     assert wait_for(team, [first.id, second.id], sleep=sleep, now=lambda: time_now[0]) == ["CFO: First done.", "CFO: Second done."]
+
+
+# ---- final review: queued runs keep their lock, a printed reply is acknowledged ----
+
+def test_a_queued_run_holds_a_waiting_lock_that_takes_no_slot(team):
+    from bron.locks import active
+
+    set_meta(team.settings_file, runner={"max_parallel": 1, "max_minutes": 30})
+    acquire(team, "T-0099", "busy")
+    ticket = ticket_for(team)
+    seen = []
+
+    def sleep(_):
+        lock = read_lock(team, ticket.id)
+        seen.append((lock is not None and lock.waiting, [held.ticket_id for held in active(team, 30)]))
+        if len(seen) == 2:
+            (team.bron_dir / "locks" / "T-0099.lock").unlink()
+
+    during = []
+
+    def act(current):
+        during.append(read_lock(team, current.id).waiting)
+        set_result(current, "ok", "cfo")
+
+    assert run_ticket(team, ticket.id, run=FakeCLI(team, Execution(0, claude_json(), ""), act=act), which=found, sleep=sleep).status == "in-review"
+    assert seen == [(True, ["T-0099"]), (True, ["T-0099"])]
+    assert during == [False]  # running once it has a slot
+    assert read_lock(team, ticket.id) is None
+
+
+def test_a_queued_run_that_never_gets_a_slot_gives_its_lock_back(team):
+    set_meta(team.settings_file, runner={"max_parallel": 1, "max_minutes": 30})
+    acquire(team, "T-0099", "busy")
+    ticket = ticket_for(team)
+    outcome = run_ticket(team, ticket.id, run=FakeCLI(team, Execution(0, claude_json(), "")), which=found, sleep=lambda s: None, now=clock(step=600))
+    assert "Too many tickets are running" in outcome.message
+    assert read_lock(team, ticket.id) is None
+
+
+def test_wait_keeps_waiting_for_a_run_queued_behind_full_slots(team):
+    from bron.locks import release
+    from bron.runner import wait_for
+
+    ticket = ticket_for(team)
+    assert acquire(team, ticket.id, "queued", max_minutes=30, waiting=True)
+    ticks = []
+
+    def sleep(_):
+        ticks.append(1)
+        if len(ticks) == 10:  # long past the 15-second grace period
+            with editing(team, ticket.id) as current:
+                set_result(current, "Done after the queue.", "cfo")
+            release(team, ticket.id, "queued")
+
+    assert wait_for(team, [ticket.id], sleep=sleep, now=clock()) == ["CFO: Done after the queue."]
+
+
+def test_a_chat_reply_printed_by_wait_is_not_announced_again(team):
+    from bron.runner import wait_for
+
+    ticket = chat_for(team)
+    run_ticket(team, ticket.id, caller_cli="claude", run=FakeCLI(team, Execution(0, claude_json(result="Cash is $12M."), "")), which=found)
+    printed = []
+    assert wait_for(team, [ticket.id], sleep=lambda s: None, show=printed.append) == ["CFO: Cash is $12M."]
+    assert printed == ["CFO: Cash is $12M."]
+    assert take(team, "bron", "bron") == []
+
+
+def test_a_chat_reply_the_wait_gave_up_on_is_announced_in_the_next_message(team):
+    from bron.locks import release
+    from bron.runner import wait_for
+
+    ticket = chat_for(team)
+    assert acquire(team, ticket.id, "run1", max_minutes=30)
+    assert "is still running" in wait_for(team, [ticket.id], sleep=lambda s: None, now=clock(step=10_000))[0]
+    release(team, ticket.id, "run1")
+    run_ticket(team, ticket.id, caller_cli="claude", run=FakeCLI(team, Execution(0, claude_json(result="Cash is $12M."), "")), which=found)
+    assert [u["id"] for u in take(team, "bron", "bron")] == [ticket.id]
+
+
+def test_ticket_wait_prints_each_reply_as_soon_as_it_is_ready(team, monkeypatch, capsys):
+    monkeypatch.chdir(team.root)
+    first, second = ticket_for(team), ticket_for(team)
+    for item in (first, second):
+        with editing(team, item.id) as current:
+            set_result(current, f"{item.id} drafted.", "cfo")
+    assert main(["ticket", "wait", first.id, second.id]) == 0
+    assert capsys.readouterr().out == f"CFO: {first.id} drafted.\n\nCFO: {second.id} drafted.\n"

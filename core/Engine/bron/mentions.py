@@ -155,7 +155,7 @@ def route(vault: Vault, *, cli: str, prompt: str, session_id: str, transcript_pa
             failed.append(f"Couldn't pass the message to @{agent.name} ({exc}); tell the user.")
             continue
         try:
-            runner.start_background(vault, ticket.id, caller_cli=cli, resume=follow_up, shown=True)
+            runner.start_background(vault, ticket.id, caller_cli=cli, resume=follow_up)
         except OSError as exc:
             try:
                 with editing(vault, ticket.id) as current:

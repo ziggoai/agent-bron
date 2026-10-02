@@ -151,3 +151,19 @@ def test_bad_ticket_id_is_rejected(vault):
         read_lock(vault, "T@invalid")
     with pytest.raises(ValueError, match="isn't a valid ticket id"):
         release(vault, "T/0001")
+
+
+def test_a_waiting_lock_holds_the_ticket_but_not_a_slot(vault):
+    from bron.locks import take_slot
+
+    assert acquire(vault, "T-0001", "busy")
+    assert acquire(vault, "T-0002", "queued", waiting=True)
+    assert read_lock(vault, "T-0002").waiting
+    assert not acquire(vault, "T-0002", "other")  # still held while it waits
+    assert [lock.ticket_id for lock in active(vault, 30)] == ["T-0001"]
+    assert take_slot(vault, "T-0002", "queued", max_parallel=1, max_minutes=30) == "full"
+    release(vault, "T-0001", "busy")
+    assert take_slot(vault, "T-0002", "queued", max_parallel=1, max_minutes=30) == "running"
+    assert not read_lock(vault, "T-0002").waiting
+    assert [lock.ticket_id for lock in active(vault, 30)] == ["T-0002"]
+    assert take_slot(vault, "T-0002", "someone-else", max_parallel=1, max_minutes=30) == "lost"

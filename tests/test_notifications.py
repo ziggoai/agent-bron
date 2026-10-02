@@ -30,3 +30,24 @@ def test_a_garbled_line_is_skipped(vault):
     vault.state_dir.mkdir(parents=True, exist_ok=True)
     (vault.state_dir / "notifications.jsonl").write_text("not json\n", encoding="utf-8")
     assert take(vault, "bron", "bron") == []
+
+
+def test_an_acknowledged_update_is_not_announced_again(vault):
+    from bron.notifications import acknowledge
+
+    first = new_ticket(vault, title="Q3", assignee="cfo", request="x", requested_by="bron")
+    first.status = "in-review"
+    record(vault, first)
+    acknowledge(vault, first.id)  # whoever waited printed it
+    second = new_ticket(vault, title="Q4", assignee="cfo", request="x", requested_by="bron")
+    second.status = "in-review"
+    record(vault, second)
+    record(vault, first)  # a later update of the first ticket, nobody printed it
+    assert [u["id"] for u in take(vault, "bron", "bron")] == [second.id, first.id]
+
+
+def test_an_acknowledgement_line_is_never_an_update(vault):
+    from bron.notifications import acknowledge
+
+    acknowledge(vault, "T-0001")
+    assert take(vault, "bron", "bron") == []

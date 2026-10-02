@@ -48,7 +48,7 @@ def transcript(tmp_path):
 def test_a_tag_starts_the_agent_at_once_and_tells_the_session_to_wait(team, tmp_path):
     vault, started = team
     out = send({"prompt": "@cfo what's our cash?", "session_id": "s1", "transcript_path": str(transcript(tmp_path))})
-    assert started == [("T-0001", {"caller_cli": "claude", "resume": False, "shown": True})]
+    assert started == [("T-0001", {"caller_cli": "claude", "resume": False})]
     assert out.startswith("@CFO is answering this message (chat ticket T-0001). Don't answer it yourself.")
     assert "`.bron/bin/bron ticket wait T-0001`" in out and "**CFO:**" in out
     chat = ticket(vault, "T-0001")
@@ -62,7 +62,7 @@ def test_a_follow_up_resumes_the_same_chat(team):
     with editing(vault, "T-0001") as current:
         current.status = "in-review"
     send({"prompt": "@cfo and next quarter?", "session_id": "s1"})
-    assert started[-1] == ("T-0001", {"caller_cli": "claude", "resume": True, "shown": True})
+    assert started[-1] == ("T-0001", {"caller_cli": "claude", "resume": True})
 
 
 def test_several_tags_start_one_chat_each(team):

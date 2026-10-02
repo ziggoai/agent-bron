@@ -131,7 +131,14 @@ def handle(args, vault) -> int:
         if command == "wait":
             from . import runner
 
-            print("\n\n".join(runner.wait_for(vault, args.ids)))
+            printed: list[str] = []
+
+            def show(line: str) -> None:
+                # Print each answer as soon as it's ready, so a wait cut off later doesn't lose it.
+                print(("\n" if printed else "") + line, flush=True)
+                printed.append(line)
+
+            runner.wait_for(vault, args.ids, show=show)
             return 0
         if command == "list":
             tickets, problems = list_tickets(vault)
