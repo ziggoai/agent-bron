@@ -115,6 +115,7 @@ def new_ticket(
     priority: str = "normal",
     due: str = "",
     status: str = "todo",
+    extra_meta: dict | None = None,
 ) -> Ticket:
     if not title.strip():
         raise TicketError("A ticket needs a title")
@@ -138,6 +139,7 @@ def new_ticket(
         created=time.strftime("%Y-%m-%dT%H:%M"),
         request=request.strip(),
         context=context.strip(),
+        extra_meta=dict(extra_meta or {}),
     )
     add_message(ticket, requested_by, f"created for {assignee}")
     save_ticket(ticket)
