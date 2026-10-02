@@ -97,6 +97,7 @@ def test_quoted_commands_parse(vault):
         "<Project or Routine>": "x",
         "<Routine>": "x",
         "<period>": "2026-Q3",
+        "<date>": "2026-11-14",
     }
 
     for cmd in commands:

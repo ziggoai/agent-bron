@@ -113,3 +113,62 @@ def test_start_reads_a_latin1_list_file(vault, monkeypatch, capsys):
     assert main(["routine", "start", "Portco Monitoring", "--period", "2026-Q3", "--list", "companies=companies.txt"]) == 0
     tracking = vault.routines_dir / "Portco Monitoring" / "2026-Q3" / "Tracking.md"
     assert "Société A" in tracking.read_text(encoding="utf-8")
+
+
+# ---- final review ----
+
+def start_q3(vault, *extra, data="Fund I: Company A\n".encode("utf-8")):
+    (vault.root / "companies.txt").write_bytes(data)
+    return main(["routine", "start", "Portco Monitoring", "--period", "2026-Q3", "--list", "companies=companies.txt", *extra])
+
+
+def q3_note(vault):
+    return vault.routines_dir / "Portco Monitoring" / "2026-Q3" / "Tracking.md"
+
+
+def test_start_takes_a_due_date_for_rules_bron_cannot_work_out(vault, monkeypatch, capsys):
+    from bron import frontmatter as fm
+
+    monkeypatch.chdir(vault.root)
+    add_routine(vault, due="two weeks before the LP meeting")
+    assert start_q3(vault, "--due", "2026-11-14") == 0
+    assert str(fm.read(q3_note(vault)).meta["due"]) == "2026-11-14"
+
+
+def test_a_bad_due_date_is_a_plain_error(vault, monkeypatch, capsys):
+    monkeypatch.chdir(vault.root)
+    add_routine(vault)
+    assert start_q3(vault, "--due", "14 Nov") == 1
+    assert capsys.readouterr().out == "--due needs a date written as YYYY-MM-DD, like 2026-11-14 (got '14 Nov')\n"
+    assert not q3_note(vault).exists()
+
+
+def test_list_files_with_a_byte_order_mark_or_in_utf16_are_read(vault, monkeypatch, capsys):
+    from bron import frontmatter as fm
+
+    monkeypatch.chdir(vault.root)
+    add_routine(vault)
+    assert start_q3(vault, data="Fund I: Company A\nFund II: Company B\n".encode("utf-8-sig")) == 0
+    assert fm.read(q3_note(vault)).body.startswith("## Collect financials and KPIs\n### Fund I\n- [ ] Company A\n")
+    add_routine(vault, "Second")
+    (vault.root / "companies.txt").write_bytes("Fund I: Société A\n".encode("utf-16"))
+    assert main(["routine", "start", "Second", "--period", "2026-Q3", "--list", "companies=companies.txt"]) == 0
+    assert "- [ ] Société A\n" in (vault.routines_dir / "Second" / "2026-Q3" / "Tracking.md").read_text(encoding="utf-8")
+
+
+def test_a_list_the_runbook_does_not_have_is_a_plain_error(vault, monkeypatch, capsys):
+    monkeypatch.chdir(vault.root)
+    add_routine(vault)
+    (vault.root / "foo.txt").write_text("x\n", encoding="utf-8")
+    assert main(["routine", "start", "Portco Monitoring", "--period", "2026-Q3", "--list", "foo=foo.txt"]) == 1
+    assert capsys.readouterr().out == "Portco Monitoring has no list called 'foo'. Its lists: companies, funds\n"
+    assert not q3_note(vault).exists()
+
+
+def test_the_health_check_warns_about_a_tracking_note_it_cannot_read(vault):
+    add_routine(vault)
+    _, path = started(vault)
+    assert "routine.tracking-unreadable" not in {i.code for i in run_checks(load(vault))}
+    path.write_text("---\nstatus: [unclosed\n---\nbody\n", encoding="utf-8")
+    issue = next(i for i in run_checks(load(vault)) if i.code == "routine.tracking-unreadable")
+    assert issue.level == "warning" and issue.path == path and "Portco Monitoring 2026-Q3" in issue.message

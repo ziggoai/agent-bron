@@ -40,10 +40,21 @@ def _claude_local_settings(cfg: Config) -> list[Issue]:
 
 
 def _routines(cfg: Config) -> list[Issue]:
-    from .routines import load_runbooks
+    from . import frontmatter as fm
+    from .routines import load_runbooks, tracking_notes
 
     runbooks, out = load_runbooks(cfg.vault)
     for runbook in runbooks:
+        for path in tracking_notes(runbook):
+            try:
+                fm.read(path)
+            except (fm.FrontmatterError, OSError, UnicodeDecodeError) as exc:
+                out.append(Issue(
+                    "warning",
+                    "routine.tracking-unreadable",
+                    f"The Tracking note of {runbook.name} {path.parent.name} can't be read, so its progress isn't updated: {exc}",
+                    path,
+                ))
         if runbook.owner and slug(runbook.owner) not in cfg.agents:
             out.append(Issue(
                 "warning",

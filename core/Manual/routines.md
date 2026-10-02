@@ -36,5 +36,5 @@ Plain instructions per step: where the template is, what to update, who to send 
 
 ## Commands (from the vault folder)
 - `.bron/bin/bron routine list`
-- `.bron/bin/bron routine start '<Routine>' [--period <period>] [--list <name>=<path>]`
+- `.bron/bin/bron routine start '<Routine>' [--period <period>] [--list <name>=<path>] [--due <date>]` (`--due` takes a date as YYYY-MM-DD and replaces the runbook's due rule for that period; use it when the rule isn't "N days after period end")
 - `.bron/bin/bron routine refresh ['<Routine>']`

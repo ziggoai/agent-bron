@@ -171,3 +171,41 @@ def test_a_runbook_without_steps_is_one_checklist(vault):
     rb = runbook(vault)
     path = start_period(vault, rb, "2026-09", {})
     assert fm.read(path).body == "## Board Pack\n- [ ] Deck\n- [ ] Minutes\n"
+
+
+# ---- final review ----
+
+def test_a_section_the_user_adds_is_ignored_by_status_and_progress(vault):
+    steps = [{"name": "Close", "for": "funds"}]
+    write_md(vault.routines_dir / "Close" / "Runbook.md", {"cadence": "monthly", "owner": "bron", "lists": {"funds": ["Fund I"]}, "steps": steps}, "")
+    rb = runbook(vault)
+    path = start_period(vault, rb, "2026-09", {})
+    text = path.read_text(encoding="utf-8").replace("- [ ] Fund I", "- [x] Fund I")
+    path.write_text(text + "\n## Notes\nBank was late.\n- [ ] ask about fees\n", encoding="utf-8")
+    state = refresh_tracking(path, rb)
+    assert state.status == "done" and state.progress == "Close 1/1"
+    assert "Bank was late." in path.read_text(encoding="utf-8")
+
+
+def test_refresh_reads_the_tracking_note_once(vault, monkeypatch):
+    from bron import routines
+
+    add_routine(vault)
+    rb = runbook(vault)
+    path = start_period(vault, rb, "2026-Q3", {"companies": COMPANIES})
+    reads = []
+    real = routines.fm.read
+    monkeypatch.setattr(routines.fm, "read", lambda p: reads.append(p) or real(p))
+    refresh_tracking(path, rb)
+    assert reads == [path]
+
+
+def test_an_absurd_due_rule_has_no_date():
+    assert due_date("99999999999 days after period end", date(2026, 9, 30)) is None
+    assert due_date("3000000 days after period end", date(2026, 9, 30)) is None
+
+
+def test_a_due_date_given_at_start_wins_over_the_runbook_rule(vault):
+    add_routine(vault, due="before the quarterly meeting")
+    path = start_period(vault, runbook(vault), "2026-Q3", {"companies": COMPANIES}, due=date(2026, 11, 20))
+    assert str(fm.read(path).meta["due"]) == "2026-11-20"

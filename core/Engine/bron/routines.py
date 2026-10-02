@@ -188,7 +188,12 @@ def last_ended(cadence: str, today: date) -> str:
 
 def due_date(rule: str, period_end: date) -> date | None:
     match = _DUE.match(rule or "")
-    return period_end + timedelta(days=int(match.group(1))) if match else None
+    if not match:
+        return None
+    try:
+        return period_end + timedelta(days=int(match.group(1)))
+    except (OverflowError, ValueError):
+        return None  # a day count too big to be a date
 
 
 # ---- tracking notes ----
@@ -219,8 +224,8 @@ def _step_lines(step: Step, items: list[tuple[str, str]]) -> list[str]:
     return lines
 
 
-def start_period(vault: Vault, runbook: Runbook, period: str, lists: dict[str, list[tuple[str, str]]]) -> Path:
-    """Create <Routine>/<period>/Tracking.md with one checklist per step."""
+def start_period(vault: Vault, runbook: Runbook, period: str, lists: dict[str, list[tuple[str, str]]], *, due: date | None = None) -> Path:
+    """Create <Routine>/<period>/Tracking.md with one checklist per step. `due` overrides the runbook's due rule."""
     try:
         _, end = period_bounds(runbook.cadence, period)
     except ValueError as exc:
@@ -243,7 +248,7 @@ def start_period(vault: Vault, runbook: Runbook, period: str, lists: dict[str, l
             raise RoutineError(f"The list '{step.for_}' is empty")
         sections.append("\n".join(_step_lines(step, items)))
     meta: dict = {"routine": runbook.name, "period": period, "status": "todo"}
-    due = due_date(runbook.due, end)
+    due = due or due_date(runbook.due, end)
     if due:
         meta["due"] = due.isoformat()
     meta["progress"] = ""
@@ -252,23 +257,29 @@ def start_period(vault: Vault, runbook: Runbook, period: str, lists: dict[str, l
     return path
 
 
-def read_steps(path: Path) -> tuple[dict, list[StepCount]]:
-    doc = fm.read(path)
+def count_steps(body: str, runbook: Runbook) -> list[StepCount]:
+    """Ticks per step section. Only `##` sections named like a runbook step count: any other section the
+    user adds (for example `## Notes`) is ignored, checkboxes and all."""
+    names = {step.name.lower() for step in runbook.steps}
     steps: list[StepCount] = []
-    for line in doc.body.splitlines():
+    current: StepCount | None = None
+    for line in body.splitlines():
         if line.startswith("## "):
-            steps.append(StepCount(line[3:].strip()))
-        elif steps and (match := _BOX.match(line)):
-            steps[-1].total += 1
+            name = line[3:].strip()
+            current = StepCount(name) if name.lower() in names else None
+            if current is not None:
+                steps.append(current)
+        elif current is not None and (match := _BOX.match(line)):
+            current.total += 1
             if match.group(1) in "xX":
-                steps[-1].done += 1
-    return doc.meta, steps
+                current.done += 1
+    return steps
 
 
 def refresh_tracking(path: Path, runbook: Runbook) -> TrackingState:
     """Recount the checklists and update status and progress (never the checkboxes). Writes only on change."""
     doc = fm.read(path)
-    _, steps = read_steps(path)
+    steps = count_steps(doc.body, runbook)
     complete = {s.name.lower() for s in steps if s.total and s.done == s.total}
     by_name = {s.name.lower(): s for s in runbook.steps}
     parts: list[str] = []
