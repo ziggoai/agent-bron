@@ -17,6 +17,8 @@ def main(event: str, cli: str, stdin=None, stdout=None) -> int:
         if event in QUICK:
             payload = _payload(stdin)
             _marker(event, cli, payload)
+            if event == "session-end":
+                _close_chats(cli, payload)
         elif event == "session-start":
             try:
                 output = _session_start(cli)
@@ -28,8 +30,8 @@ def main(event: str, cli: str, stdin=None, stdout=None) -> int:
             except Exception:  # noqa: BLE001
                 pass
         elif event == "user-prompt":
-            _payload(stdin)  # drain the prompt; @-mention routing arrives in Plan 2b
-            text = _ticket_updates()
+            payload = _payload(stdin)
+            text = _route(cli, payload) + _ticket_updates()
             if text:
                 try:
                     stdout.write(text)
@@ -103,6 +105,12 @@ def _session_start(cli: str) -> str:
         recover_orphans(vault)
     except Exception as exc:  # noqa: BLE001 - best effort, never fails the briefing
         _log_error("session-start", cli, exc)
+    try:
+        from .mentions import close_stale_chats
+
+        close_stale_chats(vault)
+    except Exception as exc:  # noqa: BLE001 - best effort, never fails the briefing
+        _log_error("session-start", cli, exc)
     return build_briefing(vault, cli=cli, notes=notes, changed=changed)
 
 
@@ -130,6 +138,46 @@ def _ticket_updates() -> str:
         lines.append(f"- …and {len(updates) - 8} more: run `.bron/bin/bron ticket list`")
     lines.append("Read the ticket (.bron/bin/bron ticket show <id>) and tell the user what changed.")
     return "\n".join(lines) + "\n"
+
+
+def _route(cli: str, payload: dict) -> str:
+    """@-mentions: start the tagged agents now and tell the session's agent to wait for them."""
+    if os.environ.get("BRON_TICKET"):
+        return ""  # a headless ticket run never routes
+    prompt = str(payload.get("prompt") or "")
+    if "@" not in prompt:
+        return ""
+    from . import mentions
+    from .vault import Vault, VaultNotFound
+
+    try:
+        vault = Vault.find()
+    except VaultNotFound:
+        return ""
+    try:
+        return mentions.route(
+            vault,
+            cli=cli,
+            prompt=prompt,
+            session_id=str(payload.get("session_id") or ""),
+            transcript_path=str(payload.get("transcript_path") or ""),
+        )
+    except Exception as exc:  # noqa: BLE001 - a trigger must never fail the message
+        _log_error("user-prompt", cli, exc)
+        return f"Bron couldn't pass the @-mention on this time ({exc.__class__.__name__}); answer the message yourself and say so.\n"
+
+
+def _close_chats(cli: str, payload: dict) -> None:
+    session_id = str(payload.get("session_id") or "")
+    if not session_id:
+        return
+    try:
+        from .mentions import close_session_chats
+        from .vault import Vault
+
+        close_session_chats(Vault.find(), f"{cli}:{session_id}")
+    except Exception as exc:  # noqa: BLE001
+        _log_error("session-end", cli, exc)
 
 
 def _truncate_title(text: str, limit: int = 80) -> str:

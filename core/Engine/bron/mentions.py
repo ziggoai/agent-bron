@@ -1,6 +1,7 @@
 """@-mentions: which agents a message tags, and the chat tickets that carry those conversations."""
 from __future__ import annotations
 
+import os
 import re
 import time
 
@@ -115,3 +116,59 @@ def close_stale_chats(vault: Vault, *, now: float | None = None) -> list[str]:
         except (TicketError, OSError):
             continue
     return closed
+
+
+def route(vault: Vault, *, cli: str, prompt: str, session_id: str, transcript_path: str) -> str:
+    """Start every agent the message tags and tell the session's agent what to do ('' when nothing is tagged)."""
+    from . import runner
+    from .loader import load
+    from .transcript import recent_exchanges
+
+    cfg = load(vault)
+    self_key = slug(os.environ.get("BRON_AGENT") or cfg.settings.default_agent)
+    agents = tagged_agents(prompt, cfg.agents, self_key)
+    if not agents:
+        return ""
+    session = f"{cli}:{session_id}" if session_id else ""
+    requester = self_key if self_key in cfg.agents else "you"
+    speaker = cfg.agents[self_key].name if self_key in cfg.agents else "Assistant"
+    context: str | None = None
+    started: list[tuple[Agent, Ticket]] = []
+    failed: list[str] = []
+    for agent in agents:
+        try:
+            if context is None and open_chat(vault, session, agent.key) is None:
+                context = recent_exchanges(cli, transcript_path, prompt, assistant=speaker)
+            ticket, follow_up = start_chat(vault, agent=agent, requester=requester, session=session, message=prompt, context=context or "")
+        except (TicketError, OSError) as exc:
+            failed.append(f"Couldn't pass the message to @{agent.name} ({exc}); tell the user.")
+            continue
+        try:
+            runner.start_background(vault, ticket.id, caller_cli=cli, resume=follow_up, shown=True)
+        except OSError as exc:
+            try:
+                with editing(vault, ticket.id) as current:
+                    set_status(current, "blocked", "runner", f"Bron couldn't start {agent.name} ({exc})")
+            except (TicketError, OSError):
+                pass
+            failed.append(f"Couldn't start @{agent.name} ({exc}); tell the user.")
+            continue
+        started.append((agent, ticket))
+    return routing_note(started, failed)
+
+
+def routing_note(started: list[tuple[Agent, Ticket]], failed: list[str]) -> str:
+    lines: list[str] = []
+    if started:
+        names = ", ".join(f"@{agent.name}" for agent, _ in started)
+        ids = " ".join(ticket.id for _, ticket in started)
+        one = len(started) == 1
+        lines += [
+            f"{names} {'is' if one else 'are'} answering this message (chat {'ticket' if one else 'tickets'} {ids}). Don't answer it yourself.",
+            f"Run `.bron/bin/bron ticket wait {ids}` as an ordinary command and wait for it (give it a 10-minute timeout if your command tool takes one). "
+            f"Then show each reply word for word, starting with the agent's name in bold, like **{started[0][0].name}:**. "
+            "You may add one short note of your own after the replies if it helps.",
+            "If a reply says a ticket is blocked with 'Needs your OK', follow the delegate skill. If an agent couldn't run, tell the user plainly what the note says.",
+        ]
+    lines += failed
+    return "\n".join(lines) + "\n" if lines else ""

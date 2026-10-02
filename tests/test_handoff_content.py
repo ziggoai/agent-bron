@@ -148,3 +148,10 @@ def test_the_rules_say_when_to_hand_off_and_how_to_ask_quickly(vault):
     assert "--run --caller-cli <claude|codex>" in rules
     assert "give the user the answer first" in rules
     assert len(rules.encode()) < 8 * 1024
+
+
+def test_the_rules_and_manual_explain_tagged_chats(vault):
+    rules = render_agents_md(load(vault))
+    assert "don't answer for them: wait with `.bron/bin/bron ticket wait <id>`" in rules
+    manual = (vault.core_manual / "tickets.md").read_text(encoding="utf-8")
+    assert "## Chats with @-mentions" in manual and "`.bron/bin/bron ticket wait <id>`" in manual
