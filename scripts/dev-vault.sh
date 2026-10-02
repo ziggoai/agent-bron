@@ -18,6 +18,7 @@ uv venv --quiet --allow-existing --python 3.12 "$VAULT/.bron/venv"
 uv pip install --quiet --python "$VAULT/.bron/venv/bin/python" --reinstall-package bron-engine "$VAULT/System/Core/Engine"
 
 mkdir -p "$VAULT/.bron/bin"
+printf '%s\n' "$REPO" > "$VAULT/.bron/source"  # lets `bron update` find this project again
 cat > "$VAULT/.bron/bin/bron" <<'SHIM'
 #!/bin/sh
 VAULT="$(cd "$(dirname "$0")/../.." && pwd)"

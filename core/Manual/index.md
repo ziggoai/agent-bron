@@ -13,3 +13,4 @@ How the Bron framework works, one page per topic. Read the page you need before 
 - **Framework files:** `System/Core/`. Replaced on update; never edit.
 - **Generated files:** `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, `.claude/`, `.codex/`, `.agents/`. Rebuilt by `.bron/bin/bron sync` from `System/`, automatically at the start of each session.
 - **Health check:** `.bron/bin/bron check`.
+- **Updating Bron:** say "Bron, update yourself", or run `.bron/bin/bron update`. Your own files are kept.

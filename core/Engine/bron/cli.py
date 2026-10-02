@@ -18,6 +18,7 @@ def main(argv: list[str] | None = None) -> int:
     p_hook.add_argument("event", choices=HOOK_NAMES)
     p_hook.add_argument("--cli", choices=CLIS, required=True)
     sub.add_parser("version", help="show the framework version")
+    sub.add_parser("update", help="update the framework from the Bron project this vault came from")
     args = parser.parse_args(argv)
 
     if args.command == "hook":
@@ -37,6 +38,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "check":
         return _check(vault)
+    if args.command == "update":
+        from .update import run_update
+
+        code, message = run_update(vault)
+        print(message)
+        return code
     return _sync(vault, dry_run=args.dry_run)
 
 

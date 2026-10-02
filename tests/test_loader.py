@@ -12,6 +12,7 @@ def test_template_loads_cleanly(vault):
     assert set(cfg.helpers) == {"reader", "researcher", "reviewer"}
     assert cfg.helpers["reader"].read_only is True
     assert "check" in cfg.skills
+    assert "update" in cfg.skills
 
 
 def test_keys_handle_spaces_case_and_accents():
