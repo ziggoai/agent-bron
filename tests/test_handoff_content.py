@@ -18,6 +18,8 @@ def test_agents_md_has_the_ticket_protocol_and_stays_small(vault):
     assert ".bron/bin/bron ticket" in text
     assert "Needs your OK:" in text
     assert len(text.encode()) < 8 * 1024
+    assert "(also in $BRON_TICKET)" in text
+    assert "in the environment" not in text
 
 
 def test_tickets_board_is_valid_and_hides_chats(vault):
