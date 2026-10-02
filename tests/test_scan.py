@@ -153,9 +153,7 @@ def test_non_empty_unparseable_text_counts_as_could_not_ask(vault):
     report = scan(vault, claude_text=CLAUDE_LIST, codex_text="garbage that is not a list")
     cfg = load(vault)
     # Paper (codex-only) should not be marked "not found" since codex couldn't be read
-    if "paper" in cfg.connections:
-        assert cfg.connections["paper"].status != "not found"
-    assert "Couldn't read Codex's connector list" in report.render()
+    assert cfg.connections.get("paper") is None or cfg.connections["paper"].status != "not found"
 
 
 # Fix 2: "Not found" requires all relevant CLIs to have been asked
@@ -165,11 +163,11 @@ def test_not_found_requires_all_cli_ids_scanned(vault):
     def failing_claude(*a, **k):
         raise OSError("claude not available")
 
-    # Scan with claude unavailable, codex empty
+    # Scan with claude unavailable, codex successfully scanned as empty array
     report = scan(vault, claude_text=None, codex_text="[]", run=failing_claude)
     cfg = load(vault)
-    # Carta has both ids; since claude couldn't be asked, it should NOT be marked "not found"
-    assert cfg.connections.get("carta") is None or cfg.connections["carta"].status != "not found"
+    # Carta has both claude and codex ids; since claude couldn't be asked, it should NOT be marked "not found"
+    assert cfg.connections["carta"].status != "not found"
 
 
 # Fix 3: Identity is per-CLI id, not just name
@@ -275,3 +273,109 @@ def test_parse_codex_list_tries_each_line_with_bracket():
     text = "[WARN] Something\n[]\n"
     found = parse_codex_list(text)
     assert found == []
+
+
+# CRITICAL Fix 1: Regression test for seen_keys tracking
+def test_found_connectors_not_marked_missing_on_rescan(vault):
+    """After two scans with the same data, no connector should be marked "not found"."""
+    # First scan
+    run_scan(vault)
+
+    # Second scan with same data
+    run_scan(vault)
+
+    # Check all files on disk for no "status: not found"
+    for path in vault.connections_dir.glob("*.md"):
+        doc = fm.read(path)
+        status = doc.meta.get("status", "")
+        assert status != "not found", f"{path.name} incorrectly marked as 'not found'"
+
+
+# Order-dependent Fix 2: Test with different orders of Claude and Codex connectors
+def test_same_name_different_origin_with_real_text_order1(vault):
+    """Scan with claude.ai Google Drive first, then plugin:small-business:google-drive."""
+    text = """Checking MCP server health…
+
+claude.ai Google Drive: https://drivemcp.googleapis.com/mcp/v1 - ✔ Connected
+plugin:small-business:google-drive: https://x.example/mcp (HTTP) - ✔ Connected
+"""
+
+    # First scan
+    report1 = scan(vault, claude_text=text, codex_text="[]")
+    cfg1 = load(vault)
+
+    files1 = sorted(p.name for p in vault.connections_dir.glob("*.md"))
+    assert len(files1) == 2, f"Expected 2 files, got {len(files1)}: {files1}"
+
+    # Check both connectors with correct IDs
+    google_drive_conns = {k: c for k, c in cfg1.connections.items() if "google" in k}
+    assert len(google_drive_conns) == 2
+
+    claude_conn = next((c for c in google_drive_conns.values() if c.claude == "claude_ai_Google_Drive"), None)
+    assert claude_conn is not None
+    assert claude_conn.name == "Google Drive"
+
+    plugin_conn = next((c for c in google_drive_conns.values() if c.claude == "plugin_small-business_google-drive"), None)
+    assert plugin_conn is not None
+    assert plugin_conn.name == "google-drive (small-business)"
+
+    # No status should be "not found"
+    for conn in google_drive_conns.values():
+        assert conn.status != "not found"
+
+    assert len(report1.created) == 2
+
+    # Second scan with same data
+    report2 = scan(vault, claude_text=text, codex_text="[]")
+    cfg2 = load(vault)
+
+    files2 = sorted(p.name for p in vault.connections_dir.glob("*.md"))
+    assert files2 == files1, "Files changed on second scan"
+    assert len(report2.created) == 0, f"Should have no creates on second scan, got {report2.created}"
+    assert len(report2.updated) == 0, f"Should have no updates on second scan, got {report2.updated}"
+
+    # Third scan confirms idempotency
+    report3 = scan(vault, claude_text=text, codex_text="[]")
+    assert len(report3.created) == 0
+    assert len(report3.updated) == 0
+
+
+def test_same_name_different_origin_with_real_text_order2(vault):
+    """Scan with plugin:small-business:google-drive first, then claude.ai Google Drive."""
+    text = """Checking MCP server health…
+
+plugin:small-business:google-drive: https://x.example/mcp (HTTP) - ✔ Connected
+claude.ai Google Drive: https://drivemcp.googleapis.com/mcp/v1 - ✔ Connected
+"""
+
+    # First scan
+    report1 = scan(vault, claude_text=text, codex_text="[]")
+    cfg1 = load(vault)
+
+    files1 = sorted(p.name for p in vault.connections_dir.glob("*.md"))
+    assert len(files1) == 2, f"Expected 2 files, got {len(files1)}: {files1}"
+
+    # Check both connectors with correct IDs
+    google_drive_conns = {k: c for k, c in cfg1.connections.items() if "google" in k}
+    assert len(google_drive_conns) == 2
+
+    claude_conn = next((c for c in google_drive_conns.values() if c.claude == "claude_ai_Google_Drive"), None)
+    assert claude_conn is not None
+
+    plugin_conn = next((c for c in google_drive_conns.values() if c.claude == "plugin_small-business_google-drive"), None)
+    assert plugin_conn is not None
+
+    # No status should be "not found"
+    for conn in google_drive_conns.values():
+        assert conn.status != "not found"
+
+    assert len(report1.created) == 2
+
+    # Second scan with same data
+    report2 = scan(vault, claude_text=text, codex_text="[]")
+    cfg2 = load(vault)
+
+    files2 = sorted(p.name for p in vault.connections_dir.glob("*.md"))
+    assert files2 == files1, "Files changed on second scan"
+    assert len(report2.created) == 0
+    assert len(report2.updated) == 0

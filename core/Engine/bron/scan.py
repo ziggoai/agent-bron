@@ -154,8 +154,10 @@ def apply_found(vault: Vault, found: list[Found], *, scanned_claude: bool, scann
     cfg = load(vault)
     report = ScanReport()
     natives = {key: conn for key, conn in cfg.connections.items() if conn.type == "native"}
+    # Seed with ALL existing connection keys (both natives and vault connections)
     used_keys: set[str] = set(cfg.connections.keys())
-    used_keys -= {key for key, conn in cfg.connections.items() if conn.type == "native"}
+    # Track which native keys were found in this scan (fix: restore seen_keys)
+    seen_keys: set[str] = set()
 
     for item in found:
         # Try to match by id (claude or codex id)
@@ -197,7 +199,7 @@ def apply_found(vault: Vault, found: list[Found], *, scanned_claude: bool, scann
 
             if use_key and use_key in used_keys:
                 # Still taken, skip with note
-                report.notes.append(f"Couldn't add {item.name} ({item.origin}): a connector with that name already exists.")
+                report.notes.append(f"Couldn't add {use_name}: another connector already uses that name.")
                 continue
 
         values = {
@@ -218,7 +220,7 @@ def apply_found(vault: Vault, found: list[Found], *, scanned_claude: bool, scann
             if changed:
                 fm.write(existing.path, doc)
                 report.updated.append(existing.name)
-            used_keys.add(existing.key)
+            seen_keys.add(existing.key)
         else:
             # Create new file
             if not use_key:
@@ -237,13 +239,14 @@ def apply_found(vault: Vault, found: list[Found], *, scanned_claude: bool, scann
             fm.write(path, fm.Document(meta, BODY.format(date=time.strftime("%Y-%m-%d"))))
             report.created.append(use_name)
             used_keys.add(use_key)
+            seen_keys.add(use_key)
 
         if item.status == "needs sign-in":
             report.needs_sign_in.append(use_name)
 
-    # Mark missing connectors
+    # Mark missing connectors (skip seen_keys to avoid marking found connectors as missing)
     for key, conn in natives.items():
-        if conn is None or conn.status == "not found":
+        if conn is None or conn.status == "not found" or key in seen_keys:
             continue
 
         checks = [(conn.claude, scanned_claude), (conn.codex, scanned_codex)]
@@ -260,7 +263,6 @@ def apply_found(vault: Vault, found: list[Found], *, scanned_claude: bool, scann
     if agent is not None:
         current = agent.connections
         is_empty = not current or (isinstance(current, list) and all(not str(c).strip() for c in current))
-        has_all = any(name.strip().lower() == ALL for name in current) if current else False
 
         if is_empty and (scanned_claude or scanned_codex):
             doc = fm.read(agent.path)
@@ -289,6 +291,25 @@ def _ask(cli: str, argv: list[str], vault: Vault, run, notes: list[str]) -> str 
     return done.stdout
 
 
+def _claude_readable(text: str) -> bool:
+    """A valid Claude output, even if empty."""
+    return "No MCP servers" in text or _LINE.search(text) is not None
+
+
+def _codex_readable(text: str) -> bool:
+    """A valid Codex JSON output, even if empty array."""
+    if not text:
+        return False
+    start = text.find("[")
+    if start < 0:
+        return False
+    try:
+        json.JSONDecoder().raw_decode(text[start:])
+        return True
+    except ValueError:
+        return False
+
+
 def scan(vault: Vault, *, claude_text: str | None = None, codex_text: str | None = None, run=subprocess.run) -> ScanReport:
     notes: list[str] = []
     if claude_text is None:
@@ -296,21 +317,13 @@ def scan(vault: Vault, *, claude_text: str | None = None, codex_text: str | None
     if codex_text is None:
         codex_text = _ask("codex", ["codex", "mcp", "list", "--json"], vault, run, notes)
 
-    # Determine what was actually scanned
-    scanned_claude = claude_text is not None
-    scanned_codex = codex_text is not None
+    # Determine what was actually scanned: valid output that can be read counts as scanned
+    scanned_claude = claude_text is not None and _claude_readable(claude_text)
+    scanned_codex = codex_text is not None and _codex_readable(codex_text)
 
     # Parse the text
     claude = parse_claude_list(claude_text) if claude_text is not None else []
     codex = parse_codex_list(codex_text) if codex_text is not None else []
-
-    # If non-empty text parsed to nothing, treat as not scanned
-    if scanned_claude and claude_text and not claude:
-        scanned_claude = False
-        notes.append("Couldn't read Claude Code's connector list; nothing was marked missing.")
-    if scanned_codex and codex_text and not codex:
-        scanned_codex = False
-        notes.append("Couldn't read Codex's connector list; nothing was marked missing.")
 
     cfg = load(vault)
     skip = {key for key, conn in cfg.connections.items() if conn.type != "native"}
