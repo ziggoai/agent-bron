@@ -9,7 +9,6 @@ import pytest
 pytestmark = pytest.mark.skipif(os.environ.get("BRON_LIVE") != "1", reason="live CLI test: set BRON_LIVE=1")
 
 REPO = Path(__file__).resolve().parents[2]
-CODEX_HOOK_FLAG = "--dangerously-bypass-hook-trust"  # from Task 1 Step 2; None if there is no such flag
 QUESTION = "Answer in one line and nothing else: your name, then the exact first line of your Bron briefing, then the names of the helpers you can use."
 
 
@@ -32,11 +31,11 @@ def test_claude_session_is_bron(dev_vault):
 
 
 def test_codex_session_is_bron(dev_vault):
+    # No hook-trust bypass: in a fresh vault Codex runs Bron's instructions but not its unapproved triggers, so no briefing check.
     command = ["codex", "exec", "--skip-git-repo-check"]  # a `-c projects...trust_level` override is ignored (verification R2)
-    if CODEX_HOOK_FLAG:
-        command.append(CODEX_HOOK_FLAG)
     done = subprocess.run([*command, QUESTION], cwd=dev_vault, capture_output=True, text=True, timeout=300, check=True)
-    check_answer(done.stdout)
+    assert "Bron" in done.stdout, done.stdout
+    assert "reader" in done.stdout.lower(), done.stdout
 
 
 def test_claude_cannot_spawn_a_team_member_but_can_use_a_helper(dev_vault):
