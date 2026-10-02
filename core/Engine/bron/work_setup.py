@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 import shlex
 import time
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import frontmatter as fm
@@ -17,30 +18,48 @@ _UNSAFE = re.compile(r'[\\/:*?"<>|#^\[\]\n\r\t]')
 
 _LIMITS = {"user_name": 100, "user_role": 100, "company": 100, "tone": 400, "preferences": 400}
 _SECRET_MSG = "That looks like a password or key. Keep it in the tool's own sign-in or settings, not in Bron's files."
-_FLAG = re.compile(r"^--?([A-Za-z0-9_-]+)(=.+)?$")
-_SECRET_WORDS = {"token", "secret", "password", "passwd"}  # anywhere in a flag's name: --auth-token, --client-secret
-_SECRET_LAST = {"key", "apikey"}  # the last part of a flag's name: --api-key, --key (not --key-file)
-_SECRET_ASSIGN = re.compile(r"^[A-Za-z0-9_]*(key|token|secret|password)[A-Za-z0-9_]*=.+", re.I)
+_FLAG = re.compile(r"^--?([A-Za-z0-9_-]+)(=.*)?$")
+_SECRET_WORDS = {"token", "secret", "password", "passwd"}  # anywhere in a flag's name: --auth-token, --clientSecret
+_SECRET_LAST = {"key", "apikey"}  # the last part of a flag's name: --api-key, --apiKey, --key (not --key-file)
+_HARMLESS_LAST = {"file", "path", "name", "scheme", "type", "id"}  # --token-file, --secret-name, --auth-scheme, --key-id
+_KEY_FILES = {"public", "ssh", "private"}  # --ssh-key ~/.ssh/id_ed25519 is a file, not a key
+_NOT_SECRET_KEYS = {"sort", "order", "group", "primary", "partition"}  # --sort-key name
+_SECRET_ASSIGN = re.compile(r"^(--?[A-Za-z0-9_-]+=)?[A-Za-z0-9_]*(key|token|secret|password)[A-Za-z0-9_]*=.+", re.I)
+_SECRET_HEADER = re.compile(r"^[\w=. -]*(api[-_ ]?key|token|secret|authorization)[\w=. -]*:\s*\S", re.I)
 _SECRET_VALUE = re.compile(r"(^|=)(sk-|ghp_|xox)", re.I)
-_AUTH_HEADER = re.compile(r"authorization\s*:", re.I)
 _BEARER = re.compile(r"^bearer(\s|$)", re.I)
 
 
-def _secret_flag(token: str) -> re.Match | None:
+def _flag_words(name: str) -> list[str]:
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "-", name)  # accessToken -> access-Token
+    return [part.lower() for part in re.split(r"[-_]", spaced) if part]
+
+
+def _secret_flag(token: str, following: str | None) -> bool:
+    """A flag that would carry a secret, with a value (after '=' or as the next word)."""
     flag = _FLAG.match(token)
     if not flag:
-        return None
-    parts = [part.lower() for part in re.split(r"[-_]", flag.group(1)) if part]
-    return flag if parts and (set(parts) & _SECRET_WORDS or parts[-1] in _SECRET_LAST) else None
+        return False
+    parts = _flag_words(flag.group(1))
+    value = flag.group(2)[1:] if flag.group(2) else following
+    if not parts or value is None or value == "":
+        return False
+    if parts[-1] in _HARMLESS_LAST:
+        return False
+    if parts[-1] == "key":
+        if set(parts[:-1]) & _NOT_SECRET_KEYS:
+            return False
+        if set(parts[:-1]) & _KEY_FILES and value.startswith(("/", "~", ".")):
+            return False
+    return bool(set(parts) & _SECRET_WORDS or parts[-1] in _SECRET_LAST)
 
 
 def _looks_secret(tokens: list[str]) -> bool:
     for i, tok in enumerate(tokens):
         has_next = i + 1 < len(tokens)
-        flag = _secret_flag(tok)
-        if flag and (flag.group(2) or has_next):
+        if _secret_flag(tok, tokens[i + 1] if has_next else None):
             return True
-        if _SECRET_ASSIGN.match(tok) or _SECRET_VALUE.search(tok) or _AUTH_HEADER.search(tok):
+        if _SECRET_ASSIGN.match(tok) or _SECRET_VALUE.search(tok) or _SECRET_HEADER.match(tok):
             return True
         if _BEARER.match(tok) and (tok.strip().lower() != "bearer" or has_next):
             return True
@@ -141,7 +160,11 @@ def add_connection(cfg: Config, *, name: str, command: str = "", args: str = "",
         raise SetupError("Give either a command (a tool that runs on this Mac) or a web address, not both.")
     try:
         arg_tokens = shlex.split(args) if args.strip() else []
-        cmd_tokens = shlex.split(command) if command.strip() else []
+        # a command that is itself an existing file (a path with spaces) is kept whole
+        if command.strip() and Path(command.strip()).expanduser().is_file():
+            cmd_tokens = [command.strip()]
+        else:
+            cmd_tokens = shlex.split(command) if command.strip() else []
     except ValueError as exc:
         raise SetupError(f"The command's arguments have an unclosed quote ({exc}).") from exc
     if _looks_secret(cmd_tokens + arg_tokens):
@@ -159,7 +182,7 @@ def add_connection(cfg: Config, *, name: str, command: str = "", args: str = "",
         meta["command"] = cmd_tokens[0]
         if cmd_tokens[1:] + arg_tokens:
             meta["args"] = cmd_tokens[1:] + arg_tokens
-        where = f"Runs on this Mac: {command.strip()}" + (f" {args.strip()}" if args.strip() else "") + "."
+        where = f"Runs on this Mac. Command: {meta['command']}." + (f" Arguments: {' '.join(meta['args'])}." if meta.get("args") else "")
     else:
         if not re.match(r"^https?://\S+$", url.strip()):
             raise SetupError("The web address should start with https:// or http://.")

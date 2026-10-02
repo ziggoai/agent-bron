@@ -77,7 +77,7 @@ def test_a_skill_is_shared_or_for_one_agent(vault):
 def test_a_connection_that_runs_on_the_mac_or_on_the_web(vault):
     change = add_connection(load(vault), name="Time", command="uvx", args="mcp-server-time --local-timezone 'America/Sao_Paulo'")
     assert change.summary[0] == "New connection: Time."
-    assert change.summary[1] == "Runs on this Mac: uvx mcp-server-time --local-timezone 'America/Sao_Paulo'."
+    assert change.summary[1] == "Runs on this Mac. Command: uvx. Arguments: mcp-server-time --local-timezone America/Sao_Paulo."
     apply(vault, change)
     meta = fm.read(vault.connections_dir / "Time.md").meta
     assert meta["type"] == "mcp-stdio" and meta["args"] == ["mcp-server-time", "--local-timezone", "America/Sao_Paulo"]
@@ -221,3 +221,59 @@ def test_show_files_on_settings_and_routines(vault, monkeypatch, capsys, tmp_pat
     out = capsys.readouterr().out
     assert "--- Routines/LP Reports/Runbook.md" in out and "cadence: quarterly" in out
     assert not (vault.routines_dir / "LP Reports").exists() and fm.read(vault.settings_file).meta.get("tone") != "brief"
+
+
+@pytest.mark.parametrize("args", [
+    "tool --accessToken abc123",
+    "tool --clientSecret=abc123",
+    "tool --authToken abc123",
+    "tool --githubToken abc123",
+    "tool --apiKey abc123",
+    "tool --apiKey=abc123",
+    "tool --header 'X-API-Key: abc123'",
+    "tool --header 'x-apikey: abc123'",
+    "tool --header 'X-Auth-Token: abc123'",
+    "tool --header=\"X-Secret: abc123\"",
+    "tool --env=MY_API_KEY=abc123",
+    "tool --env MY_TOKEN=abc123",
+    "tool DB_PASSWORD=abc123",
+    "tool --SECRET_KEY=abc123",
+    "tool --ssh-key abc123",
+    "tool --public-key abc123",
+])
+def test_more_secret_forms_are_refused(vault, args):
+    with pytest.raises(SetupError, match="looks like a password or key") as err:
+        add_connection(load(vault), name="Secretive", command="uvx", args=args)
+    assert "abc" not in str(err.value)
+
+
+@pytest.mark.parametrize("args", [
+    "tool --token-file /a/token.txt",
+    "tool --secret-name my-secret",
+    "tool --auth-scheme basic",
+    "tool --key-id 42",
+    "tool --tokenPath /a",
+    "tool --public-key /home/me/key.pub",
+    "tool --ssh-key ~/.ssh/id_ed25519",
+    "tool --private-key=./id_rsa",
+    "tool --sort-key name",
+    "tool --header 'Accept: application/json'",
+    "tool --env=MODE=fast",
+])
+def test_more_harmless_forms_are_accepted(vault, args):
+    add_connection(load(vault), name="Harmless", command="uvx", args=args)
+
+
+def test_a_command_path_with_spaces_is_kept_whole(vault, tmp_path):
+    tool = tmp_path / "My Tool.app" / "bin" / "server"
+    tool.parent.mkdir(parents=True)
+    tool.write_text("#!/bin/sh\n", encoding="utf-8")
+    change = add_connection(load(vault), name="Spacey", command=str(tool), args="--port 80")
+    apply(vault, change)
+    meta = fm.read(vault.connections_dir / "Spacey.md").meta
+    assert meta["command"] == str(tool) and meta["args"] == ["--port", "80"]
+    assert f"Command: {tool}" in "\n".join(change.summary) and "Arguments: --port 80" in "\n".join(change.summary)
+    # a path that doesn't exist is split on spaces, as before
+    other = add_connection(load(vault), name="Spacey2", command=str(tmp_path / "Not There" / "server"))
+    apply(vault, other)
+    assert fm.read(vault.connections_dir / "Spacey2.md").meta["command"] == str(tmp_path / "Not")
