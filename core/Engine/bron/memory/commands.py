@@ -55,6 +55,12 @@ def write_lines(path: Path, lines: list[str]) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write("\n".join(lines).rstrip("\n") + "\n")
+        # Preserve existing file permissions, or use 0o644 for new files
+        if path.exists():
+            mode = path.stat().st_mode & 0o777
+        else:
+            mode = 0o644
+        os.chmod(tmp, mode)
         os.replace(tmp, path)
     finally:
         if os.path.exists(tmp):
@@ -82,6 +88,9 @@ def remember(vault: Vault, cfg: Config, *, as_agent: str, text: str, scope: str 
     with locked(vault.state_dir / WRITE_LOCK):
         lines = read_lines(path)
         old = facts.matches(lines, replaces) if replaces else []
+        if len(old) > 1:
+            listed = "\n".join(f"- {f.text}" for f in old)
+            raise MemoryError(f"'{replaces}' matches more than one saved fact; nothing was changed. Say which one:\n{listed}")
         if len(old) == 1:
             lines, verb = facts.replace(lines, old[0], fact, when, agent.name), "Updated"
         else:
@@ -95,16 +104,26 @@ def forget(vault: Vault, cfg: Config, *, as_agent: str, text: str) -> str:
     agent = agent_of(cfg, as_agent)
     with locked(vault.state_dir / WRITE_LOCK):
         found = []
-        for scope in ("shared", "mine"):
+        is_ticket_run = os.environ.get("BRON_TICKET")
+        # In ticket runs, only search own notes
+        scopes = ("mine",) if is_ticket_run else ("shared", "mine")
+        for scope in scopes:
             path = facts_file(vault, cfg, scope, agent.key)
             lines = read_lines(path)
-            found += [(path, lines, f) for f in facts.matches(lines, text)]
+            found += [(path, lines, f, scope) for f in facts.matches(lines, text)]
+        # If in ticket run and found nothing in own notes, check if it exists in shared
+        if is_ticket_run and not found:
+            shared_path = facts_file(vault, cfg, "shared", agent.key)
+            shared_lines = read_lines(shared_path)
+            shared_matches = facts.matches(shared_lines, text)
+            if shared_matches:
+                raise MemoryError(f"{TICKET_SHARED}.")
         if not found:
             raise MemoryError(f"I couldn't find a saved fact matching \"{text}\".")
         if len(found) > 1:
-            listed = "\n".join(f"- {f.text}" for _, _, f in found)
+            listed = "\n".join(f"- {f.text}" for _, _, f, _ in found)
             raise MemoryError(f"That matches more than one fact; nothing was changed. Say which one:\n{listed}")
-        path, lines, fact = found[0]
+        path, lines, fact, _ = found[0]
         write_lines(path, facts.remove(lines, fact))
     return f"Forgotten: {fact.text}"
 
@@ -119,5 +138,7 @@ def forget_conversation(vault: Vault, cfg: Config, *, as_agent: str, query: str)
     if len(notes) > 1:
         listed = "\n".join(f"- {p.stem}" for p in notes)
         raise MemoryError(f"That matches more than one conversation; nothing was changed. Say which one:\n{listed}")
-    notes[0].unlink()
+    with locked(vault.state_dir / WRITE_LOCK):
+        # File may have vanished between check and delete; treat as already forgotten
+        notes[0].unlink(missing_ok=True)
     return f"Forgotten: the conversation \"{notes[0].stem}\"."

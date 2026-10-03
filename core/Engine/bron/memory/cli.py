@@ -47,10 +47,15 @@ def handle(args, vault) -> int:
                                     section=args.section, replaces=args.replaces))
             return 0
         if args.memory_command == "forget":
-            if args.conversation:
-                print(commands.forget_conversation(vault, cfg, as_agent=args.as_agent, query=args.conversation))
-            elif args.text:
-                print(commands.forget(vault, cfg, as_agent=args.as_agent, text=args.text))
+            has_text = args.text and args.text.strip()
+            has_conversation = args.conversation and args.conversation.strip()
+            if has_text and has_conversation:
+                print("Say either the fact's words or --conversation, not both.")
+                return 1
+            if has_conversation:
+                print(commands.forget_conversation(vault, cfg, as_agent=args.as_agent, query=args.conversation.strip()))
+            elif has_text:
+                print(commands.forget(vault, cfg, as_agent=args.as_agent, text=args.text.strip()))
             else:
                 print("Say what to forget: a fact's words, or --conversation with its title or date.")
                 return 1

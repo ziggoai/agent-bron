@@ -126,3 +126,79 @@ def test_memory_settings_defaults(vault):
     settings = load(vault).settings
     assert settings.memory_summaries is True
     assert settings.summary_models == {"claude": "haiku", "codex": "gpt-6-luna"}
+
+
+def test_ticket_run_explicit_shared_redirects_to_mine(run, vault, monkeypatch):
+    monkeypatch.setenv("BRON_TICKET", "T-1")
+    code, out = run("memory", "remember", "Board meets on Tuesdays", "--as", "Bron", "--shared")
+    assert code == 0
+    assert out.startswith("Only a conversation with you can change shared memory, so I saved this to my own notes. Noted:")
+    facts_md = vault.memory_dir / "Facts.md"
+    assert not facts_md.exists() or "Board meets" not in facts_md.read_text()
+    assert "Board meets on Tuesdays." in (vault.agents_dir / "Bron" / "Memory" / "Facts.md").read_text()
+
+
+def test_ticket_run_forget_shared_fact_refused(run, vault, monkeypatch):
+    run("memory", "remember", "Board meets on Tuesdays", "--as", "Bron")
+    monkeypatch.setenv("BRON_TICKET", "T-1")
+    code, out = run("memory", "forget", "board meets", "--as", "Bron")
+    assert code == 1
+    assert "Only a conversation with you can change shared memory" in out
+    assert "Board meets on Tuesdays" in (vault.memory_dir / "Facts.md").read_text()
+
+
+def test_ticket_run_forget_own_fact_works(run, vault, monkeypatch):
+    run("memory", "remember", "Own habit", "--as", "Bron", "--mine")
+    monkeypatch.setenv("BRON_TICKET", "T-1")
+    code, out = run("memory", "forget", "own habit", "--as", "Bron")
+    assert code == 0 and "Forgotten" in out
+
+
+def test_write_lines_preserves_file_permissions(run, vault):
+    facts_file = vault.memory_dir / "Facts.md"
+    # First remember to create the file
+    run("memory", "remember", "First fact", "--as", "Bron")
+    assert facts_file.exists()
+    # Check it has expected mode
+    mode = facts_file.stat().st_mode & 0o777
+    assert mode == 0o644
+    # Add another fact and verify mode is still 0o644
+    run("memory", "remember", "Second fact", "--as", "Bron")
+    mode = facts_file.stat().st_mode & 0o777
+    assert mode == 0o644
+
+
+def test_forget_conversation_whitespace_only(run, vault):
+    code, out = run("memory", "forget", "--conversation", "   ", "--as", "Bron")
+    assert code == 1
+    assert "Say what to forget:" in out
+
+
+def test_forget_both_text_and_conversation_refused(run, vault):
+    code, out = run("memory", "forget", "some text", "--conversation", "some conversation", "--as", "Bron")
+    assert code == 1
+    assert "Say either the fact's words or --conversation, not both" in out
+
+
+def test_forget_conversation_vanished_file_ok(run, vault):
+    folder = vault.agents_dir / "Bron" / "Memory" / "Conversations" / "2026-10"
+    folder.mkdir(parents=True)
+    note = folder / "2026-10-03 09.15 Q3 report fields.md"
+    note.write_text("---\nsession_id: s1\n---\n## Asked\n- x\n")
+    # Verify file exists before forgetting
+    assert note.exists()
+    code, out = run("memory", "forget", "--conversation", "q3 report", "--as", "Bron")
+    # Should succeed and delete the file
+    assert code == 0 and "Forgotten" in out
+    assert not note.exists()
+
+
+def test_replaces_multiple_matches_refused(run, vault):
+    run("memory", "remember", "Fund I closes in May", "--as", "Bron")
+    run("memory", "remember", "Fund II closes in June", "--as", "Bron")
+    code, out = run("memory", "remember", "New text", "--as", "Bron", "--replaces", "closes")
+    assert code == 1
+    assert "matches more than one saved fact" in out
+    assert "Fund I closes in May." in out
+    assert "Fund II closes in June." in out
+    assert shared(vault).count("closes") == 2
