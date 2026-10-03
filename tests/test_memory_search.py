@@ -85,3 +85,53 @@ def test_search_is_fast(vault, cfg):
     start = time.perf_counter()
     index.search(vault, cfg, as_agent="Bron", query="operations")
     assert time.perf_counter() - start < 0.2
+
+
+def test_corrupt_database_is_rebuilt(vault, cfg):
+    commands.remember(vault, cfg, as_agent="Bron", text="Carta is the source of truth")
+    hits = index.search(vault, cfg, as_agent="Bron", query="Carta")
+    assert hits
+    # Corrupt the database with garbage bytes
+    db_path = vault.bron_dir / "memory" / "index.db"
+    db_path.write_bytes(b"garbage data")
+    # Search should still work, having rebuilt the index
+    hits = index.search(vault, cfg, as_agent="Bron", query="Carta")
+    assert hits and hits[0].excerpt == "Carta is the source of truth."
+
+
+def test_truncated_database_is_rebuilt(vault, cfg):
+    commands.remember(vault, cfg, as_agent="Bron", text="Board meets on Tuesdays")
+    hits = index.search(vault, cfg, as_agent="Bron", query="Board")
+    assert hits
+    # Truncate/zero the database
+    db_path = vault.bron_dir / "memory" / "index.db"
+    db_path.write_bytes(b"")
+    # Search should still work, having rebuilt the index
+    hits = index.search(vault, cfg, as_agent="Bron", query="Board")
+    assert hits and hits[0].excerpt == "Board meets on Tuesdays."
+
+
+def test_visibility_filter_in_sql_prevents_crowding(vault, cfg):
+    # Create a shared fact
+    commands.remember(vault, cfg, as_agent="Bron", text="Budget priorities are set by the board")
+    # Create 40 conversations from CFO that match the query but are not visible to Bron
+    for i in range(40):
+        note(vault, "CFO", f"2026-10-03 10.{i:02d} Budget item {i}", f"## Asked\n- Discuss budget item {i}\n## Decided\n- Budget adjustment needed", session=f"s{i}")
+    # Bron's search should return the shared fact despite the 40 CFO conversations
+    hits = index.search(vault, cfg, as_agent="Bron", query="budget")
+    assert hits
+    assert hits[0].kind == "shared"
+    assert "Budget priorities" in hits[0].excerpt
+
+
+def test_same_size_edit_is_detected(vault, cfg):
+    import os
+    path = note(vault, "Bron", "2026-10-03 09.15 Budget", "## Asked\n- Budget for marketing")
+    assert index.search(vault, cfg, as_agent="Bron", query="marketing")
+    time.sleep(0.01)
+    # Edit with same length (marketing -> publicity, both 9 chars)
+    path.write_text(path.read_text().replace("marketing", "publicity"), encoding="utf-8")
+    # Set a distinct mtime
+    os.utime(path, ns=(time.time_ns() + 1_000_000_000, time.time_ns() + 1_000_000_000))
+    assert not index.search(vault, cfg, as_agent="Bron", query="marketing")
+    assert index.search(vault, cfg, as_agent="Bron", query="publicity")

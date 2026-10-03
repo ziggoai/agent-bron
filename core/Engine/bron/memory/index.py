@@ -9,7 +9,7 @@ from pathlib import Path
 from .. import frontmatter as fm
 from ..loader import Config
 from ..vault import Vault
-from . import facts
+from . import commands, facts
 from .commands import agent_of, conversations_dir, facts_file
 
 _WORD = re.compile(r"\w+", re.UNICODE)
@@ -29,14 +29,35 @@ class Hit:
 def _db(vault: Vault) -> sqlite3.Connection:
     folder = vault.bron_dir / "memory"
     folder.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(folder / "index.db")
-    con.execute("CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, mtime REAL, size INTEGER)")
-    con.execute(
-        "CREATE VIRTUAL TABLE IF NOT EXISTS entries USING fts5("
-        "path UNINDEXED, kind UNINDEXED, agent UNINDEXED, title, date UNINDEXED, body, "
-        "tokenize='unicode61 remove_diacritics 2')"
-    )
-    return con
+    db_path = folder / "index.db"
+    try:
+        con = sqlite3.connect(db_path)
+        con.execute("CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, mtime_ns INTEGER, size INTEGER)")
+        con.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS entries USING fts5("
+            "path UNINDEXED, kind UNINDEXED, agent UNINDEXED, title, date UNINDEXED, body, "
+            "tokenize='unicode61 remove_diacritics 2')"
+        )
+        return con
+    except sqlite3.DatabaseError:
+        # Index is corrupt; delete it and retry once
+        con.close() if 'con' in locals() else None
+        for f in [db_path, db_path.with_suffix(".db-wal"), db_path.with_suffix(".db-journal"), db_path.with_suffix(".db-shm")]:
+            try:
+                f.unlink()
+            except OSError:
+                pass
+        try:
+            con = sqlite3.connect(db_path)
+            con.execute("CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, mtime_ns INTEGER, size INTEGER)")
+            con.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS entries USING fts5("
+                "path UNINDEXED, kind UNINDEXED, agent UNINDEXED, title, date UNINDEXED, body, "
+                "tokenize='unicode61 remove_diacritics 2')"
+            )
+            return con
+        except sqlite3.DatabaseError as exc:
+            raise commands.MemoryError("Bron's memory search index couldn't be rebuilt; your notes are safe. Try again in a moment.") from exc
 
 
 def _sources(vault: Vault, cfg: Config) -> dict[Path, tuple[str, str]]:
@@ -69,15 +90,15 @@ def refresh(vault: Vault, cfg: Config) -> None:
     con = _db(vault)
     with con:
         sources = _sources(vault, cfg)
-        known = {row[0]: (row[1], row[2]) for row in con.execute("SELECT path, mtime, size FROM files")}
+        known = {row[0]: (row[1], row[2]) for row in con.execute("SELECT path, mtime_ns, size FROM files")}
         live = {}
         for path, (kind, agent) in sources.items():
             try:
                 stat = path.stat()
             except OSError:
                 continue
-            live[str(path)] = (stat.st_mtime, stat.st_size)
-            if known.get(str(path)) == (stat.st_mtime, stat.st_size):
+            live[str(path)] = (stat.st_mtime_ns, stat.st_size)
+            if known.get(str(path)) == (stat.st_mtime_ns, stat.st_size):
                 continue
             con.execute("DELETE FROM entries WHERE path = ?", (str(path),))
             try:
@@ -85,7 +106,7 @@ def refresh(vault: Vault, cfg: Config) -> None:
             except (OSError, UnicodeDecodeError):
                 rows = []
             con.executemany("INSERT INTO entries (path, kind, agent, title, date, body) VALUES (?, ?, ?, ?, ?, ?)", rows)
-            con.execute("INSERT OR REPLACE INTO files (path, mtime, size) VALUES (?, ?, ?)", (str(path), stat.st_mtime, stat.st_size))
+            con.execute("INSERT OR REPLACE INTO files (path, mtime_ns, size) VALUES (?, ?, ?)", (str(path), stat.st_mtime_ns, stat.st_size))
         for gone in set(known) - set(live):
             con.execute("DELETE FROM entries WHERE path = ?", (gone,))
             con.execute("DELETE FROM files WHERE path = ?", (gone,))
@@ -109,14 +130,12 @@ def search(vault: Vault, cfg: Config, *, as_agent: str, query: str, all_agents: 
                 return []
             rows = con.execute(
                 "SELECT path, kind, agent, title, date, snippet(entries, 5, '', '', '…', 16) FROM entries "
-                "WHERE entries MATCH ? ORDER BY bm25(entries) LIMIT ?",
-                (match, limit * 4),
+                "WHERE entries MATCH :match "
+                "AND (kind='shared' OR (kind='own' AND agent=:me) OR (kind='conversation' AND (agent=:me OR :all))) "
+                "ORDER BY bm25(entries) LIMIT :limit",
+                {"match": match, "me": agent.name, "all": all_agents, "limit": limit},
             ).fetchall()
             for path, kind, owner, title, when, excerpt in rows:
-                if kind == "own" and owner != agent.name:
-                    continue
-                if kind == "conversation" and owner != agent.name and not all_agents:
-                    continue
                 hits.append(Hit(kind, owner, title, when, " ".join(excerpt.split()), Path(path)))
             if hits:
                 break
