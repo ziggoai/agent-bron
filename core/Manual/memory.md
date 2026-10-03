@@ -25,6 +25,9 @@ memory:
 ```
 
 - Turn summaries off with `summaries: false`. Change the model per app with `summary_model`.
+- Summaries use the same login and plan as the app the conversation was in (Claude Code or Codex), so they count towards that plan's usage. If you set `ANTHROPIC_API_KEY` for Claude Code, summaries use that key too.
+- After an update, conversations from the last two weeks get summaries gradually, a few at the start of each session.
+- A conversation you forget ("forget the conversation about …") is never summarised again, even if you resume it.
 - If a summary can't be written (offline, logged out), Bron retries later and gives up after 3 tries. The health check tells you when that happens, and the details are in `.bron/logs/memory.log`.
 
 ## Searching
@@ -35,15 +38,16 @@ memory:
 ## Limits and tidying
 
 - Shared facts hold about 4,000 characters, an agent's own notes about 2,500. Saving never fails because of size. At 90% Bron says memory is getting long and the health check warns.
-- Ask Bron to "tidy memory": it shows a shortened version and waits for your yes before replacing the file.
+- Ask Bron to "tidy memory": it shows a shortened version, names the file it will replace and lists any fact it no longer keeps as written, then waits for your yes. If a fact is saved in between, Bron shows the tidy again instead of dropping it.
 - The briefing at the start of a session shows the facts and the 5 most recent conversations; the rest is found by searching.
 
 ## What is never saved
 
-- Passwords, keys and tokens. If you tell Bron one, it says "That looks like a password or key, so I didn't save it."
+- Passwords, keys and tokens. If you tell Bron one, it says "That looks like a password or key, so I didn't save it." Conversation summaries leave them out too.
 - Ticket runs read facts but don't write summaries.
 
 ## Where things are
 
 - Your notes: `System/Memory/` and `System/Agents/<Name>/Memory/`.
 - Hidden helpers (search index, summary progress): `.bron/memory/`. The search index is rebuilt by Bron if you delete it.
+- `System/Memory/Summary.md` from earlier versions is no longer read. The health check reminds you while it exists; ask Bron to move what matters into `Facts.md`.
