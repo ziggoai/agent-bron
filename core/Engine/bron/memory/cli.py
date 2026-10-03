@@ -60,6 +60,12 @@ def handle(args, vault) -> int:
                 print("Say what to forget: a fact's words, or --conversation with its title or date.")
                 return 1
             return 0
+        if args.memory_command == "search":
+            from . import index
+
+            hits = index.search(vault, cfg, as_agent=args.as_agent, query=args.query, all_agents=args.all, limit=args.limit)
+            print(index.render(hits, vault.root) if hits else f'Nothing in memory matches "{args.query}".')
+            return 0
     except commands.MemoryError as exc:
         print(exc)
         return 1
