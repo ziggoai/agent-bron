@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from .hookconfig import HOOK_NAMES
 from .model import CLIS
@@ -19,7 +20,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_hook.add_argument("event", choices=HOOK_NAMES)
     p_hook.add_argument("--cli", choices=CLIS, required=True)
     sub.add_parser("version", help="show the framework version")
-    sub.add_parser("update", help="update the framework from the Bron project this vault came from")
+    p_update = sub.add_parser("update", help="update Bron to the newest release (shows what's new first with --preview)")
+    update_mode = p_update.add_mutually_exclusive_group()
+    update_mode.add_argument("--preview", action="store_true", help="show what's new without changing anything")
+    update_mode.add_argument("--undo", action="store_true", help="go back to the version before the last update")
+    p_update.add_argument("--from", dest="from_folder", type=Path, help="update from a Bron project folder instead of GitHub (development)")
+    p_after = sub.add_parser("_after-update", help=argparse.SUPPRESS)
+    p_after.add_argument("--previous", required=True)
+    p_after.add_argument("--tree", type=Path)
     p_conn = sub.add_parser("connections", help="find connectors set up in Claude Code and Codex, or add one")
     conn_commands = p_conn.add_subparsers(dest="action", required=True)
     conn_commands.add_parser("scan", help="find the connectors set up in Claude Code and Codex")
@@ -67,11 +75,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "check":
         return _check(vault)
     if args.command == "update":
-        from .update import run_update
+        from . import update
+        from .releases import select_source
 
-        code, message = run_update(vault)
+        if args.undo:
+            code, message = update.undo(vault)
+        else:
+            source = select_source(vault, args.from_folder)
+            code, message = (update.preview if args.preview else update.apply)(vault, source)
         print(message)
         return code
+    if args.command == "_after-update":
+        from .update import finish
+
+        return finish(vault, args.previous, args.tree)
     if args.command == "connections" and args.action == "add":
         from . import setup_cli
 
