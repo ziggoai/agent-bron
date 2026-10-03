@@ -94,8 +94,10 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 source = select_source(vault, args.from_folder)
                 code, message = (update.preview if args.preview else update.apply)(vault, source)
-        except KeyboardInterrupt:
-            return 130  # what happened was already said
+        except KeyboardInterrupt as exc:
+            if not getattr(exc, "bron_reported", False):  # stopped outside the swap of System/Core
+                print("Stopped; nothing was changed.")
+            return 130
         print(message)
         return code
     if args.command == "_after-update":

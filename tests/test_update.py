@@ -438,3 +438,84 @@ def test_check_reports_an_interrupted_update(run, vault):
     marker(vault).write_text("{}")
     code, out, _ = run("check")
     assert "An update was interrupted; run `.bron/bin/bron update` to finish going back." in out
+
+
+# Follow-up: no false "interrupted" warning, heal re-checks under the lock, Ctrl-C outside the swap.
+
+def test_a_successful_update_refresh_and_undo_never_say_interrupted(run, vault, releases, engine, monkeypatch):
+    # The engine fixture runs the finishing step (and its health check) while apply still holds the
+    # update lock, as the real `bron _after-update` subprocess does.
+    code, out, _ = run("update")
+    assert code == 0, out
+    assert "Bron health check" in out and "was interrupted" not in out
+    code, out, _ = run("update", "--undo")
+    assert code == 0, out
+    assert "Bron health check" in out and "was interrupted" not in out
+    monkeypatch.delenv("BRON_RELEASE_SOURCE")
+    code, out, _ = run("update", "--from", str(REPO))
+    assert code == 0, out
+    assert "Bron health check" in out and "was interrupted" not in out
+
+
+def test_a_marker_with_an_update_running_elsewhere_is_not_reported(run, vault):
+    import fcntl
+
+    marker(vault).parent.mkdir(parents=True, exist_ok=True)
+    marker(vault).write_text("{}")
+    with open(vault.state_dir / "update.json.lock", "a+") as handle:  # another process's update
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        _, out, _ = run("check")
+        fcntl.flock(handle, fcntl.LOCK_UN)
+    assert "was interrupted" not in out
+    _, out, _ = run("check")  # nothing running: the leftover marker is reported
+    assert "An update was interrupted" in out
+
+
+def test_heal_does_nothing_when_the_marker_goes_while_it_waits_for_the_lock(vault, monkeypatch):
+    import contextlib
+
+    marker(vault).parent.mkdir(parents=True, exist_ok=True)
+    marker(vault).write_text('{"previous": "0.0.1", "restore_from": ".bron/backups/gone"}')
+
+    @contextlib.contextmanager
+    def other_update_finishes_first(path):
+        marker(vault).unlink()
+        yield
+
+    monkeypatch.setattr(update, "locked", other_update_finishes_first)
+    assert update.heal(vault) == (0, None)
+
+
+def test_ctrl_c_before_anything_changed_says_so(run, vault, releases, engine, monkeypatch):
+    def interrupted(v, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(update, "backup_core", interrupted)
+    code, out, err = run("update")
+    assert code == 130
+    assert out.strip() == "Stopped; nothing was changed."
+    assert "Traceback" not in out + err
+    assert vault.version() == CURRENT
+
+
+def test_ctrl_c_during_the_swap_says_only_what_happened(run, vault, releases, monkeypatch):
+    monkeypatch.setattr(update, "install_engine", lambda v: (_ for _ in ()).throw(KeyboardInterrupt()) if v.version() == "9.0.0" else None)
+    code, out, _ = run("update")
+    assert code == 130
+    assert f"Bron went back to version {CURRENT}" in out and "nothing was changed" not in out
+
+
+@pytest.mark.parametrize("make_copy", ["_safety_copy", "backup_core"])
+def test_ctrl_c_while_copying_leaves_no_partial_copy(vault, monkeypatch, make_copy):
+    real = update.shutil.copytree
+
+    def interrupted_copy(src, dest, **kwargs):
+        Path(dest).mkdir(parents=True)
+        (Path(dest) / "VERSION").write_text("half\n")
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(update.shutil, "copytree", interrupted_copy)
+    with pytest.raises(KeyboardInterrupt):
+        getattr(update, make_copy)(vault)
+    monkeypatch.setattr(update.shutil, "copytree", real)
+    assert not vault.backups_dir.exists() or list(vault.backups_dir.iterdir()) == []

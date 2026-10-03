@@ -31,6 +31,7 @@ TAIL_LINES = 15
 _BACKUP = re.compile(r"^core-(\d+\.\d+\.\d+)-(\d{8}-\d{6})(?:-(\d+))?$")
 NEW_SESSION = "Start a new session so every change applies."
 MARKER = "update-in-progress.json"
+UPDATE_LOCK = "update.json"  # locked(state_dir / UPDATE_LOCK) while an update, undo or heal runs
 REPAIR = "run the install command again to repair it (it installs the newest version)"
 STOP_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
 
@@ -138,7 +139,7 @@ def backup_core(vault: Vault, *, stamp: str | None = None, prune: bool = True) -
     try:
         vault.backups_dir.mkdir(parents=True, exist_ok=True)
         shutil.copytree(vault.core, dest, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))
-    except OSError:
+    except BaseException:  # a failure or Ctrl-C never leaves a half copy behind
         shutil.rmtree(dest, ignore_errors=True)
         raise
     if prune:
@@ -256,6 +257,7 @@ def _failed(exc: BaseException, message: str) -> tuple[int, str]:
     """The result of a failed swap: Ctrl-C prints and stops; SIGTERM/SIGHUP exit as killed."""
     if isinstance(exc, KeyboardInterrupt):
         print(message, flush=True)
+        exc.bron_reported = True  # cli.py adds nothing more
         raise exc
     if isinstance(exc, Stopped):
         return 128 + exc.signum, message
@@ -269,7 +271,9 @@ def heal(vault: Vault) -> tuple[int, str | None]:
     """Finish going back after an update that was interrupted (its marker was left behind)."""
     if not marker_path(vault).exists():
         return 0, None
-    with locked(vault.state_dir / "update.json"):
+    with locked(vault.state_dir / UPDATE_LOCK):
+        if not marker_path(vault).exists():
+            return 0, None  # another update finished it while this one waited for the lock
         data = read_json(marker_path(vault), {})
         where = data.get("restore_from")
         copy = vault.root / where if isinstance(where, str) and where else None
@@ -301,7 +305,7 @@ def _safety_copy(vault: Vault) -> Path:
     try:
         vault.backups_dir.mkdir(parents=True, exist_ok=True)
         shutil.copytree(vault.core, dest, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))
-    except OSError:
+    except BaseException:  # a failure or Ctrl-C never leaves a half copy behind
         shutil.rmtree(dest, ignore_errors=True)
         raise
     return dest
@@ -325,7 +329,7 @@ def preview(vault: Vault, source) -> tuple[int, str]:
 
 
 def apply(vault: Vault, source) -> tuple[int, str]:
-    with locked(vault.state_dir / "update.json"):
+    with locked(vault.state_dir / UPDATE_LOCK):
         current = vault.version()
         try:
             latest = source.latest()
@@ -362,11 +366,12 @@ def apply(vault: Vault, source) -> tuple[int, str]:
             if failure is not None:
                 head = _how(failure, f"The update to {latest}", "didn't finish")
                 return _failed(failure, f"{head} {sentence} Your own files were kept.")
-            if refresh:
-                shutil.rmtree(backup, ignore_errors=True)
-    prune_backups(vault)
-    if isinstance(source, ProjectFolder):
-        write_source(vault.root, str(source.folder))
+            with _shielded():  # done: a late Ctrl-C mustn't leave the tidy-up half done
+                if refresh:
+                    shutil.rmtree(backup, ignore_errors=True)
+                prune_backups(vault)
+                if isinstance(source, ProjectFolder):
+                    write_source(vault.root, str(source.folder))
     if refresh:
         headline = f"Bron is already on the latest version ({current}); its setup was refreshed."
     else:
@@ -375,7 +380,7 @@ def apply(vault: Vault, source) -> tuple[int, str]:
 
 
 def undo(vault: Vault) -> tuple[int, str]:
-    with locked(vault.state_dir / "update.json"):
+    with locked(vault.state_dir / UPDATE_LOCK):
         current = vault.version()
         for stale in [b for b in backups(vault) if _version_of(b) == current]:
             shutil.rmtree(stale, ignore_errors=True)  # a leftover of the version already live
@@ -401,6 +406,7 @@ def undo(vault: Vault) -> tuple[int, str]:
             if sentence == f"Bron went back to version {current}.":
                 sentence = f"Bron stayed on version {current}."
             return _failed(failure, _how(failure, "Going back", "didn't work") + " " + sentence)
-        shutil.rmtree(safety, ignore_errors=True)
-        shutil.rmtree(target, ignore_errors=True)
+        with _shielded():
+            shutil.rmtree(safety, ignore_errors=True)
+            shutil.rmtree(target, ignore_errors=True)
     return 0, f"Went back from version {current} to {_version_of(target)}. Your own files were kept.\n{_tail(output)}\n{NEW_SESSION}"

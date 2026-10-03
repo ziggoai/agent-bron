@@ -20,6 +20,20 @@ def locked(path: Path) -> Iterator[None]:
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
+def held_elsewhere(path: Path) -> bool:
+    """Is `locked(path)` held right now (by another process, or another open of it in this one)?"""
+    try:
+        with open(path.with_name(path.name + ".lock"), "a+") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(handle, fcntl.LOCK_UN)
+    except OSError:
+        return False
+    return False
+
+
 def read_json(path: Path, default):
     try:
         data = json.loads(path.read_text(encoding="utf-8"))

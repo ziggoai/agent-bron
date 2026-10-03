@@ -29,7 +29,8 @@ def run_checks(cfg: Config, *, include_environment: bool = True) -> list[Issue]:
 def _engine(cfg: Config) -> list[Issue]:
     """The engine in .bron/venv belongs to System/Core, and no update was left half done."""
     from . import __version__ as engine
-    from .update import marker_path
+    from .statefile import held_elsewhere
+    from .update import UPDATE_LOCK, marker_path
 
     out: list[Issue] = []
     try:
@@ -42,7 +43,9 @@ def _engine(cfg: Config) -> list[Issue]:
             "engine.version-mismatch",
             f"Bron's engine (version {engine}) doesn't match its files (version {files}). Say 'Bron, update yourself' or run the install command again.",
         ))
-    if marker_path(cfg.vault).exists():
+    # While an update runs (its finishing step runs this check too) the update lock is held and the
+    # marker is expected; only a marker left behind with no update running means it was interrupted.
+    if marker_path(cfg.vault).exists() and not held_elsewhere(cfg.vault.state_dir / UPDATE_LOCK):
         out.append(Issue("warning", "update.interrupted", "An update was interrupted; run `.bron/bin/bron update` to finish going back."))
     return out
 
