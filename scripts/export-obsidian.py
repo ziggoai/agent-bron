@@ -120,6 +120,7 @@ def export(source: Path, repo: Path) -> None:
     core_plugins = json.loads((config / "core-plugins.json").read_text(encoding="utf-8")) if (config / "core-plugins.json").is_file() else {}
     if not isinstance(core_plugins, dict) or not all(isinstance(v, bool) for v in core_plugins.values()):
         raise ExportError("core-plugins.json in the source vault isn't a list of on/off switches")
+    core_plugins["sync"] = False  # Obsidian Sync is a paid service the user switches on themselves
     write_json(template / "core-plugins.json", core_plugins)
     write_json(template / "community-plugins.json", ["bron-terminal", *[p for p in PLUGINS if p not in DISABLED]])
     for plugin, data in SETTINGS.items():

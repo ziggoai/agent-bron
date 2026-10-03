@@ -110,7 +110,7 @@ def make_source(root: Path, *, leak: str = "") -> Path:
     (config / "icons" / "tabler-icons" / "FileTextAi.svg").write_text("<svg/>")
     (config / "icons" / "tabler-icons.zip").write_bytes(b"big archive")
     (config / "workspace.json").write_text('{"open": "Somebody notes"}')
-    (config / "core-plugins.json").write_text(json.dumps({"file-explorer": True, "graph": False}))
+    (config / "core-plugins.json").write_text(json.dumps({"file-explorer": True, "graph": False, "sync": True}))
     (config / "appearance.json").write_text(json.dumps({"cssTheme": "Bron v2"}))
     if leak:
         with open(config / "plugins" / "xlsx-viewer" / "main.js", "a") as fh:
@@ -134,7 +134,7 @@ def test_export_scrubs_a_source_vault(tmp_path):
     assert json.loads((out / "plugins" / "bron-workspace" / "manifest.json").read_text())["author"] == "Ziggo AI"
     assert not (tpl / "workspace.json").exists()
     assert json.loads((tpl / "appearance.json").read_text())["cssTheme"] == "Bron"
-    assert json.loads((tpl / "core-plugins.json").read_text()) == {"file-explorer": True, "graph": False}
+    assert json.loads((tpl / "core-plugins.json").read_text()) == {"file-explorer": True, "graph": False, "sync": False}
     assert "secret" not in (tpl / "plugins" / "colored-tags" / "data.json").read_text()
     assert (tpl / "icons" / "tabler-icons" / "FileTextAi.svg").read_text() == "<svg/>"
     assert not list((tpl / "icons").rglob("*.zip"))

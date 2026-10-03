@@ -29,8 +29,34 @@ def _replace_file(src: Path, dest: Path) -> None:
             os.unlink(tmp)
 
 
+def _version(value) -> tuple[int, ...] | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return tuple(int(part) for part in value.strip().split("."))
+    except ValueError:
+        return None
+
+
+def _newer(installed, bundled) -> bool:
+    """Is the installed version newer than the bundled one? Dotted numbers; unreadable counts as older."""
+    mine, ours = _version(installed), _version(bundled)
+    if mine is None or ours is None:
+        return False
+    width = max(len(mine), len(ours))
+    return mine + (0,) * (width - len(mine)) > ours + (0,) * (width - len(ours))
+
+
+def _manifest_version(folder: Path):
+    try:
+        data = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data.get("version") if isinstance(data, dict) else None
+
+
 def _copy_code(core: Path, config: Path, *, only_present: bool) -> None:
-    """Copy the bundled theme and plugin code (never settings) into .obsidian."""
+    """Copy the bundled theme and plugin code (never settings) into .obsidian; a newer installed version is kept."""
     for kind in ("themes", "plugins"):
         folder = core / "Obsidian" / kind
         if not folder.is_dir():
@@ -39,6 +65,8 @@ def _copy_code(core: Path, config: Path, *, only_present: bool) -> None:
             target = config / kind / item.name
             if target.is_symlink() or (only_present and not target.is_dir()):
                 continue
+            if target.is_dir() and _newer(_manifest_version(target), _manifest_version(item)):
+                continue  # the user updated it themselves: never go back to an older version
             target.mkdir(parents=True, exist_ok=True)
             for src in sorted(item.iterdir()):
                 if src.is_file() and src.name not in SETTINGS_FILES:

@@ -91,3 +91,59 @@ def test_refresh_leaves_removed_and_disabled_plugins_alone(vault):
     assert enabled(vault) == ["colored-tags"]
     assert (config(vault) / "plugins" / "colored-tags" / "main.js").read_text() != "old code"
     assert (config(vault) / "plugins" / "colored-tags" / "data.json").read_text() == '{"mine": true}'
+
+
+def plant(vault, plugin: str, version: str | None, code: str = "my own build") -> Path:
+    folder = config(vault) / "plugins" / plugin
+    folder.mkdir(parents=True, exist_ok=True)
+    manifest = {"id": plugin} if version is None else {"id": plugin, "version": version}
+    (folder / "manifest.json").write_text(json.dumps(manifest))
+    (folder / "main.js").write_text(code)
+    return folder
+
+
+def test_a_newer_installed_plugin_is_never_replaced(vault):
+    shutil.rmtree(config(vault), ignore_errors=True)
+    folder = plant(vault, "colored-tags", "99.0.0")
+    install_bundle(vault.root, vault.core, TEMPLATE_CONFIG)
+    assert (folder / "main.js").read_text() == "my own build"
+    assert json.loads((folder / "manifest.json").read_text())["version"] == "99.0.0"
+    refresh_bundle(vault.root, vault.core)
+    assert (folder / "main.js").read_text() == "my own build"
+
+
+def test_a_newer_installed_theme_is_never_replaced(vault):
+    shutil.rmtree(config(vault), ignore_errors=True)
+    theme = config(vault) / "themes" / "Bron"
+    theme.mkdir(parents=True)
+    (theme / "manifest.json").write_text('{"name": "Bron", "version": "99.1.0"}')
+    (theme / "theme.css").write_text("/* mine */")
+    install_bundle(vault.root, vault.core, TEMPLATE_CONFIG)
+    refresh_bundle(vault.root, vault.core)
+    assert (theme / "theme.css").read_text() == "/* mine */"
+
+
+@pytest.mark.parametrize("version", ["0.0.1", None, "not a version"])
+def test_an_older_or_unknown_plugin_version_is_replaced(vault, version):
+    shutil.rmtree(config(vault), ignore_errors=True)
+    folder = plant(vault, "colored-tags", version)
+    install_bundle(vault.root, vault.core, TEMPLATE_CONFIG)
+    bundled = vault.core / "Obsidian" / "plugins" / "colored-tags"
+    assert (folder / "main.js").read_bytes() == (bundled / "main.js").read_bytes()
+    plant(vault, "colored-tags", version)
+    refresh_bundle(vault.root, vault.core)
+    assert (folder / "main.js").read_bytes() == (bundled / "main.js").read_bytes()
+
+
+def test_versions_compare_as_numbers():
+    from bron.obsidian import _newer
+
+    assert _newer("1.10.0", "1.9.9")
+    assert not _newer("1.9.9", "1.10.0")
+    assert not _newer("1.2", "1.2.0")
+    assert _newer("1.2.0.1", "1.2")
+    assert not _newer(None, "1.0.0") and not _newer("x", "1.0.0")
+
+
+def test_obsidian_sync_starts_off():
+    assert json.loads((TEMPLATE_CONFIG / "core-plugins.json").read_text())["sync"] is False
