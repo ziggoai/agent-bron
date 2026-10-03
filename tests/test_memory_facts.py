@@ -78,6 +78,8 @@ def test_size_counts_fact_text_only():
     "token: ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "secret: abc123abc",
     "client_secret=mysecret",
+    "card 4111-1111-1111-1111",
+    "pay with 4111111111111111 now",
 ])
 def test_secrets_are_spotted(text):
     assert looks_secret(text)
@@ -89,7 +91,10 @@ def test_secrets_are_spotted(text):
     "The CNPJ format is 12.345.678/0001-90.",
     "Keep passwords out of Bron.",
     "Call 4111 when the board meets.",
-    "51324176819606",
+    "CNPJ 36075983867565 ok",
+    "CNPJ: 36075983867565.",
+    "36075983867565,",
+    "36075983867565",
     "12345678901",
     "Quarterly-Report-Q3-2026-Final-Version-v2",
     "Fund-II-2024-Q3-Final-v2-2025",
@@ -97,3 +102,9 @@ def test_secrets_are_spotted(text):
 ])
 def test_ordinary_facts_are_not_secrets(text):
     assert not looks_secret(text)
+
+
+def test_cnpj_test_number_is_luhn_valid():
+    """Verify the CNPJ test number is Luhn-valid so the test doesn't go vacuous."""
+    from bron.memory.secrets import _luhn
+    assert _luhn("36075983867565"), "Test CNPJ must be Luhn-valid to test the bug"

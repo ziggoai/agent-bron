@@ -27,7 +27,7 @@ def looks_secret(text: str) -> bool:
     if _PREFIXES.search(text) or _PEM.search(text) or _LABELLED.search(text):
         return True
     for m in _DIGITS.finditer(text):
-        digit_string = m.group(0)
+        digit_string = m.group(0).strip()
         has_separator = ' ' in digit_string or '-' in digit_string
         digit_count = len([c for c in digit_string if c.isdigit()])
 
