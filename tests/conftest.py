@@ -15,6 +15,8 @@ def _private_codex_home(request, tmp_path_factory, monkeypatch):
     if "live" in request.node.path.parts:
         return
     monkeypatch.setenv("CODEX_HOME", str(tmp_path_factory.mktemp("codex-home")))
+    # Unit tests never reach GitHub: releases come from an empty folder unless a test makes some.
+    monkeypatch.setenv("BRON_RELEASE_SOURCE", str(tmp_path_factory.mktemp("no-releases")))
 
 
 @pytest.fixture
