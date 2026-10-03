@@ -16,7 +16,7 @@ Say "Bron, update yourself". Bron shows what's new and waits for your yes. It ca
 - `.bron/bin/bron update`: update now.
 - `.bron/bin/bron update --undo`: go back to the version before the last update.
 
-Before updating, Bron backs up `System/Core` to `.bron/backups/core-<version>-<date>/` (the last 3 are kept). If anything fails, or the update is stopped, it goes back by itself; if the Mac shut down in the middle, the next `bron update` finishes going back first. Your own files (everything in `System/` except `System/Core/`, and all your notes) are never touched, and a starting file you deleted or renamed (such as the main agent) never comes back. Obsidian keeps your settings, and only Bron's theme and plugin code are refreshed (a plugin you updated yourself to a newer version is left alone).
+Before updating, Bron backs up `System/Core` to `.bron/backups/core-<version>-<date>/` (the last 3 are kept). If anything fails, or the update is stopped, it goes back by itself; if the Mac shut down in the middle, the next `bron update` finishes going back first. Your own files (everything in `System/` except `System/Core/`, and all your notes) are never touched, and a starting file you deleted or renamed (such as the main agent) never comes back. Obsidian keeps your settings, and only Bron's theme and plugin code are refreshed (a plugin you updated yourself to a newer version is left alone). If an update changes the theme or plugins, Bron tells you to quit Obsidian completely (⌘Q) and open it again, because Obsidian only loads plugins when it starts.
 
 Once a day, at the start of a session, Bron checks whether a new version is out and tells you. To stop that, set `update_check: false` in `System/Settings.md`.
 

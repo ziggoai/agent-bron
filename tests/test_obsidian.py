@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from bron.obsidian import THEME_TIP, BundleError, install_bundle, refresh_bundle
+from bron.obsidian import RESTART_NOTE, THEME_TIP, BundleError, install_bundle, refresh_bundle
 
 REPO = Path(__file__).resolve().parents[1]
 TEMPLATE_CONFIG = REPO / "template" / ".obsidian"
@@ -38,7 +38,7 @@ def test_existing_obsidian_settings_are_kept(vault):
     (config(vault) / "plugins" / "colored-tags" / "data.json").write_text('{"mine": true}')
     (config(vault) / "plugins" / "colored-tags" / "main.js").write_text("old code")
     notes = install_bundle(vault.root, vault.core, TEMPLATE_CONFIG)
-    assert notes == [THEME_TIP]
+    assert notes == [THEME_TIP, RESTART_NOTE]
     assert (config(vault) / "appearance.json").read_text() == '{"cssTheme": "Minimal"}'
     assert enabled(vault) == ["dataview", "bron-terminal", "bron-workspace"]
     assert (config(vault) / "plugins" / "colored-tags" / "data.json").read_text() == '{"mine": true}'
@@ -50,7 +50,7 @@ def test_no_theme_tip_when_bron_is_already_the_theme(vault):
     shutil.rmtree(config(vault), ignore_errors=True)
     config(vault).mkdir()
     (config(vault) / "appearance.json").write_text('{"cssTheme": "Bron"}')
-    assert install_bundle(vault.root, vault.core, TEMPLATE_CONFIG) == []
+    assert THEME_TIP not in install_bundle(vault.root, vault.core, TEMPLATE_CONFIG)
 
 
 def test_unreadable_plugin_list_is_left_alone(vault):
@@ -147,3 +147,42 @@ def test_versions_compare_as_numbers():
 
 def test_obsidian_sync_starts_off():
     assert json.loads((TEMPLATE_CONFIG / "core-plugins.json").read_text())["sync"] is False
+
+
+def test_fresh_install_gets_no_restart_note(vault):
+    shutil.rmtree(config(vault), ignore_errors=True)
+    assert RESTART_NOTE not in install_bundle(vault.root, vault.core, TEMPLATE_CONFIG)
+
+
+def test_existing_obsidian_with_an_older_plugin_gets_the_restart_note(vault):
+    shutil.rmtree(config(vault), ignore_errors=True)
+    (config(vault) / "plugins" / "colored-tags").mkdir(parents=True)
+    (config(vault) / "plugins" / "colored-tags" / "main.js").write_text("old code")
+    notes = install_bundle(vault.root, vault.core, TEMPLATE_CONFIG)
+    assert notes == [THEME_TIP, RESTART_NOTE]
+
+
+def test_installing_again_with_nothing_changed_gets_no_restart_note(vault):
+    shutil.rmtree(config(vault), ignore_errors=True)
+    install_bundle(vault.root, vault.core, TEMPLATE_CONFIG)
+    assert RESTART_NOTE not in install_bundle(vault.root, vault.core, TEMPLATE_CONFIG)
+
+
+def test_refresh_with_a_changed_plugin_gives_the_restart_note(vault):
+    shutil.rmtree(config(vault), ignore_errors=True)
+    install_bundle(vault.root, vault.core, TEMPLATE_CONFIG)
+    (config(vault) / "plugins" / "colored-tags" / "main.js").write_text("old code")
+    assert refresh_bundle(vault.root, vault.core) == [RESTART_NOTE]
+
+
+def test_refresh_with_nothing_changed_gives_no_note(vault):
+    shutil.rmtree(config(vault), ignore_errors=True)
+    install_bundle(vault.root, vault.core, TEMPLATE_CONFIG)
+    assert refresh_bundle(vault.root, vault.core) == []
+
+
+def test_a_users_own_plugin_settings_never_trigger_the_note(vault):
+    shutil.rmtree(config(vault), ignore_errors=True)
+    install_bundle(vault.root, vault.core, TEMPLATE_CONFIG)
+    (config(vault) / "plugins" / "colored-tags" / "data.json").write_text('{"mine": 1}')
+    assert refresh_bundle(vault.root, vault.core) == []

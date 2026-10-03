@@ -1,6 +1,7 @@
 """Bron's Obsidian bundle in a vault: theme and plugins added without touching the user's own settings."""
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -12,6 +13,7 @@ ENABLE_ON_INSTALL = ("bron-terminal", "bron-workspace")
 SETTINGS_FILES = {"data.json"}
 THEME = "Bron"
 THEME_TIP = "Your Obsidian settings were kept. To use Bron's look, pick the Bron theme in Obsidian: Settings → Appearance → Themes."
+RESTART_NOTE = "Quit Obsidian completely (⌘Q) and open it again, so it loads Bron's updated theme and plugins."
 
 
 class BundleError(RuntimeError):
@@ -73,6 +75,24 @@ def _copy_code(core: Path, config: Path, *, only_present: bool) -> None:
                     _replace_file(src, target / src.name)
 
 
+def _fingerprint(config: Path) -> dict[str, str]:
+    """A hash of every theme and plugin file (never a plugin's own settings), to tell whether an install changed any."""
+    found: dict[str, str] = {}
+    for kind in ("plugins", "themes"):
+        base = config / kind
+        if not base.is_dir():
+            continue
+        for folder in sorted(p for p in base.iterdir() if p.is_dir() and not p.is_symlink()):
+            for path in sorted(folder.rglob("*")):
+                if path.name in SETTINGS_FILES or not path.is_file():
+                    continue
+                try:
+                    found[path.relative_to(config).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+                except OSError:
+                    continue
+    return found
+
+
 def _read_list(path: Path) -> list[str]:
     if not path.exists():
         return []
@@ -127,6 +147,7 @@ def install_bundle(vault_root: Path, core: Path, template_config: Path | None) -
     """First install or repair: a vault without .obsidian gets Bron's whole Obsidian setup; one with it keeps its settings."""
     config = vault_root / ".obsidian"
     fresh = not config.exists()
+    before = {} if fresh else _fingerprint(config)
     if fresh and template_config is not None and template_config.is_dir():
         shutil.copytree(template_config, config)
     config.mkdir(exist_ok=True)
@@ -134,7 +155,10 @@ def install_bundle(vault_root: Path, core: Path, template_config: Path | None) -
     _copy_code(core, config, only_present=False)
     _terminal(core, vault_root, enable=True)
     _enable(config, ENABLE_ON_INSTALL)
-    return [] if fresh or _theme(config) == THEME else [THEME_TIP]
+    notes = [] if fresh or _theme(config) == THEME else [THEME_TIP]
+    if not fresh and _fingerprint(config) != before:
+        notes.append(RESTART_NOTE)
+    return notes
 
 
 def refresh_bundle(vault_root: Path, core: Path) -> list[str]:
@@ -142,7 +166,8 @@ def refresh_bundle(vault_root: Path, core: Path) -> list[str]:
     config = vault_root / ".obsidian"
     if not config.is_dir():
         return []
+    before = _fingerprint(config)
     _copy_code(core, config, only_present=True)
     if (config / "plugins" / "bron-terminal").is_dir():
         _terminal(core, vault_root, enable=False)
-    return []
+    return [RESTART_NOTE] if _fingerprint(config) != before else []

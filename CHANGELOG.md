@@ -2,6 +2,9 @@
 
 What changed in each version of Bron, newest first. Bron shows the new sections when you ask it to update itself.
 
+## 0.6.1
+- After an update that changes Bron's Obsidian theme or plugins, Bron tells you to quit and reopen Obsidian so it loads them.
+
 ## 0.6.0
 - Bron remembers. Tell it a preference, a decision or a fact about you or the fund once; it saves it ("Noted: …") and every agent knows it from then on. "Forget that" works any time, and everything it remembers is a note you can open and edit.
 - Each agent also keeps its own work notes.

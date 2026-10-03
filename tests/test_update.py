@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from bron import update
+from bron.obsidian import RESTART_NOTE, install_bundle
 from bron.cli import main
 from bron.releases import LocalReleases, ProjectFolder
 from releasekit import REPO, make_release, write_tags
@@ -519,3 +520,21 @@ def test_ctrl_c_while_copying_leaves_no_partial_copy(vault, monkeypatch, make_co
         getattr(update, make_copy)(vault)
     monkeypatch.setattr(update.shutil, "copytree", real)
     assert not vault.backups_dir.exists() or list(vault.backups_dir.iterdir()) == []
+
+
+def test_an_update_that_changes_the_obsidian_plugins_ends_with_the_restart_note(run, vault, tmp_path, monkeypatch, engine):
+    install_bundle(vault.root, vault.core, None)
+    folder = tmp_path / "plugin-release"
+    make_release(folder, "9.0.0", changelog=CHANGELOG, extra={"core/Obsidian/plugins/colored-tags/main.js": "new plugin code\n"})
+    write_tags(folder, [CURRENT, "9.0.0"])
+    monkeypatch.setenv("BRON_RELEASE_SOURCE", str(folder))
+    code, out, _ = run("update")
+    assert code == 0, out
+    assert out.strip().splitlines()[-1] == RESTART_NOTE
+
+
+def test_an_update_that_leaves_obsidian_alone_has_no_restart_note(run, vault, releases, engine):
+    install_bundle(vault.root, vault.core, None)
+    code, out, _ = run("update")
+    assert code == 0, out
+    assert RESTART_NOTE not in out

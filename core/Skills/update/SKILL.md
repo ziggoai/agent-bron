@@ -15,6 +15,7 @@ description: Update the Bron framework when the user asks Bron to update itself 
 4. Report the result in plain words:
    - the first line says which version Bron moved to;
    - mention any problem the health check lists at the end, and offer to fix it;
+   - if the result says to quit and reopen Obsidian, tell the user to do that (⌘Q, then open it again);
    - say their own files were kept, that "undo the update" goes back, and that a new session is needed for every change to apply.
 5. If it says the update didn't finish, explain the reason it gives in simple terms. Bron has already gone back to the previous version by itself. Don't retry more than once. If it says to run the install command again, give the user the install command from System/Core/Manual/updates.md.
 

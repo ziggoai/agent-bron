@@ -156,6 +156,13 @@ def _tail(text: str) -> str:
     return "\n".join(text.strip().splitlines()[-TAIL_LINES:])
 
 
+def _restart(output: str) -> str:
+    """The Obsidian restart note again at the very end, so the tail of a long output can't hide it."""
+    from .obsidian import RESTART_NOTE
+
+    return f"\n{RESTART_NOTE}" if RESTART_NOTE in output else ""
+
+
 def _where(vault: Vault, path: Path) -> str:
     try:
         return path.relative_to(vault.root).as_posix()
@@ -376,7 +383,7 @@ def apply(vault: Vault, source) -> tuple[int, str]:
         headline = f"Bron is already on the latest version ({current}); its setup was refreshed."
     else:
         headline = f"Updated Bron from version {current} to {latest}."
-    return 0, f"{headline} Your own files were kept.\n{_tail(output)}\n{NEW_SESSION}"
+    return 0, f"{headline} Your own files were kept.\n{_tail(output)}\n{NEW_SESSION}{_restart(output)}"
 
 
 def undo(vault: Vault) -> tuple[int, str]:
@@ -409,4 +416,4 @@ def undo(vault: Vault) -> tuple[int, str]:
         with _shielded():
             shutil.rmtree(safety, ignore_errors=True)
             shutil.rmtree(target, ignore_errors=True)
-    return 0, f"Went back from version {current} to {_version_of(target)}. Your own files were kept.\n{_tail(output)}\n{NEW_SESSION}"
+    return 0, f"Went back from version {current} to {_version_of(target)}. Your own files were kept.\n{_tail(output)}\n{NEW_SESSION}{_restart(output)}"
