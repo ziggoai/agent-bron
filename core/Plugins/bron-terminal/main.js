@@ -12412,7 +12412,9 @@ var require_terminal_presentation = __commonJS({
           let start = row - 1;
           while (start >= 0 && !rule(lines[start])) start--;
           if (start < 0 || !rule(lines[start]) || !/^\s*[❯!](?:\s|$)/u.test(lines[start + 1] || "")) continue;
-          const footer = lines.slice(row + 1).join(" ").trim();
+          const below = lines.slice(row + 1);
+          const tasks = below.findIndex((line) => /^\s*[⏺●•◯○]\s+main\s*$/u.test(line));
+          const footer = (tasks < 0 ? below : below.slice(0, tasks)).join(" ").trim();
           const suggestions = claudeCompletionRange(lines, start + 1, row) || /^\s+(?:[+*◇]\s+\S|(?:\/|…)\S+\s{2,}\S)/u.test(lines[row + 1] || "");
           if (suggestions) {
             result.bottom = lines.length - start;

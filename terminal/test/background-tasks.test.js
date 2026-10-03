@@ -47,3 +47,12 @@ test('the task panel updates live and disappears when tasks finish or controls o
   tasks.dispose();
   assert.equal(panel.removed,true);
 });
+
+test('task descriptions that sound like dialog prompts never hide the composer', () => {
+  for (const activity of ['Confirming renamed-agents…', 'Select the newest build…', 'Checking yes/no, flags…', 'Press Enter to continue…']) {
+    const screen = lines.map(line => line === task ? '  ○ general-purpose  ' + activity + ' 6m 2s · ↓ 125.5k tokens' : line);
+    const state = inspectScreen('claude', screen, 2);
+    assert.equal(state.ready, true, activity);
+    assert.equal(state.mode, 'auto mode on', activity);
+  }
+});

@@ -1,7 +1,7 @@
 {
   "manifestVersion": "0.6.0",
   "packageVersion": "0.6.0",
-  "inputDigest": "e85b217ffcb6868865f1cf746f2bbcda2167d5f7005fcf811e9188f993543a00",
+  "inputDigest": "10375c96b56089ecacd763000545f2c93f3528a42c5bb1389ef009f28e3e54b4",
   "inputs": [
     "assets/claude.svg",
     "assets/codex.svg",
