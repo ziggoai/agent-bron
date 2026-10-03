@@ -72,6 +72,12 @@ def test_size_counts_fact_text_only():
     "card 4111 1111 1111 1111",
     "IBAN GB82 WEST 1234 5698 7654 32",
     "use x9Kq2LmP7vT4bN8cR1sW6yZ3 to log in",
+    "4111111111111111",
+    "api_key=sk-abc123def456",
+    "api key: secret123abc",
+    "token: ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "secret: abc123abc",
+    "client_secret=mysecret",
 ])
 def test_secrets_are_spotted(text):
     assert looks_secret(text)
@@ -83,6 +89,11 @@ def test_secrets_are_spotted(text):
     "The CNPJ format is 12.345.678/0001-90.",
     "Keep passwords out of Bron.",
     "Call 4111 when the board meets.",
+    "51324176819606",
+    "12345678901",
+    "Quarterly-Report-Q3-2026-Final-Version-v2",
+    "Fund-II-2024-Q3-Final-v2-2025",
+    "The token budget is 10k per run",
 ])
 def test_ordinary_facts_are_not_secrets(text):
     assert not looks_secret(text)
