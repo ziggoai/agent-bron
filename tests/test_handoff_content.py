@@ -119,6 +119,7 @@ def test_quoted_commands_parse(vault):
         "<app>": "any",
         "<Bron>": "Bron",
         "<options>": "--role x",
+        "about-you|firm|decisions|how": "firm",
     }
 
     assert any("routine start" in cmd for cmd in commands)

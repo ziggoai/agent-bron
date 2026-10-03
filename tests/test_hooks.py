@@ -38,7 +38,7 @@ def test_second_session_start_is_quiet_about_setup(in_vault):
 
 def test_briefing_uses_settings_and_memory_summary(in_vault):
     set_meta(in_vault.settings_file, user_name="Alex", company="Example Capital")
-    (in_vault.memory_dir / "Summary.md").write_text("Fund III close is planned for November.\n", encoding="utf-8")
+    (in_vault.memory_dir / "Facts.md").write_text("## Your firm\n- Fund III close is planned for November. (2026-10-01, Bron)\n", encoding="utf-8")
     _, out = call("session-start", "codex")
     assert "working in Codex" in out
     assert "You're working with Alex at Example Capital." in out
@@ -46,9 +46,9 @@ def test_briefing_uses_settings_and_memory_summary(in_vault):
 
 
 def test_long_memory_is_clipped(in_vault):
-    (in_vault.memory_dir / "Summary.md").write_text("x" * 20000, encoding="utf-8")
+    (in_vault.memory_dir / "Facts.md").write_text("## Decisions\n" + "".join(f"- Fact {i} " + "x" * 90 + ". (2026-10-01, Bron)\n" for i in range(300)), encoding="utf-8")
     _, out = call("session-start")
-    assert len(out) <= 6000
+    assert len(out) <= 10000
 
 
 def test_broken_setup_is_reported_without_failing(in_vault):

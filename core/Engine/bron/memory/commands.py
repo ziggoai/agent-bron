@@ -142,3 +142,23 @@ def forget_conversation(vault: Vault, cfg: Config, *, as_agent: str, query: str)
         # File may have vanished between check and delete; treat as already forgotten
         notes[0].unlink(missing_ok=True)
     return f"Forgotten: the conversation \"{notes[0].stem}\"."
+
+
+def tidy_change(vault: Vault, cfg: Config, *, as_agent: str, scope: str, draft: str):
+    from ..setup import Change, SetupError
+
+    agent = agent_of(cfg, as_agent)
+    if not draft.strip():
+        raise SetupError("The draft is empty; nothing was changed.")
+    if looks_secret(draft):
+        raise SetupError(SECRET)
+    path = facts_file(vault, cfg, scope, agent.key)
+    old = facts.parse(read_lines(path))
+    new = facts.parse(draft.splitlines())
+    kept = {facts.fold(f.text) for f in new}
+    dropped = [f.text for f in old if facts.fold(f.text) not in kept]
+    rel = path.relative_to(vault.root).as_posix()
+    summary = [f"Tidy {rel}: {len(old)} facts → {len(new)}."]
+    if dropped:
+        summary += ["No longer kept as written:", *[f"- {t}" for t in dropped]]
+    return Change(summary=summary, writes={rel: draft.rstrip("\n") + "\n"}, done=f"Tidied {rel}.")

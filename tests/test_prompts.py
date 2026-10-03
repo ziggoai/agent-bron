@@ -19,7 +19,7 @@ def test_agents_md_lists_team_rules_and_manual(vault):
     assert "| Bron | Chief of Staff | you | `@bron` |" in text
     assert "System/Core/Manual/index.md" in text
     assert "Team members never run as subagents" in text
-    assert "The only exception: saving the user's own name, role and company with `.bron/bin/bron settings set`" in text
+    assert "The only exceptions: saving the user's own name, role and company with `.bron/bin/bron settings set`" in text
     assert f"Framework version {VERSION}." in text
     assert "work with the user" in text
     assert len(text.encode()) < 8 * 1024

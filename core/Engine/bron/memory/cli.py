@@ -71,6 +71,12 @@ def handle(args, vault) -> int:
 
             summaries.run(vault, session_id=args.session, pending=args.pending or not args.session)
             return 0
+        if args.memory_command == "tidy":
+            from ..setup_cli import read_file, run_change
+
+            return run_change(vault, lambda c: commands.tidy_change(vault, c, as_agent=args.as_agent,
+                                                                    scope=args.scope or "shared",
+                                                                    draft=read_file(args.file)), args)
     except commands.MemoryError as exc:
         print(exc)
         return 1

@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 from datetime import date
 
-from . import frontmatter as fm
 from .loader import load
 from .model import CLI_NAMES, slug
 from .notifications import describe, take
@@ -12,8 +11,7 @@ from .prompts import agent_prompt
 from .tickets import list_tickets
 from .vault import Vault
 
-MAX_CHARS = 6000
-MEMORY_CHARS = 2500
+MAX_CHARS = 10000
 
 
 def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None, changed: list[str] | tuple = (), today: date | None = None) -> str:
@@ -93,14 +91,14 @@ def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None, ch
                     lines.append(f"- …and {len(due) - 8} more: run `.bron/bin/bron routine list`")
         except Exception:  # noqa: BLE001
             lines.append("Routines couldn't be checked this time.")
-    summary = vault.memory_dir / "Summary.md"
-    if summary.is_file():
-        try:
-            text = fm.read(summary).body.strip()
-        except (fm.FrontmatterError, OSError, UnicodeDecodeError):
-            text = ""
-        if text:
-            lines += ["", "## What you remember", _clip(text, MEMORY_CHARS)]
+    try:
+        from .memory.recall import briefing_lines as memory_lines
+
+        remembered = memory_lines(vault, cfg, key, ticket_run=ticket_run)
+    except Exception:  # noqa: BLE001 - memory never breaks the briefing
+        remembered = ["Memory couldn't be loaded this time."]
+    if remembered:
+        lines += ["", *remembered]
     return _clip("\n".join(lines).rstrip() + "\n", MAX_CHARS)
 
 
