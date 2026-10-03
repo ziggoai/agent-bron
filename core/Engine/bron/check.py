@@ -23,6 +23,12 @@ def run_checks(cfg: Config, *, include_environment: bool = True) -> list[Issue]:
         issues += _environment(cfg)
         issues += _routines(cfg)  # routine problems never stop a sync
         issues += _claude_local_settings(cfg)
+        try:
+            from .memory.health import issues as memory_issues
+
+            issues += memory_issues(cfg)
+        except Exception:  # noqa: BLE001 - memory never breaks the health check
+            pass
     return issues
 
 

@@ -2,6 +2,12 @@
 
 What changed in each version of Bron, newest first. Bron shows the new sections when you ask it to update itself.
 
+## 0.6.0
+- Bron remembers. Tell it a preference, a decision or a fact about you or the fund once; it saves it ("Noted: …") and every agent knows it from then on. "Forget that" works any time, and everything it remembers is a note you can open and edit.
+- Each agent also keeps its own work notes.
+- Every conversation gets a short summary, written in the background by a small model, so "what did we decide last week?" has an answer. Turn it off with `memory: summaries: false` in System/Settings.md.
+- Search past conversations and facts in English or Portuguese, with or without accents.
+
 ## 0.5.0
 - Install Bron with one line pasted into Terminal, into the folder you choose (or `~/Documents/Bron`). Running it again repairs a vault and never changes your files.
 - New vaults come with Bron's Obsidian look: the Bron theme, Bron Terminal, Bron Workspace and a few helpful plugins. Your own Obsidian settings are always kept.
