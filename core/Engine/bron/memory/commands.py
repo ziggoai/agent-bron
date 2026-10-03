@@ -144,10 +144,27 @@ def forget_conversation(vault: Vault, cfg: Config, *, as_agent: str, query: str)
     return f"Forgotten: the conversation \"{notes[0].stem}\"."
 
 
+def _other_text(lines: list[str]) -> set[str]:
+    """The user's own lines that aren't facts or the four standard headings (free text, notes, other headings)."""
+    standard = {facts.fold(title) for _, title in facts.SECTIONS}
+    out = set()
+    for line in lines:
+        s = line.strip()
+        if not s or facts._FACT.match(line):
+            continue
+        heading = facts._HEADING.match(s)
+        if heading and facts.fold(heading.group(1)) in standard:
+            continue
+        out.add(s)
+    return out
+
+
 def tidy_change(vault: Vault, cfg: Config, *, as_agent: str, scope: str, draft: str):
     from ..setup import Change, SetupError
 
     agent = agent_of(cfg, as_agent)
+    if scope == "shared" and os.environ.get("BRON_TICKET"):
+        raise SetupError("Only a conversation with you can change shared memory.")
     if not draft.strip():
         raise SetupError("The draft is empty; nothing was changed.")
     if looks_secret(draft):
@@ -157,8 +174,13 @@ def tidy_change(vault: Vault, cfg: Config, *, as_agent: str, scope: str, draft: 
     new = facts.parse(draft.splitlines())
     kept = {facts.fold(f.text) for f in new}
     dropped = [f.text for f in old if facts.fold(f.text) not in kept]
+    lost = _other_text(read_lines(path)) - _other_text(draft.splitlines())
     rel = path.relative_to(vault.root).as_posix()
     summary = [f"Tidy {rel}: {len(old)} facts → {len(new)}."]
     if dropped:
         summary += ["No longer kept as written:", *[f"- {t}" for t in dropped]]
+    if lost:
+        shown = sorted(lost)
+        summary += ["Other text that will be removed:"]
+        summary += [f"- {t}" for t in shown[:10]] if len(shown) <= 10 else [f"- {len(shown)} other lines of your own text"]
     return Change(summary=summary, writes={rel: draft.rstrip("\n") + "\n"}, done=f"Tidied {rel}.")

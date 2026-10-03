@@ -100,3 +100,40 @@ def test_tidy_refuses_secrets_and_empty_drafts(run, vault, tmp_path):
     draft.write_text("")
     code, out = run("memory", "tidy", "--as", "Bron", "--file", str(draft))
     assert code == 1 and "empty" in out
+
+
+def test_recent_conversations_only_dated_notes(vault):
+    commands.remember(vault, load(vault), as_agent="Bron", text="Something")
+    conv(vault, "Bron", "2026-10-01 09.00 Real")
+    conv(vault, "Bron", "2026-10-02 09.00 Twice (2)")
+    conv(vault, "Bron", "Zebra")
+    text = build_briefing(vault, cli="claude")
+    assert "2026-10-01 09.00 Real" in text and "Twice (2)" in text and "Zebra" not in text
+
+
+def test_tidy_refused_for_shared_in_ticket_run(run, vault, tmp_path, monkeypatch):
+    commands.remember(vault, load(vault), as_agent="Bron", text="Keep me")
+    draft = tmp_path / "draft.md"
+    draft.write_text("## Decisions\n- New. (2026-10-03, Bron)\n")
+    monkeypatch.setenv("BRON_TICKET", "T-1")
+    code, out = run("memory", "tidy", "--as", "Bron", "--file", str(draft))
+    assert code == 1 and "Only a conversation with you" in out
+    assert "Keep me" in (vault.memory_dir / "Facts.md").read_text()
+    code, _ = run("memory", "tidy", "--as", "Bron", "--mine", "--file", str(draft))
+    assert code == 0
+    assert "New." in (vault.agents_dir / "Bron" / "Memory" / "Facts.md").read_text()
+
+
+def test_tidy_preview_lists_lost_free_text(run, vault, tmp_path):
+    (vault.memory_dir / "Facts.md").write_text(
+        "## Decisions\n- A fact. (2026-10-03, Bron)\nMy own note about Fund II\n## My list\n")
+    draft = tmp_path / "draft.md"
+    draft.write_text("## Decisions\n- A fact. (2026-10-03, Bron)\n")
+    code, out = run("memory", "tidy", "--as", "Bron", "--file", str(draft), "--preview")
+    assert code == 0 and "Other text that will be removed:" in out
+    assert "My own note about Fund II" in out and "## My list" in out
+
+
+def test_tidy_unreadable_file(run, tmp_path):
+    code, out = run("memory", "tidy", "--as", "Bron", "--file", str(tmp_path / "nope.md"))
+    assert code == 1 and out.strip() and "Traceback" not in out
