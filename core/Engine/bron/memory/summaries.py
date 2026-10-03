@@ -26,6 +26,10 @@ MAX_ATTEMPTS = 3
 CATCH_UP = 5
 HEAD_CHARS = 20000
 TAIL_CHARS = 60000
+MAX_AGE_DAYS = 14
+MAX_TITLE = 60
+MAX_BULLETS = 5
+MAX_BULLET = 200
 STATE = "summaries.json"
 LOCK = "memory-summarize.json"
 _BAD_TITLE = re.compile(r'[\\/:*?"<>|#\[\]^]')
@@ -65,7 +69,7 @@ class Session:
 def sessions(vault: Vault) -> list[Session]:
     path = vault.state_dir / "markers.jsonl"
     try:
-        raw = path.read_text(encoding="utf-8").splitlines()
+        raw = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return []
     seen: dict[str, dict] = {}
@@ -75,19 +79,20 @@ def sessions(vault: Vault) -> list[Session]:
             m = json.loads(line)
         except ValueError:
             continue
+        if not isinstance(m, dict):
+            continue
         sid = str(m.get("session_id") or "")
         if not sid or not m.get("transcript_path"):
             continue
         if m.get("ticket"):
             skipped.add(sid)
             continue
-        entry = seen.setdefault(sid, {"first": m, "last": m, "ended": False})
+        entry = seen.setdefault(sid, {"first": m, "last": m})
         entry["last"] = m
-        if m.get("event") in ("session-end", "pre-compact"):
-            entry["ended"] = True
     found = [
-        Session(sid, e["last"].get("cli", "claude"), e["last"].get("agent", ""), e["last"]["transcript_path"],
-                e["first"].get("time", ""), e["last"].get("time", ""), e["ended"])
+        Session(sid, str(e["last"].get("cli") or "claude"), str(e["last"].get("agent") or ""),
+                str(e["last"]["transcript_path"]), str(e["first"].get("time") or ""), str(e["last"].get("time") or ""),
+                e["last"].get("event") in ("session-end", "pre-compact"))
         for sid, e in seen.items() if sid not in skipped
     ]
     return sorted(found, key=lambda s: s.last_event, reverse=True)
@@ -96,10 +101,12 @@ def sessions(vault: Vault) -> list[Session]:
 def call_model(cli: str, model: str, prompt: str, timeout: int = 180) -> str:
     if cli == "codex":
         argv = ["codex", "exec", "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "-m", model,
-                "-c", "model_reasoning_effort=low", "-"]
+                "-c", "model_reasoning_effort=low", "--disable", "shell_tool", "--disable", "apps",
+                "--ignore-user-config", "-"]
     else:
-        argv = ["claude", "-p", "--model", model, "--tools", "", "--no-session-persistence", "--setting-sources", ""]
-    env = {k: v for k, v in os.environ.items() if not k.startswith("BRON_")}
+        argv = ["claude", "-p", "--model", model, "--tools", "", "--no-session-persistence", "--setting-sources", "",
+                "--strict-mcp-config", "--disable-slash-commands"]
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("BRON_", "CLAUDE_CODE_")) and k != "CLAUDECODE"}
     env["BRON_MEMORY_JOB"] = "1"
     try:
         with tempfile.TemporaryDirectory(prefix="bron-summary-") as work:
@@ -113,14 +120,15 @@ def call_model(cli: str, model: str, prompt: str, timeout: int = 180) -> str:
 
 def _bullets(block: str) -> list[str]:
     items = [line.strip()[1:].strip() for line in block.splitlines() if line.strip().startswith(("-", "*", "•"))]
-    return [i for i in items if i] or ["Nothing"]
+    items = [i if len(i) <= MAX_BULLET else i[: MAX_BULLET - 1].rstrip() + "…" for i in items if i]
+    return items[:MAX_BULLETS] or ["Nothing"]
 
 
 def parse_reply(text: str) -> tuple[str, list[str], list[str], list[str]]:
     match = re.search(r"TITLE:\s*(.+?)\s*\n\s*ASKED:\s*\n(.*?)\n\s*DECIDED:\s*\n(.*?)\n\s*OPEN:\s*\n(.*)", text, re.S)
     if not match:
         raise SummaryError("the summary didn't follow the format")
-    title = " ".join(_BAD_TITLE.sub(" ", match.group(1)).split()[:6]).strip(" .")
+    title = " ".join(_BAD_TITLE.sub(" ", match.group(1)).split()[:6])[:MAX_TITLE].strip(" .")
     if not title:
         raise SummaryError("the summary had no title")
     return title, _bullets(match.group(2)), _bullets(match.group(3)), _bullets(match.group(4))
@@ -145,18 +153,34 @@ def _started(session: Session) -> datetime:
         return datetime.now()
 
 
+def _note_session(path: Path) -> str:
+    try:
+        return str(fm.read(path).meta.get("session_id") or "")
+    except Exception:  # noqa: BLE001 - an unreadable note is somebody else's
+        return ""
+
+
 def _write_note(vault: Vault, cfg, session: Session, parsed, count: int, old: Path | None) -> Path:
     title, asked, decided, still_open = parsed
     key = slug(session.agent) if session.agent and slug(session.agent) in cfg.agents else slug(cfg.settings.default_agent)
     when = _started(session)
     folder = conversations_dir(cfg, key) / when.strftime("%Y-%m")
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"{when.strftime('%Y-%m-%d %H.%M')} {title}.md"
+    stem = f"{when.strftime('%Y-%m-%d %H.%M')} {title}"
+    path, n = folder / f"{stem}.md", 1
+    while path.exists() and path != old and _note_session(path) != session.session_id:
+        n += 1
+        path = folder / f"{stem} ({n}).md"
     meta = {"date": when.strftime("%Y-%m-%d %H:%M"), "cli": session.cli, "agent": cfg.agents[key].name,
             "session_id": session.session_id, "transcript": session.transcript, "messages": count}
     body = "\n".join(["## Asked", *[f"- {i}" for i in asked], "", "## Decided", *[f"- {i}" for i in decided],
                       "", "## Open", *[f"- {i}" for i in still_open], ""])
-    fm.write(path, fm.Document(meta, body))
+    tmp = path.with_name(f".{path.name}.tmp")
+    try:
+        fm.write(tmp, fm.Document(meta, body))
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
     if old is not None and old != path and old.exists():
         old.unlink()
     return path
@@ -186,16 +210,31 @@ def summarize(vault: Vault, cfg, session: Session, *, call=call_model, now: floa
     try:
         parsed = parse_reply(call(session.cli, model, PROMPT + text))
     except SummaryError as exc:
-        attempts = int(entry.get("attempts", 0)) + 1
-        state[session.session_id] = {**entry, "status": "failed", "attempts": attempts, "error": str(exc)}
-        write_json(state_path, state)
-        _log(vault, f"{session.session_id}: {exc} (attempt {attempts})")
-        return None
+        return _failed(vault, state, state_path, session, entry, str(exc))
     old = Path(entry["note"]) if entry.get("note") else None
-    note = _write_note(vault, cfg, session, parsed, count, old)
+    try:
+        note = _write_note(vault, cfg, session, parsed, count, old)
+    except Exception as exc:  # noqa: BLE001 - the model was already paid for; record the failure so it isn't repeated forever
+        return _failed(vault, state, state_path, session, entry, f"{exc.__class__.__name__}: {exc}")
     state[session.session_id] = {"status": "done", "attempts": 0, "size": current[0], "note": str(note)}
     write_json(state_path, state)
     return note
+
+
+def _failed(vault, state, state_path, session, entry, error):
+    attempts = int(entry.get("attempts", 0)) + 1
+    state[session.session_id] = {**entry, "status": "failed", "attempts": attempts, "error": error}
+    write_json(state_path, state)
+    _log(vault, f"{session.session_id}: {error} (attempt {attempts})")
+    return None
+
+
+def _recent(session: Session, now: float) -> bool:
+    try:
+        last = datetime.strptime(session.last_event, "%Y-%m-%dT%H:%M:%S%z").timestamp()
+    except ValueError:
+        return True
+    return now - last <= MAX_AGE_DAYS * 86400
 
 
 def _due(vault: Vault, session: Session, state: dict, now: float, *, explicit: bool) -> bool:
@@ -241,7 +280,11 @@ def run(vault: Vault, *, session_id: str = "", pending: bool = False, call=call_
         if not got:
             return 0
         state = read_json(vault.bron_dir / "memory" / STATE, {})
-        found = sessions(vault)
+        try:
+            found = [s for s in sessions(vault) if _recent(s, now)]
+        except Exception as exc:  # noqa: BLE001
+            _log(vault, f"markers unreadable: {exc.__class__.__name__}: {exc}")
+            return 0
         if session_id:
             chosen = [s for s in found if s.session_id == session_id and _due(vault, s, state, now, explicit=True)]
         else:

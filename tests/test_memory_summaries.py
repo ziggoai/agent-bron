@@ -36,6 +36,11 @@ def mark(vault, event, session, transcript, *, cli="claude", agent="", ticket=""
                              "session_id": session, "transcript_path": str(transcript)}) + "\n")
 
 
+@pytest.fixture(autouse=True)
+def _no_age_cutoff(monkeypatch):
+    monkeypatch.setattr(summaries, "MAX_AGE_DAYS", 100000)  # fixed 2026 marker dates must not age out
+
+
 class FakeModel:
     def __init__(self, reply=REPLY, fail=False):
         self.reply, self.fail, self.calls = reply, fail, []
@@ -126,7 +131,12 @@ def test_catch_up_waits_for_quiet_conversations(vault, tmp_path):
 def test_catch_up_is_capped_newest_first(vault, tmp_path):
     for i in range(8):
         mark(vault, "session-end", f"s{i}", claude_transcript(tmp_path / f"s{i}.jsonl"), when=f"2026-10-0{1 + i % 3}T09:1{i}:00-0300")
-    assert summaries.run(vault, pending=True, call=FakeModel()) == summaries.CATCH_UP
+    model = FakeModel()
+    assert summaries.run(vault, pending=True, call=model) == summaries.CATCH_UP
+    # sessions s0..s7 have times 2026-10-0{1+i%3}T09:1{i}; the 5 newest by marker time are chosen, newest first
+    newest = [s.session_id for s in summaries.sessions(vault)][: summaries.CATCH_UP]
+    state = json.loads((vault.bron_dir / "memory" / "summaries.json").read_text())
+    assert set(state) == set(newest) and len(model.calls) == summaries.CATCH_UP
 
 
 def test_failures_retry_then_give_up(vault, tmp_path):
@@ -146,8 +156,6 @@ def test_bad_model_reply_is_a_failure(vault, tmp_path):
 
 
 def test_only_one_summarizer_runs(vault, tmp_path):
-    from bron.statefile import locked
-
     mark(vault, "session-end", "s1", claude_transcript(tmp_path / "s1.jsonl"))
     model = FakeModel()
     with summaries._hold_lock(vault) as got:
@@ -188,6 +196,8 @@ def test_parse_reply_cleans_the_title():
 
 def test_call_model_builds_the_headless_commands(monkeypatch):
     seen = {}
+    monkeypatch.setenv("CLAUDECODE", "1")
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
 
     class Done:
         returncode, stdout, stderr = 0, REPLY, ""
@@ -199,10 +209,14 @@ def test_call_model_builds_the_headless_commands(monkeypatch):
     monkeypatch.setattr(summaries.subprocess, "run", fake_run)
     assert summaries.call_model("claude", "haiku", "PROMPT") == REPLY
     assert seen["argv"][:4] == ["claude", "-p", "--model", "haiku"] and "--no-session-persistence" in seen["argv"]
+    assert "--strict-mcp-config" in seen["argv"] and "--disable-slash-commands" in seen["argv"]
     assert seen["env"]["BRON_MEMORY_JOB"] == "1" and seen["input"] == "PROMPT"
+    assert "CLAUDECODE" not in seen["env"] and "CLAUDE_CODE_ENTRYPOINT" not in seen["env"]
     assert "BRON_VAULT" not in seen["env"]
     summaries.call_model("codex", "gpt-6-luna", "PROMPT")
     assert seen["argv"][:2] == ["codex", "exec"] and "--ephemeral" in seen["argv"] and seen["argv"][-1] == "-"
+    for flag in ("--ignore-user-config", "shell_tool", "apps"):
+        assert flag in seen["argv"]
 
 
 def test_call_model_failures_become_summary_errors(monkeypatch):
@@ -230,3 +244,81 @@ def test_spawn_starts_a_detached_summarizer(vault, monkeypatch):
     assert argv[1:] == ["memory", "summarize", "--session", "s1"] and kw["start_new_session"] is True
     monkeypatch.setenv("BRON_TICKET", "T-1")
     assert summaries.spawn(vault, pending=True, popen=lambda *a, **k: calls.append(a)) is False
+
+
+def test_long_titles_are_capped(vault, tmp_path):
+    mark(vault, "session-end", "s1", claude_transcript(tmp_path / "s1.jsonl"))
+    long = " ".join(["w" * 60] * 6)
+    summaries.run(vault, session_id="s1", call=FakeModel(REPLY.replace("Q3 report fields", long)))
+    [note] = notes(vault)
+    assert len(note.stem.split(" ", 2)[2]) <= 60
+
+
+def test_a_failed_write_is_recorded_and_not_retried_forever(vault, tmp_path, monkeypatch):
+    mark(vault, "session-end", "s1", claude_transcript(tmp_path / "s1.jsonl"))
+
+    def boom(*a, **k):
+        raise OSError("name too long")
+
+    monkeypatch.setattr(summaries, "_write_note", boom)
+    model = FakeModel()
+    for _ in range(summaries.MAX_ATTEMPTS + 2):
+        assert summaries.run(vault, pending=True, call=model) == 0
+    assert len(model.calls) == summaries.MAX_ATTEMPTS
+    state = json.loads((vault.bron_dir / "memory" / "summaries.json").read_text())
+    assert state["s1"]["status"] == "failed"
+
+
+def test_same_minute_same_title_keeps_both_notes(vault, tmp_path):
+    mark(vault, "session-end", "a", claude_transcript(tmp_path / "a.jsonl"))
+    mark(vault, "session-end", "b", claude_transcript(tmp_path / "b.jsonl"))
+    summaries.run(vault, pending=True, call=FakeModel())
+    assert [n.name for n in notes(vault)] == ["2026-10-03 09.15 Q3 report fields (2).md", "2026-10-03 09.15 Q3 report fields.md"]
+    # a retitle of one never deletes the other
+    t = claude_transcript(tmp_path / "a.jsonl", exchanges=4)
+    mark(vault, "session-end", "a", t, when="2026-10-03T09:15:00-0300")
+    summaries.run(vault, session_id="a", call=FakeModel(REPLY.replace("Q3 report fields", "Renamed")))
+    names = [n.name for n in notes(vault)]
+    assert len(names) == 2 and any("Renamed" in n for n in names)
+    assert sum("Q3 report fields" in n for n in names) == 1
+
+
+def test_bad_marker_lines_are_skipped(vault, tmp_path):
+    vault.state_dir.mkdir(parents=True, exist_ok=True)
+    (vault.state_dir / "markers.jsonl").write_bytes(b'\xff\xfe not json\n[1, 2]\n')
+    mark(vault, "session-end", "s1", claude_transcript(tmp_path / "s1.jsonl"))
+    assert summaries.run(vault, pending=True, call=FakeModel()) == 1
+
+
+def test_unreadable_markers_never_raise(vault, monkeypatch):
+    def boom(v):
+        raise RuntimeError("bad")
+
+    monkeypatch.setattr(summaries, "sessions", boom)
+    assert summaries.run(vault, pending=True, call=FakeModel()) == 0
+
+
+def test_sections_are_capped():
+    many = "\n".join(f"- item {i}" for i in range(9))
+    reply = f"TITLE: T\nASKED:\n{many}\nDECIDED:\n- {'x' * 300}\nOPEN:\n- Nothing\n"
+    _, asked, decided, _ = summaries.parse_reply(reply)
+    assert len(asked) == summaries.MAX_BULLETS
+    assert len(decided[0]) == summaries.MAX_BULLET and decided[0].endswith("…")
+
+
+def test_a_resumed_conversation_waits_for_quiet_again(vault, tmp_path):
+    t = claude_transcript(tmp_path / "s1.jsonl")
+    mark(vault, "session-end", "s1", t)
+    mark(vault, "stop", "s1", t, when="2026-10-03T11:00:00-0300")
+    [s] = summaries.sessions(vault)
+    assert s.ended is False
+    assert summaries.run(vault, pending=True, call=FakeModel(), now=time.time()) == 0
+
+
+def test_old_sessions_are_not_caught_up(vault, tmp_path, monkeypatch):
+    monkeypatch.setattr(summaries, "MAX_AGE_DAYS", 14)
+    mark(vault, "session-end", "old", claude_transcript(tmp_path / "o.jsonl"), when="2026-10-03T09:15:00-0300")
+    now = time.mktime((2026, 11, 1, 12, 0, 0, 0, 0, -1))
+    model = FakeModel()
+    assert summaries.run(vault, pending=True, call=model, now=now) == 0 and model.calls == []
+    assert summaries.run(vault, pending=True, call=model, now=now - 25 * 86400) == 1
