@@ -45,22 +45,22 @@ def _codex_text(entry: dict) -> tuple[str, str] | None:
     return (role, text) if text else None
 
 
-def _tail_lines(path: str | Path) -> list[str]:
+def _tail_lines(path: str | Path, *, whole: bool = False) -> list[str]:
     with open(path, "rb") as fh:
         fh.seek(0, 2)
         size = fh.tell()
-        fh.seek(max(0, size - TAIL_BYTES))
+        fh.seek(0 if whole else max(0, size - TAIL_BYTES))
         data = fh.read()
-    if size > TAIL_BYTES:
+    if size > TAIL_BYTES and not whole:
         data = data.split(b"\n", 1)[-1]  # the first line is probably cut
     return data.decode("utf-8", "replace").splitlines()
 
 
-def messages(cli: str, path: str | Path) -> list[tuple[str, str]]:
+def messages(cli: str, path: str | Path, *, whole: bool = False) -> list[tuple[str, str]]:
     """(role, text) pairs in order: what the user typed and what the assistant said. [] if unreadable."""
     pick = _claude_text if cli == "claude" else _codex_text
     try:
-        lines = _tail_lines(path)
+        lines = _tail_lines(path, whole=whole)
     except (OSError, ValueError):
         return []
     out: list[tuple[str, str]] = []

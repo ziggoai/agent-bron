@@ -140,3 +140,9 @@ def test_a_codex_message_whose_content_is_not_a_list_is_skipped(tmp_path):
     ok = {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Hi."}]}}
     path = write_jsonl(tmp_path / "x.jsonl", [odd, text, ok])
     assert messages("codex", path) == [("assistant", "Hi.")]
+
+
+def test_whole_reads_past_the_one_megabyte_tail(tmp_path):
+    path = write_jsonl(tmp_path / "big.jsonl", [user("FIRST question"), reply("x" * 1_200_000), user("last"), reply("end")])
+    assert messages("claude", path)[0][1] != "FIRST question"
+    assert messages("claude", path, whole=True)[0] == ("user", "FIRST question")

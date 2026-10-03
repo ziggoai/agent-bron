@@ -66,6 +66,11 @@ def handle(args, vault) -> int:
             hits = index.search(vault, cfg, as_agent=args.as_agent, query=args.query, all_agents=args.all, limit=args.limit)
             print(index.render(hits, vault.root) if hits else f'Nothing in memory matches "{args.query}".')
             return 0
+        if args.memory_command == "summarize":
+            from . import summaries
+
+            summaries.run(vault, session_id=args.session, pending=args.pending or not args.session)
+            return 0
     except commands.MemoryError as exc:
         print(exc)
         return 1

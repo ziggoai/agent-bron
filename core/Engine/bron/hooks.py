@@ -70,6 +70,7 @@ def _marker(event: str, cli: str, payload: dict) -> None:
         "event": event,
         "cli": cli,
         "agent": os.environ.get("BRON_AGENT", ""),
+        "ticket": os.environ.get("BRON_TICKET", ""),
         "session_id": str(payload.get("session_id", "")),
         "transcript_path": str(payload.get("transcript_path", "")),
     }

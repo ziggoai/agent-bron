@@ -78,6 +78,14 @@ def test_quick_events_append_markers(in_vault, monkeypatch):
     assert [line["event"] for line in lines] == ["pre-compact", "stop", "session-end"]
     assert lines[0]["agent"] == "CFO" and lines[0]["cli"] == "codex"
     assert lines[0]["session_id"] == "s1" and lines[0]["transcript_path"] == "/t.jsonl"
+    assert lines[0]["ticket"] == ""
+
+
+def test_markers_record_the_ticket(in_vault, monkeypatch):
+    monkeypatch.setenv("BRON_TICKET", "T-7")
+    call("stop", "claude", {"session_id": "s9", "transcript_path": "/t.jsonl"})
+    last = json.loads((in_vault.state_dir / "markers.jsonl").read_text().splitlines()[-1])
+    assert last["ticket"] == "T-7"
 
 
 def test_user_prompt_is_silent_for_now(in_vault):
