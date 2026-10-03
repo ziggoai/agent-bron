@@ -19,6 +19,8 @@ def main(event: str, cli: str, stdin=None, stdout=None) -> int:
             _marker(event, cli, payload)
             if event == "session-end":
                 _close_chats(cli, payload)
+            if event in ("session-end", "pre-compact"):
+                _start_summary(session_id=str(payload.get("session_id", "")))
         elif event == "session-start":
             try:
                 output = _session_start(cli)
@@ -113,6 +115,7 @@ def _session_start(cli: str) -> str:
         close_stale_chats(vault)
     except Exception as exc:  # noqa: BLE001 - best effort, never fails the briefing
         _log_error("session-start", cli, exc)
+    _start_summary(pending=True)
     return build_briefing(vault, cli=cli, notes=notes, changed=changed)
 
 
@@ -194,6 +197,19 @@ def _default_agent(vault) -> str:
         return str(fm.read(vault.settings_file).meta.get("default_agent") or "Bron")
     except Exception:  # noqa: BLE001
         return "Bron"
+
+
+def _start_summary(**kwargs) -> None:
+    """Start the background summarizer; never delays or breaks the session."""
+    try:
+        from .memory import summaries
+        from .vault import Vault
+
+        if kwargs.get("session_id") == "":
+            return
+        summaries.spawn(Vault.find(), **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        _log_error("memory", os.environ.get("BRON_CLI", ""), exc)
 
 
 def _log_error(event: str, cli: str, exc: Exception) -> None:
