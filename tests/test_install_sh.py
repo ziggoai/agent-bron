@@ -147,3 +147,76 @@ def test_existing_obsidian_settings_are_kept(home, tarball, tmp_path):
     assert (target / ".obsidian" / "appearance.json").read_text() == '{"cssTheme": "Minimal"}'
     assert json.loads((target / ".obsidian" / "community-plugins.json").read_text()) == ["dataview", "bron-terminal", "bron-workspace"]
     assert "Bron theme" in out
+
+
+def icloud_desktop_and_documents(home, folder="Documents"):
+    (home / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / folder).mkdir(parents=True)
+
+
+def test_documents_synced_by_icloud_warns_and_can_be_declined(home, tarball):
+    icloud_desktop_and_documents(home)
+    target = home / "Documents" / "Bron"
+    code, out = run(home, tarball, str(target), answers="n\n")
+    assert code == 1
+    assert "is synced with iCloud Drive" in out and "Nothing was changed" in out
+    assert 'bash -s -- "' in out  # how to choose another folder
+    assert not target.exists()
+
+
+def test_the_default_folder_warns_when_documents_is_in_icloud(home, tarball):
+    icloud_desktop_and_documents(home)
+    code, out = run(home, tarball, cwd=home, answers="\n\n")  # Enter for the folder, Enter (no) for iCloud
+    assert code == 1
+    assert "iCloud" in out
+    assert not (home / "Documents" / "Bron").exists()
+
+
+def test_desktop_synced_by_icloud_proceeds_with_bron_yes(home, tarball):
+    icloud_desktop_and_documents(home, "Desktop")
+    target = home / "Desktop" / "Bron"
+    code, out = run(home, tarball, str(target), yes=True)
+    assert code == 0, out
+    assert "iCloud" in out
+    assert (target / "System" / "Core" / "VERSION").is_file()
+
+
+def test_documents_without_icloud_sync_has_no_warning(home, tarball):
+    target = home / "Documents" / "Bron"
+    code, out = run(home, tarball, str(target))
+    assert code == 0, out
+    assert "iCloud" not in out
+
+
+def test_a_folder_that_cant_be_opened_stops_with_a_reason(home, tarball, tmp_path):
+    target = tmp_path / "Locked"
+    target.mkdir()
+    target.chmod(0o000)
+    try:
+        code, out = run(home, tarball, str(target))
+    finally:
+        target.chmod(0o700)
+    assert code == 1
+    assert f"the folder {target} couldn't be opened" in out
+
+
+def test_the_engine_steps_never_read_the_script_or_the_terminal():
+    text = INSTALLER.read_text()
+    lines = [line for line in text.splitlines() if line.startswith('"$UV" ') or line.startswith('"$VAULT/.bron/venv/bin/python"')]
+    assert len(lines) == 3
+    assert all("</dev/null 3<&-" in line for line in lines), lines
+    assert subprocess.run(["bash", "-n", str(INSTALLER)]).returncode == 0
+
+
+def test_piping_the_script_into_bash_works(home, tarball, tmp_path):
+    target = tmp_path / "Piped"
+    env = {
+        "HOME": str(home),
+        "PATH": f"{Path(shutil.which('uv')).parent}:/usr/bin:/bin:/usr/sbin:/sbin",
+        "BRON_INSTALL_SOURCE": str(tarball),
+        "BRON_TTY": str(home.parent / "no-terminal"),
+        "UV_CACHE_DIR": os.environ.get("UV_CACHE_DIR", str(Path.home() / ".cache" / "uv")),
+        "UV_PYTHON_INSTALL_DIR": os.environ.get("UV_PYTHON_INSTALL_DIR", str(Path.home() / ".local" / "share" / "uv" / "python")),
+    }
+    done = subprocess.run(["bash", "-s", "--", str(target)], input=INSTALLER.read_text(), cwd=home, env=env, capture_output=True, text=True, timeout=600)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert f"Your Bron vault is ready at {target}." in done.stdout

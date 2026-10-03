@@ -5,7 +5,7 @@ Paste into Terminal (macOS):
 
     curl -fsSL https://raw.githubusercontent.com/ziggoai/agent-bron/main/install.sh | bash
 
-It installs into the folder you're in, or into a folder you name: `… | bash -s -- "<folder>"`. In your home folder or a system folder it asks where to go instead (default `~/Documents/Bron`). Running it again on a Bron vault repairs it; your files are never overwritten.
+It installs into the folder you're in, or into a folder you name: `… | bash -s -- "<folder>"`. In your home folder or a system folder it asks where to go instead (default `~/Documents/Bron`). If the folder is in iCloud Drive, or in Desktop or Documents while iCloud syncs them, it warns you first. Running it again on a Bron vault repairs it; your files are never overwritten.
 
 It also adds a `bron` command that works from any folder inside a vault (`~/.local/bin/bron`), and, if you use Codex, marks the vault as trusted there.
 

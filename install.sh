@@ -50,7 +50,24 @@ expand() {  # expand a leading ~ and make the path absolute
   printf '%s' "$p"
 }
 
-is_icloud() { case "$1" in "$HOME/Library/Mobile Documents"|"$HOME/Library/Mobile Documents/"*) return 0 ;; esac; return 1; }
+CLOUD_DOCS="$HOME/Library/Mobile Documents/com~apple~CloudDocs"
+# iCloud Drive itself, or Desktop/Documents while "Desktop & Documents Folders" sync is on
+# (macOS then keeps their copies in iCloud Drive's Desktop and Documents folders).
+is_icloud() {
+  case "$1" in
+    "$HOME/Library/Mobile Documents"|"$HOME/Library/Mobile Documents/"*) return 0 ;;
+    "$HOME/Documents"|"$HOME/Documents/"*) [ -d "$CLOUD_DOCS/Documents" ] && return 0 ;;
+    "$HOME/Desktop"|"$HOME/Desktop/"*) [ -d "$CLOUD_DOCS/Desktop" ] && return 0 ;;
+  esac
+  return 1
+}
+
+warn_icloud() {
+  say "$1 is synced with iCloud Drive. Bron's engine doesn't work well there (iCloud can move its files away)."
+  say "To use a folder outside iCloud instead, answer n and run:
+  curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash -s -- \"$HOME/Bron\""
+  confirm "Install there anyway?"
+}
 
 is_system_folder() {
   case "$1" in
@@ -74,23 +91,21 @@ fi
 STEP="choosing the folder"
 TARGET="$(expand "${1:-$PWD}")"
 if is_icloud "$TARGET"; then
-  say "$TARGET is in iCloud Drive. Bron's engine doesn't work well there (iCloud can move its files away)."
-  confirm "Install there anyway?"
+  warn_icloud "$TARGET"
 elif is_system_folder "$TARGET"; then
   say "Bron shouldn't be installed straight into $TARGET."
   ask "Where should Bron live? Press Enter for ~/Documents/Bron, or type a folder:" "$DEFAULT_FOLDER" || cant_ask
   TARGET="$(expand "$ANSWER")"
   if is_system_folder "$TARGET" && ! is_icloud "$TARGET"; then fail "$TARGET can't be used either; choose a folder of your own."; fi
   if is_icloud "$TARGET"; then
-    say "$TARGET is in iCloud Drive. Bron's engine doesn't work well there (iCloud can move its files away)."
-    confirm "Install there anyway?"
+    warn_icloud "$TARGET"
   fi
   case "$TARGET" in "$HOME"/*) say "Installing into ~/${TARGET#$HOME/}" ;; *) say "Installing into $TARGET" ;; esac
 fi
 if [ -f "$TARGET/System/Core/VERSION" ]; then
   say "Found a Bron vault in $TARGET; repairing it. Your files are kept."
 elif [ -d "$TARGET" ]; then
-  count="$(ls -A "$TARGET" | grep -vc '^\.DS_Store$' || true)"
+  count="$(ls -A "$TARGET" 2>/dev/null | grep -vc '^\.DS_Store$' || true)"
   if [ "$count" != "0" ]; then
     say "$TARGET already has $count item(s). Bron adds its own folders next to them and never changes your files."
     confirm "Install Bron here?"
@@ -136,11 +151,11 @@ fi
 # 5–9. The vault
 STEP="setting up the vault"
 mkdir -p "$TARGET" || fail "the folder $TARGET couldn't be created."
-VAULT="$(cd "$TARGET" && pwd)"
+VAULT="$(cd "$TARGET" && pwd)" || fail "the folder $TARGET couldn't be opened."
 say "Setting up Bron's engine (this can take a minute the first time)…"
-"$UV" venv --quiet --allow-existing --python 3.12 "$VAULT/.bron/venv" || fail "Python 3.12 couldn't be set up for Bron."
-"$UV" pip install --quiet --python "$VAULT/.bron/venv/bin/python" --reinstall-package bron-engine "$SRC/core/Engine" || fail "Bron's engine couldn't be installed."
-"$VAULT/.bron/venv/bin/python" -m bron.install "$VAULT" --tree "$SRC" --source "$LABEL" || fail "the vault couldn't be finished; run the same command again to repair it."
+"$UV" venv --quiet --allow-existing --python 3.12 "$VAULT/.bron/venv" </dev/null 3<&- || fail "Python 3.12 couldn't be set up for Bron."
+"$UV" pip install --quiet --python "$VAULT/.bron/venv/bin/python" --reinstall-package bron-engine "$SRC/core/Engine" </dev/null 3<&- || fail "Bron's engine couldn't be installed."
+"$VAULT/.bron/venv/bin/python" -m bron.install "$VAULT" --tree "$SRC" --source "$LABEL" </dev/null 3<&- || fail "the vault couldn't be finished; run the same command again to repair it."
 
 # 10. Done
 say ""
