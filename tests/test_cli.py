@@ -62,3 +62,13 @@ def test_outside_a_vault(monkeypatch, tmp_path, capsys):
     monkeypatch.chdir(tmp_path)
     assert main(["check"]) == 2
     assert "No Bron vault" in capsys.readouterr().err
+
+
+def test_the_after_update_command_is_hidden_but_parses(capsys):
+    from bron.cli import build_parser
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--help"])
+    out = capsys.readouterr().out
+    assert "_after-update" not in out and "SUPPRESS" not in out
+    assert build_parser().parse_args(["_after-update", "--previous", "0.4.1"]).previous == "0.4.1"

@@ -129,12 +129,16 @@ def test_failed_engine_install_rolls_back(run, vault, releases, monkeypatch):
 
 
 def test_failed_finishing_step_rolls_back(run, vault, releases, monkeypatch):
-    monkeypatch.setattr(update, "install_engine", lambda v: None)
+    attempts = []
+    monkeypatch.setattr(update, "install_engine", lambda v: attempts.append(v.version()))
     monkeypatch.setattr(update, "after_update", lambda v, previous, tree: (1, "Sync stopped. Fix these first"))
     code, out, _ = run("update")
     assert code == 1
     assert "Sync stopped" in out
+    assert f"went back to version {CURRENT}" in out
     assert vault.version() == CURRENT
+    assert not (vault.core / "Manual" / "new-page.md").exists()
+    assert attempts == ["9.0.0", CURRENT]
 
 
 def test_undo_goes_back_and_uses_up_the_backup(run, vault, releases, engine):
@@ -185,3 +189,73 @@ def test_a_project_folder_that_cant_be_read_changes_nothing(run, vault, tmp_path
     assert "Traceback" not in out + err
     assert vault.version() == CURRENT
     assert update.backups(vault) == []
+
+
+def test_undo_after_a_failed_update_has_nothing_to_go_back_to(run, vault, releases, monkeypatch):
+    monkeypatch.setattr(update, "install_engine", lambda v: None)
+    monkeypatch.setattr(update, "after_update", lambda v, previous, tree: (1, "boom"))
+    run("update")
+    assert update.backups(vault) == []
+    code, out, _ = run("update", "--undo")
+    assert code == 1 and "no earlier version" in out
+
+
+def test_undo_after_a_failed_update_goes_to_the_last_good_version(run, vault, releases, engine):
+    run("update")  # succeeds: backup of CURRENT
+    assert vault.version() == "9.0.0"
+    stale = update.backup_core(vault)  # a leftover of the live version, as a failed attempt used to leave
+    assert update._version_of(stale) == "9.0.0"
+    code, out, _ = run("update", "--undo")
+    assert code == 0, out
+    assert f"Went back from version 9.0.0 to {CURRENT}." in out
+
+
+def test_a_crashing_rollback_gives_a_plain_message(run, vault, releases, monkeypatch):
+    monkeypatch.setattr(update, "install_engine", lambda v: (_ for _ in ()).throw(RuntimeError("no network")))
+
+    def broken(root, src):
+        if src.name != "core":
+            raise OSError("disk full")
+        return real(root, src)
+
+    real = update.replace_core
+    monkeypatch.setattr(update, "replace_core", broken)
+    code, out, err = run("update")
+    assert code == 1
+    assert "didn't work either" in out and ".bron/backups/core-" in out
+    assert "Traceback" not in out + err
+
+
+def test_finish_never_shows_a_traceback(vault, tmp_path, monkeypatch, capsys):
+    def boom(*a, **k):
+        raise OSError("disk exploded")
+
+    monkeypatch.setattr("bron.obsidian.refresh_bundle", boom)
+    tree = ProjectFolder(REPO).fetch(CURRENT, tmp_path / "work")
+    assert update.finish(vault, CURRENT, tree) == 1
+    out = capsys.readouterr().out
+    assert "couldn't finish setting up (OSError: disk exploded)" in out
+    assert "Traceback" not in out
+
+
+def test_a_same_version_refresh_makes_no_backup(run, vault, engine, monkeypatch):
+    monkeypatch.delenv("BRON_RELEASE_SOURCE")
+    code, out, _ = run("update", "--from", str(REPO))
+    assert code == 0, out
+    assert update.backups(vault) == []
+
+
+def test_a_failed_backup_changes_nothing(run, vault, releases, engine, monkeypatch):
+    def full(*a, **k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(update.shutil, "copytree", full)
+    code, out, _ = run("update")
+    assert code == 1 and "backup" in out and "nothing was changed" in out
+    assert vault.version() == CURRENT
+    assert update.backups(vault) == []
+
+
+def test_undo_does_not_take_from(run, tmp_path):
+    code, out, _ = run("update", "--undo", "--from", str(tmp_path))
+    assert code == 2 and "--undo doesn't take --from" in out

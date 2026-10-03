@@ -10,7 +10,7 @@ description: Update the Bron framework when the user asks Bron to update itself 
    - "up to date": tell the user in one line; stop.
    - A problem (for example "GitHub didn't answer"): say it in plain words; stop.
 2. Otherwise summarise what's new in a few short bullets, in plain words, and ask: "Update now?" Wait for a yes.
-3. After a yes, run `.bron/bin/bron update`. It can take a few minutes.
+3. After a yes, run `.bron/bin/bron update`. It can take a few minutes: use a 10-minute timeout for this command and don't stop it early.
 4. Report the result in plain words:
    - the first line says which version Bron moved to;
    - mention any problem the health check lists at the end, and offer to fix it;

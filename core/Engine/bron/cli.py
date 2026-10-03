@@ -12,7 +12,7 @@ from .model import CLIS
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the argument parser for bron commands."""
     parser = argparse.ArgumentParser(prog="bron", description="Bron keeps your agents' setup in sync across Claude Code and Codex.")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=True, metavar="{sync,check,hook,version,update,connections,run,chat}")
     p_sync = sub.add_parser("sync", help="regenerate the Claude Code and Codex setup from System/")
     p_sync.add_argument("--dry-run", action="store_true", help="check and report, without writing anything")
     sub.add_parser("check", help="run the health check")
@@ -25,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     update_mode.add_argument("--preview", action="store_true", help="show what's new without changing anything")
     update_mode.add_argument("--undo", action="store_true", help="go back to the version before the last update")
     p_update.add_argument("--from", dest="from_folder", type=Path, help="update from a Bron project folder instead of GitHub (development)")
-    p_after = sub.add_parser("_after-update", help=argparse.SUPPRESS)
+    p_after = sub.add_parser("_after-update")
     p_after.add_argument("--previous", required=True)
     p_after.add_argument("--tree", type=Path)
     p_conn = sub.add_parser("connections", help="find connectors set up in Claude Code and Codex, or add one")
@@ -78,6 +78,9 @@ def main(argv: list[str] | None = None) -> int:
         from . import update
         from .releases import select_source
 
+        if args.undo and args.from_folder is not None:
+            print("--undo doesn't take --from.")
+            return 2
         if args.undo:
             code, message = update.undo(vault)
         else:
