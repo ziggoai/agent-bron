@@ -1,12 +1,27 @@
 """Health check items for memory."""
 from __future__ import annotations
 
+import time
+
 from ..loader import Config
 from ..model import Issue
 from ..statefile import read_json
 from . import facts
 from .commands import MemoryError, facts_file, read_lines
-from .summaries import MAX_ATTEMPTS, STATE
+from .summaries import MAX_AGE_DAYS, MAX_ATTEMPTS, STATE
+
+OLD_SUMMARY = "System/Memory/Summary.md is no longer read; ask Bron to move what matters into Facts.md."
+
+
+def _given_up(entry, now: float) -> bool:
+    """A conversation the summarizer gave up on in the last two weeks; an entry it can't read doesn't count."""
+    if not isinstance(entry, dict) or entry.get("status") != "failed":
+        return False
+    try:
+        attempts, when = int(entry.get("attempts", 0)), float(entry["when"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return attempts >= MAX_ATTEMPTS and now - when <= MAX_AGE_DAYS * 86400
 
 
 def issues(cfg: Config) -> list[Issue]:
@@ -23,8 +38,11 @@ def issues(cfg: Config) -> list[Issue]:
             continue
         if facts.size(lines) >= 0.9 * facts.LIMITS[scope]:
             out.append(Issue("warning", "memory.long", f"{path.relative_to(vault.root)} is getting long; ask Bron to tidy it", path))
+    if (vault.memory_dir / "Summary.md").is_file():
+        out.append(Issue("warning", "memory.old-summary", OLD_SUMMARY))
     state = read_json(vault.bron_dir / "memory" / STATE, {})
-    given_up = sum(1 for e in state.values() if isinstance(e, dict) and e.get("status") == "failed" and int(e.get("attempts", 0)) >= MAX_ATTEMPTS)
+    now = time.time()
+    given_up = sum(1 for entry in state.values() if _given_up(entry, now))
     if given_up:
         out.append(Issue("warning", "memory.summaries-failed",
                          f"{given_up} conversation{'s' if given_up != 1 else ''} couldn't be summarised after {MAX_ATTEMPTS} tries (see .bron/logs/memory.log)"))
