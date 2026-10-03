@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('install_terminal', ROOT / 'scripts/install-terminal.py')
+spec = importlib.util.spec_from_file_location('install_terminal', ROOT / 'core/Plugins/install_terminal.py')
 installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
 SOURCE = ROOT / 'core/Plugins/bron-terminal'
