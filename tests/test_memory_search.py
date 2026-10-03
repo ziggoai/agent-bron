@@ -227,3 +227,74 @@ def test_sidecar_files_are_deleted(vault, cfg):
     assert not wal_file.exists(), "db-wal should be deleted"
     assert not journal_file.exists(), "db-journal should be deleted"
     assert not shm_file.exists(), "db-shm should be deleted"
+
+
+def test_wrong_schema_version_triggers_rebuild(vault, cfg):
+    import sqlite3
+    # Create a valid-shape index with user_version = 1
+    db_path = vault.bron_dir / "memory" / "index.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(db_path)
+    con.execute("PRAGMA user_version = 1")
+    con.execute("CREATE TABLE files (path TEXT PRIMARY KEY, mtime_ns INTEGER, size INTEGER)")
+    con.execute(
+        "CREATE VIRTUAL TABLE entries USING fts5("
+        "path UNINDEXED, kind UNINDEXED, agent UNINDEXED, title, date UNINDEXED, body, "
+        "tokenize='unicode61 remove_diacritics 2')"
+    )
+    # Insert an entry that should be gone after rebuild
+    con.execute(
+        "INSERT INTO entries (path, kind, agent, title, date, body) VALUES (?, ?, ?, ?, ?, ?)",
+        ("oldentry.md", "conversation", "Bron", "Old Entry", "2026-10-01", "This will be deleted on rebuild")
+    )
+    con.commit()
+    con.close()
+
+    # Now save a fact (which will be indexed on search)
+    commands.remember(vault, cfg, as_agent="Bron", text="New fact after version mismatch")
+
+    # Search should detect version mismatch and rebuild
+    hits = index.search(vault, cfg, as_agent="Bron", query="fact")
+    assert hits
+    assert hits[0].excerpt == "New fact after version mismatch."
+
+    # Verify version is now 2
+    con = sqlite3.connect(db_path)
+    version = con.execute("PRAGMA user_version").fetchone()[0]
+    assert version == 2, f"Schema version should be 2 after rebuild, got {version}"
+
+    # Verify old entry is gone
+    count = con.execute("SELECT COUNT(*) FROM entries WHERE path='oldentry.md'").fetchone()[0]
+    assert count == 0, "Old entry should be gone after rebuild"
+    con.close()
+
+
+def test_future_schema_version_triggers_rebuild(vault, cfg):
+    import sqlite3
+    # Create a valid-shape index with user_version = 3 (future version)
+    db_path = vault.bron_dir / "memory" / "index.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(db_path)
+    con.execute("PRAGMA user_version = 3")
+    con.execute("CREATE TABLE files (path TEXT PRIMARY KEY, mtime_ns INTEGER, size INTEGER)")
+    con.execute(
+        "CREATE VIRTUAL TABLE entries USING fts5("
+        "path UNINDEXED, kind UNINDEXED, agent UNINDEXED, title, date UNINDEXED, body, "
+        "tokenize='unicode61 remove_diacritics 2')"
+    )
+    con.commit()
+    con.close()
+
+    # Now save a fact and search
+    commands.remember(vault, cfg, as_agent="Bron", text="Fact with future schema")
+
+    # Search should detect future version and rebuild
+    hits = index.search(vault, cfg, as_agent="Bron", query="schema")
+    assert hits
+    assert hits[0].excerpt == "Fact with future schema."
+
+    # Verify version is now 2 (rebuilt to current)
+    con = sqlite3.connect(db_path)
+    version = con.execute("PRAGMA user_version").fetchone()[0]
+    assert version == 2, f"Schema version should be 2 after rebuild, got {version}"
+    con.close()

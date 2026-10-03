@@ -53,13 +53,15 @@ def _db(vault: Vault, *, rebuild: bool = False) -> sqlite3.Connection:
 
     con = sqlite3.connect(db_path)
     try:
-        _create_schema(con)
-        # Check schema version after creating schema
+        # Check schema version FIRST, before creating schema
         version = con.execute("PRAGMA user_version").fetchone()[0]
-        if version != _SCHEMA_VERSION:
-            # Old schema detected; will be deleted and rebuilt by recovery wrapper
+        # If database has tables and version is wrong, it's old schema - will be deleted and rebuilt
+        has_tables = con.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'").fetchone()[0] > 0
+        if has_tables and version != _SCHEMA_VERSION:
             con.close()
             raise sqlite3.DatabaseError(f"Schema version mismatch: got {version}, expected {_SCHEMA_VERSION}")
+        # Create or update schema if needed
+        _create_schema(con)
         return con
     except sqlite3.DatabaseError:
         con.close()
@@ -74,6 +76,21 @@ def _delete_index_files(vault: Vault) -> None:
             f.unlink()
         except OSError:
             pass
+
+
+def _with_recovery(vault: Vault, fn) -> None:
+    """Execute a function with automatic recovery on database corruption."""
+    try:
+        return fn()
+    except sqlite3.DatabaseError as exc:
+        # Index is corrupt; delete it, rebuild, and retry once
+        _delete_index_files(vault)
+        try:
+            con = _db(vault, rebuild=True)
+            con.close()
+            return fn()
+        except sqlite3.DatabaseError as retry_exc:
+            raise commands.MemoryError("Bron's memory search index couldn't be rebuilt; your notes are safe. Try again in a moment.") from retry_exc
 
 
 def _sources(vault: Vault, cfg: Config) -> dict[Path, tuple[str, str]]:
@@ -132,17 +149,7 @@ def _refresh_impl(vault: Vault, cfg: Config) -> None:
 
 def refresh(vault: Vault, cfg: Config) -> None:
     """Refresh the index with automatic recovery on corruption."""
-    try:
-        _refresh_impl(vault, cfg)
-    except (sqlite3.DatabaseError, sqlite3.OperationalError) as exc:
-        # Index is corrupt; delete it, rebuild, and retry once
-        _delete_index_files(vault)
-        try:
-            con = _db(vault, rebuild=True)
-            con.close()
-            _refresh_impl(vault, cfg)
-        except (sqlite3.DatabaseError, sqlite3.OperationalError) as retry_exc:
-            raise commands.MemoryError("Bron's memory search index couldn't be rebuilt; your notes are safe. Try again in a moment.") from retry_exc
+    _with_recovery(vault, lambda: _refresh_impl(vault, cfg))
 
 
 def _query(text: str, joiner: str) -> str:
@@ -179,17 +186,7 @@ def _search_impl(vault: Vault, cfg: Config, *, as_agent: str, query: str, all_ag
 
 def search(vault: Vault, cfg: Config, *, as_agent: str, query: str, all_agents: bool = False, limit: int = 8) -> list[Hit]:
     """Search with automatic recovery on corruption."""
-    try:
-        return _search_impl(vault, cfg, as_agent=as_agent, query=query, all_agents=all_agents, limit=limit)
-    except (sqlite3.DatabaseError, sqlite3.OperationalError) as exc:
-        # Index is corrupt; delete it, rebuild, and retry once
-        _delete_index_files(vault)
-        try:
-            con = _db(vault, rebuild=True)
-            con.close()
-            return _search_impl(vault, cfg, as_agent=as_agent, query=query, all_agents=all_agents, limit=limit)
-        except (sqlite3.DatabaseError, sqlite3.OperationalError) as retry_exc:
-            raise commands.MemoryError("Bron's memory search index couldn't be rebuilt; your notes are safe. Try again in a moment.") from retry_exc
+    return _with_recovery(vault, lambda: _search_impl(vault, cfg, as_agent=as_agent, query=query, all_agents=all_agents, limit=limit))
 
 
 def render(hits: list[Hit], root: Path) -> str:
