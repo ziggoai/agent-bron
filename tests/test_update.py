@@ -286,3 +286,155 @@ def test_finish_twice_keeps_a_renamed_agent_and_a_deleted_board_away(vault, tmp_
     assert update.finish(vault, CURRENT, tree) == 0, capsys.readouterr().out
     assert not (vault.agents_dir / "Bron").exists()
     assert not (vault.root / "Tickets" / "Board.base").exists()
+
+
+# An interrupted update: the marker, Ctrl-C and signals roll back; the next `bron update` heals.
+
+def marker(vault):
+    return vault.state_dir / "update-in-progress.json"
+
+
+def test_ctrl_c_during_the_engine_install_rolls_back_and_still_stops(vault, releases, monkeypatch, capsys):
+    from bron.releases import select_source
+
+    seen = []
+
+    def interrupted(v):
+        seen.append(marker(v).is_file())
+        if v.version() == "9.0.0":
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(update, "install_engine", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        update.apply(vault, select_source(vault, None))
+    out = capsys.readouterr().out
+    assert seen[0] is True  # the marker was there while Bron's files were being swapped
+    assert f"Bron went back to version {CURRENT}" in out and "stopped" in out
+    assert vault.version() == CURRENT
+    assert not (vault.core / "Manual" / "new-page.md").exists()
+    assert not marker(vault).exists()
+    assert update.backups(vault) == []
+
+
+def test_ctrl_c_through_the_command_exits_130_without_a_traceback(run, vault, releases, monkeypatch):
+    monkeypatch.setattr(update, "install_engine", lambda v: (_ for _ in ()).throw(KeyboardInterrupt()) if v.version() == "9.0.0" else None)
+    code, out, err = run("update")
+    assert code == 130
+    assert f"Bron went back to version {CURRENT}" in out
+    assert "Traceback" not in out + err
+    assert vault.version() == CURRENT
+
+
+def test_sigterm_during_the_update_rolls_back(run, vault, releases, monkeypatch):
+    import os
+    import signal
+
+    before = signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGHUP)
+
+    def killed(v):
+        if v.version() == "9.0.0":
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    monkeypatch.setattr(update, "install_engine", killed)
+    code, out, _ = run("update")
+    assert code == 143
+    assert f"Bron went back to version {CURRENT}" in out
+    assert vault.version() == CURRENT and not marker(vault).exists()
+    assert (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGHUP)) == before
+
+
+def test_a_leftover_marker_is_healed_by_the_next_update(run, vault, releases, engine):
+    import json
+
+    copy = update.backup_core(vault)
+    (vault.core / "VERSION").write_text("9.0.0\n")  # the new core was already swapped in
+    (vault.core / "Manual" / "new-page.md").write_text("new\n")
+    marker(vault).parent.mkdir(parents=True, exist_ok=True)
+    marker(vault).write_text(json.dumps({"previous": CURRENT, "restore_from": copy.relative_to(vault.root).as_posix()}))
+    code, out, _ = run("update", "--preview")
+    assert out.splitlines()[0] == f"A previous update was interrupted; Bron went back to version {CURRENT}."
+    assert code == 0 and "Bron 9.0.0 is available" in out  # then the preview goes on
+    assert vault.version() == CURRENT
+    assert not (vault.core / "Manual" / "new-page.md").exists()
+    assert not marker(vault).exists() and not copy.exists()
+    assert engine == [CURRENT]
+
+
+def test_ctrl_c_during_undo_stays_on_the_current_version(run, vault, releases, engine, monkeypatch, capsys):
+    run("update")
+    assert vault.version() == "9.0.0"
+
+    def stop(v, previous, tree):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(update, "after_update", stop)
+    with pytest.raises(KeyboardInterrupt):
+        update.undo(vault)
+    assert "Bron stayed on version 9.0.0" in capsys.readouterr().out
+    assert vault.version() == "9.0.0" and not marker(vault).exists()
+    assert not [p for p in vault.backups_dir.iterdir() if p.name.startswith("safety-")]
+    assert len(update.backups(vault)) == 1  # the undo point is still there
+
+
+def test_a_leftover_marker_from_an_undo_is_healed(run, vault, releases, engine):
+    import json
+
+    run("update")
+    safety = update._safety_copy(vault)  # what undo keeps while it runs
+    (vault.core / "VERSION").write_text(f"{CURRENT}\n")  # undo had swapped the old core in, then died
+    marker(vault).write_text(json.dumps({"previous": "9.0.0", "restore_from": safety.relative_to(vault.root).as_posix()}))
+    code, out, _ = run("update", "--preview")
+    assert out.splitlines()[0] == "A previous update was interrupted; Bron went back to version 9.0.0."
+    assert vault.version() == "9.0.0" and not marker(vault).exists() and not safety.exists()
+
+
+def test_a_refresh_keeps_its_safety_copy_in_backups_while_it_runs(run, vault, engine, monkeypatch):
+    import json
+
+    monkeypatch.delenv("BRON_RELEASE_SOURCE")
+    seen = {}
+
+    def look(v):
+        seen.update(json.loads(marker(v).read_text()))
+
+    monkeypatch.setattr(update, "install_engine", look)
+    code, out, _ = run("update", "--from", str(REPO))
+    assert code == 0, out
+    assert seen["previous"] == CURRENT and seen["restore_from"].startswith(f".bron/backups/safety-{CURRENT}-")
+    assert not (vault.root / seen["restore_from"]).exists()  # removed when done
+    assert not marker(vault).exists()
+
+
+def test_a_failed_restore_keeps_the_copy_and_names_it(run, vault, engine, monkeypatch):
+    monkeypatch.delenv("BRON_RELEASE_SOURCE")
+    real = update.replace_core
+
+    def broken(root, src):
+        if src.name != "core":
+            raise OSError("disk full")
+        return real(root, src)
+
+    monkeypatch.setattr(update, "replace_core", broken)
+    monkeypatch.setattr(update, "after_update", lambda v, previous, tree: (1, "boom"))
+    code, out, _ = run("update", "--from", str(REPO))
+    assert code == 1
+    kept = [p for p in vault.backups_dir.iterdir() if p.name.startswith("safety-")]
+    assert len(kept) == 1 and f".bron/backups/{kept[0].name}" in out
+    assert "run the install command again to repair it (it installs the newest version)" in out
+    assert marker(vault).exists()  # the next `bron update` tries again
+
+
+def test_check_reports_an_engine_that_doesnt_match_its_files(run, vault, monkeypatch):
+    import bron
+
+    monkeypatch.setattr(bron, "__version__", "9.9.9")
+    code, out, _ = run("check")
+    assert code == 1
+    assert f"Bron's engine (version 9.9.9) doesn't match its files (version {CURRENT}). Say 'Bron, update yourself' or run the install command again." in out
+
+
+def test_check_reports_an_interrupted_update(run, vault):
+    marker(vault).parent.mkdir(parents=True, exist_ok=True)
+    marker(vault).write_text("{}")
+    code, out, _ = run("check")
+    assert "An update was interrupted; run `.bron/bin/bron update` to finish going back." in out

@@ -12,7 +12,7 @@ from .model import CLIS
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the argument parser for bron commands."""
     parser = argparse.ArgumentParser(prog="bron", description="Bron keeps your agents' setup in sync across Claude Code and Codex.")
-    sub = parser.add_subparsers(dest="command", required=True, metavar="{sync,check,hook,version,update,connections,run,chat}")
+    sub = parser.add_subparsers(dest="command", required=True)
     p_sync = sub.add_parser("sync", help="regenerate the Claude Code and Codex setup from System/")
     p_sync.add_argument("--dry-run", action="store_true", help="check and report, without writing anything")
     sub.add_parser("check", help="run the health check")
@@ -48,6 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
     setup_cli.add_agent_parser(sub)
     setup_cli.add_work_parsers(sub)
     setup_cli.add_connection_parser(conn_commands)
+    # The usage line lists the real commands; internal ones (named with a leading _) stay hidden.
+    sub.metavar = "{" + ",".join(name for name in sub.choices if not name.startswith("_")) + "}"
     return parser
 
 
@@ -81,11 +83,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.undo and args.from_folder is not None:
             print("--undo doesn't take --from.")
             return 2
-        if args.undo:
-            code, message = update.undo(vault)
-        else:
-            source = select_source(vault, args.from_folder)
-            code, message = (update.preview if args.preview else update.apply)(vault, source)
+        try:
+            code, healed = update.heal(vault)  # an interrupted update is finished first
+            if healed:
+                print(healed)
+            if code != 0:
+                return code
+            if args.undo:
+                code, message = update.undo(vault)
+            else:
+                source = select_source(vault, args.from_folder)
+                code, message = (update.preview if args.preview else update.apply)(vault, source)
+        except KeyboardInterrupt:
+            return 130  # what happened was already said
         print(message)
         return code
     if args.command == "_after-update":

@@ -19,10 +19,32 @@ def run_checks(cfg: Config, *, include_environment: bool = True) -> list[Issue]:
     issues += _connections(cfg)
     issues += _locks(cfg)
     if include_environment:
+        issues += _engine(cfg)
         issues += _environment(cfg)
         issues += _routines(cfg)  # routine problems never stop a sync
         issues += _claude_local_settings(cfg)
     return issues
+
+
+def _engine(cfg: Config) -> list[Issue]:
+    """The engine in .bron/venv belongs to System/Core, and no update was left half done."""
+    from . import __version__ as engine
+    from .update import marker_path
+
+    out: list[Issue] = []
+    try:
+        files = cfg.vault.version()
+    except OSError:
+        files = "unknown"
+    if engine != files:
+        out.append(Issue(
+            "error",
+            "engine.version-mismatch",
+            f"Bron's engine (version {engine}) doesn't match its files (version {files}). Say 'Bron, update yourself' or run the install command again.",
+        ))
+    if marker_path(cfg.vault).exists():
+        out.append(Issue("warning", "update.interrupted", "An update was interrupted; run `.bron/bin/bron update` to finish going back."))
+    return out
 
 
 def _claude_local_settings(cfg: Config) -> list[Issue]:

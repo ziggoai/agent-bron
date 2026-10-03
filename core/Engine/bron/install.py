@@ -227,6 +227,8 @@ def install_vault(vault_root: Path, tree: Path, *, source: str, home: Path | Non
     replace_core(vault_root, tree / "core")
     write_shim(vault_root)
     write_source(vault_root, source)
+    # This is the repair for an interrupted update: core and engine are whole again, so its marker goes.
+    (vault_root / ".bron" / "state" / "update-in-progress.json").unlink(missing_ok=True)
     notes += _migrations(vault_root, previous)
     try:
         notes += install_bundle(vault_root, vault_root / "System" / "Core", tree / "template" / ".obsidian")

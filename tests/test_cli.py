@@ -76,3 +76,14 @@ def test_the_after_update_command_is_hidden_but_parses(capsys):
     out = capsys.readouterr().out
     assert "_after-update" not in out and "SUPPRESS" not in out
     assert build_parser().parse_args(["_after-update", "--previous", "0.4.1"]).previous == "0.4.1"
+
+
+def test_help_lists_the_real_commands(capsys):
+    from bron.cli import build_parser
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--help"])
+    usage = capsys.readouterr().out.split("\n\n")[0]
+    for name in ("ticket", "routine", "agent", "sync", "update"):
+        assert name in usage, name
+    assert "_after-update" not in usage

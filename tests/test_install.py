@@ -327,3 +327,16 @@ def test_reinstalling_over_an_older_vault_applies_its_migrations(tmp_path, monke
     (root / "System" / "Core" / "VERSION").write_text("0.0.1\n")  # an older vault
     assert install_vault(root, REPO, source="github", home=None) == 0
     assert (root / "Projects" / "New.md").read_text() == "new\n"
+
+
+def test_the_install_command_clears_an_interrupted_update(tmp_path, monkeypatch, capsys):
+    from bron import update
+    from bron.vault import Vault
+
+    monkeypatch.setattr(install.shutil, "which", lambda name: None)
+    root = tmp_path / "Bron"
+    assert install_vault(root, REPO, source="github", home=None) == 0
+    marker = update.marker_path(Vault(root))
+    marker.write_text('{"previous": "0.0.1", "restore_from": ".bron/backups/core-0.0.1-20260101-000000"}')
+    assert install_vault(root, REPO, source="github", home=None) == 0  # the repair
+    assert not marker.exists()  # so the next `bron update` doesn't go back to the old copy
