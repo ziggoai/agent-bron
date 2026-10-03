@@ -1,6 +1,7 @@
 {
   "name": "bron-terminal",
   "version": "0.6.0",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "build": "node scripts/build.cjs",
