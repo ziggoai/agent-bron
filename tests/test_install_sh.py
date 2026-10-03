@@ -8,6 +8,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from vaultkit import set_meta
 
 REPO = Path(__file__).resolve().parents[1]
 INSTALLER = REPO / "install.sh"
@@ -78,11 +79,17 @@ def test_rerun_repairs_and_changes_nothing_of_yours(home, tarball, tmp_path):
     assert run(home, tarball, str(target))[0] == 0
     (target / "Projects" / "My note.md").write_text("mine")
     (target / "Tickets" / "Board.base").unlink()
+    agents = target / "System" / "Agents"
+    (agents / "Bron").rename(agents / "Ava")
+    set_meta(agents / "Ava" / "Agent.md", name="Ava")
+    set_meta(target / "System" / "Settings.md", default_agent="Ava")
     code, out = run(home, tarball, str(target))
     assert code == 0, out
     assert "repairing" in out
     assert (target / "Projects" / "My note.md").read_text() == "mine"
-    assert (target / "Tickets" / "Board.base").is_file()
+    assert not (target / "Tickets" / "Board.base").exists()  # seeded once; deleting it was the user's choice
+    assert not (agents / "Bron").exists()  # the renamed main agent doesn't come back
+    assert (agents / "Ava" / "Agent.md").is_file()
     assert (home / ".zprofile").read_text().count("added by the Bron installer") == 1
     assert (home / ".codex" / "config.toml").read_text().count(str(target)) == 1
 

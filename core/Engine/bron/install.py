@@ -15,6 +15,7 @@ import tomllib
 from pathlib import Path
 
 from .releases import SOURCE_FILE
+from .statefile import read_json, write_json
 
 CORE_IGNORE = shutil.ignore_patterns(".venv", "__pycache__", "*.egg-info", ".pytest_cache", ".DS_Store")
 SHIM = """#!/bin/sh
@@ -39,18 +40,50 @@ exit 2
 PATH_LINE = 'export PATH="$HOME/.local/bin:$PATH"  # added by the Bron installer'
 
 
-def copy_template(vault_root: Path, template: Path) -> None:
-    """Copy the starting vault where files are missing; nothing that exists is overwritten. Obsidian is obsidian.py's job."""
+TEMPLATE_RECORD = Path(".bron") / "state" / "template.json"
+
+
+def _template_items(template: Path) -> list[tuple[str, Path]]:
+    items = []
     for src in sorted(template.rglob("*")):
         rel = src.relative_to(template)
         if rel.parts[0] == ".obsidian" or src.name == ".DS_Store" or "__pycache__" in rel.parts:
             continue
+        items.append((rel.as_posix(), src))
+    return items
+
+
+def copy_template(vault_root: Path, template: Path) -> None:
+    """Copy each starting file and folder once; nothing that exists is overwritten. Obsidian is obsidian.py's job.
+
+    Every template path ever seeded (or found already there) is recorded in .bron/state/template.json,
+    so a starting file the user deleted or renamed (the main agent, a board) never comes back. A new
+    starting file in a newer release is copied, unless its folder was seeded before and is gone now.
+    A vault from before the record keeps System/Agents/ as it is when it already has an agent.
+    """
+    record = vault_root / TEMPLATE_RECORD
+    data = read_json(record, {})
+    known = data.get("seeded") if isinstance(data.get("seeded"), list) else None
+    seeded = {str(item) for item in known or []}
+    agents = vault_root / "System" / "Agents"
+    keep_agents = known is None and agents.is_dir() and any(p.is_dir() for p in agents.iterdir())
+    before = set(seeded)
+    for key, src in _template_items(template):
+        if key in seeded:
+            continue
+        seeded.add(key)
+        rel = Path(key)
+        if keep_agents and rel.parts[:2] == ("System", "Agents") and len(rel.parts) > 2:
+            continue
+        if any(parent.as_posix() in before and not (vault_root / parent).is_dir() for parent in rel.parents if parent != Path(".")):
+            continue  # its folder was seeded once and the user removed or renamed it
         dest = vault_root / rel
         if src.is_dir():
             dest.mkdir(parents=True, exist_ok=True)
         elif not dest.exists() and not dest.is_symlink():
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
+    write_json(record, {"seeded": sorted(seeded)})
 
 
 def replace_core(vault_root: Path, core_src: Path) -> None:
@@ -129,7 +162,7 @@ def trust_codex(home: Path, vault_root: Path, *, codex_installed: bool) -> str |
     if isinstance(projects, dict) and key in projects:
         return None
     separator = "" if not text or text.endswith("\n") else "\n"
-    new_text = text + separator + f"\n[projects.{json.dumps(key)}]\ntrust_level = \"trusted\"\n"
+    new_text = text + separator + f"\n[projects.{json.dumps(key, ensure_ascii=False)}]\ntrust_level = \"trusted\"\n"
     try:
         tomllib.loads(new_text)
     except tomllib.TOMLDecodeError:
@@ -141,38 +174,80 @@ def trust_codex(home: Path, vault_root: Path, *, codex_installed: bool) -> str |
     return "Codex now trusts this vault (its settings were backed up next to them first)."
 
 
+def _reason(exc: BaseException) -> str:
+    if isinstance(exc, UnicodeDecodeError):
+        return "it isn't plain text"
+    return (getattr(exc, "strerror", None) or exc.__class__.__name__).lower()
+
+
+def _home_step(step, failed: str) -> str | None:
+    """A home-folder step never stops the install: a problem becomes a plain note."""
+    try:
+        return step()
+    except (OSError, UnicodeDecodeError) as exc:
+        return failed.format(reason=_reason(exc))
+
+
+def home_steps(home: Path, vault_root: Path) -> list[str]:
+    notes = (
+        _home_step(lambda: install_launcher(home),
+                   "The global bron command couldn't be added ({reason}); inside your vault, use .bron/bin/bron."),
+        _home_step(lambda: ensure_path(home, os.environ.get("PATH", "")),
+                   "~/.zprofile couldn't be updated ({reason}), so the global bron command may not work in new Terminal windows; "
+                   "inside your vault, use .bron/bin/bron."),
+        _home_step(lambda: trust_codex(home, vault_root, codex_installed=shutil.which("codex") is not None),
+                   "Codex's settings couldn't be updated ({reason}); Codex will ask the first time you open this vault."),
+    )
+    return [note for note in notes if note]
+
+
+def _migrations(vault_root: Path, previous: str | None) -> list[str]:
+    """A fresh vault already has every migration; a repaired older vault gets the ones it misses."""
+    from .migrations import apply_pending, record_all
+    from .setup import SetupError
+    from .vault import Vault
+
+    vault = Vault(vault_root)
+    if previous is None:
+        record_all(vault)
+        return []
+    try:
+        return apply_pending(vault, previous, vault.version())
+    except SetupError as exc:
+        return [f"A change to your setup that this version needs couldn't be made: {exc}"]
+
+
 def install_vault(vault_root: Path, tree: Path, *, source: str, home: Path | None) -> int:
     from .obsidian import BundleError, install_bundle
 
     notes: list[str] = []
+    version_file = vault_root / "System" / "Core" / "VERSION"
+    previous = version_file.read_text(encoding="utf-8").strip() if version_file.is_file() else None
     copy_template(vault_root, tree / "template")
     replace_core(vault_root, tree / "core")
     write_shim(vault_root)
     write_source(vault_root, source)
+    notes += _migrations(vault_root, previous)
     try:
         notes += install_bundle(vault_root, vault_root / "System" / "Core", tree / "template" / ".obsidian")
     except BundleError as exc:
         notes.append(f"Obsidian: {exc}")
     if home is not None:
-        notes += [note for note in (
-            install_launcher(home),
-            ensure_path(home, os.environ.get("PATH", "")),
-            trust_codex(home, vault_root, codex_installed=shutil.which("codex") is not None),
-        ) if note]
+        notes += home_steps(home, vault_root)
     for note in notes:
         print(note)
     from .cli import main as bron
 
-    previous = os.environ.get("BRON_VAULT")
+    previous_env = os.environ.get("BRON_VAULT")
     os.environ["BRON_VAULT"] = str(vault_root)
     try:
         code = bron(["sync"])
         bron(["check"])
     finally:
-        if previous is None:
+        if previous_env is None:
             os.environ.pop("BRON_VAULT", None)
         else:
-            os.environ["BRON_VAULT"] = previous
+            os.environ["BRON_VAULT"] = previous_env
     return 0 if code == 0 else 1
 
 

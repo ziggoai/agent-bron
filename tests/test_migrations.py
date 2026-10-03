@@ -29,3 +29,20 @@ def test_each_migration_applies_once(vault):
 
 def test_the_registry_starts_empty():
     assert migrations.MIGRATIONS == []
+
+
+def test_without_a_record_older_migrations_count_as_applied(vault):
+    import json
+
+    assert [m.id for m in pending(vault, "0.5.0", "0.6.0", REGISTRY)] == ["six"]
+    apply_pending(vault, "0.5.0", "0.6.0", REGISTRY)
+    assert json.loads((vault.state_dir / "migrations.json").read_text())["applied"] == ["five", "old", "six"]
+
+
+def test_the_record_decides_once_it_exists(vault):
+    from bron.migrations import record_all
+
+    record_all(vault, REGISTRY[:1])
+    assert [m.id for m in pending(vault, "0.5.0", "0.6.0", REGISTRY)] == ["five", "six"]
+    record_all(vault, REGISTRY)
+    assert pending(vault, "0.4.1", "0.6.0", REGISTRY) == []

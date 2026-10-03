@@ -259,3 +259,30 @@ def test_a_failed_backup_changes_nothing(run, vault, releases, engine, monkeypat
 def test_undo_does_not_take_from(run, tmp_path):
     code, out, _ = run("update", "--undo", "--from", str(tmp_path))
     assert code == 2 and "--undo doesn't take --from" in out
+
+
+def rename_bron(vault, new="Ava"):
+    from vaultkit import set_meta
+
+    (vault.agents_dir / "Bron").rename(vault.agents_dir / new)
+    set_meta(vault.agents_dir / new / "Agent.md", name=new)
+    set_meta(vault.settings_file, default_agent=new)
+
+
+def test_an_update_never_brings_back_a_renamed_main_agent(run, vault, releases, engine):
+    rename_bron(vault)
+    code, out, _ = run("update")
+    assert code == 0, out
+    assert vault.version() == "9.0.0"
+    assert not (vault.agents_dir / "Bron").exists()
+    assert (vault.agents_dir / "Ava" / "Agent.md").is_file()
+
+
+def test_finish_twice_keeps_a_renamed_agent_and_a_deleted_board_away(vault, tmp_path, capsys):
+    tree = ProjectFolder(REPO).fetch(CURRENT, tmp_path / "work")
+    assert update.finish(vault, CURRENT, tree) == 0  # records the starting files
+    rename_bron(vault)
+    (vault.root / "Tickets" / "Board.base").unlink()
+    assert update.finish(vault, CURRENT, tree) == 0, capsys.readouterr().out
+    assert not (vault.agents_dir / "Bron").exists()
+    assert not (vault.root / "Tickets" / "Board.base").exists()

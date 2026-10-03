@@ -163,3 +163,167 @@ def test_install_vault_end_to_end(tmp_path, monkeypatch, capsys):
     assert (root / "AGENTS.md").is_file()  # first sync ran
     assert (home / ".local" / "bin" / "bron").is_file()
     assert "Bron health check" in out
+
+
+# Starting files are seeded once (.bron/state/template.json): what the user renames or deletes stays gone.
+
+def seeded(root: Path) -> set:
+    import json
+
+    return set(json.loads((root / ".bron" / "state" / "template.json").read_text())["seeded"])
+
+
+def rename_bron(root: Path, new: str = "Ava") -> None:
+    from vaultkit import set_meta
+
+    agents = root / "System" / "Agents"
+    (agents / "Bron").rename(agents / new)
+    set_meta(agents / new / "Agent.md", name=new)
+    set_meta(root / "System" / "Settings.md", default_agent=new)
+
+
+def test_a_fresh_copy_records_every_starting_file(tmp_path):
+    root = tmp_path / "v"
+    copy_template(root, REPO / "template")
+    assert (root / "System" / "Agents" / "Bron" / "Agent.md").is_file()
+    assert {"System/Agents/Bron/Agent.md", "Tickets/Board.base", "System/Agents/Bron"} <= seeded(root)
+    assert not any(p.startswith(".obsidian") for p in seeded(root))
+
+
+def test_a_renamed_main_agent_never_comes_back(tmp_path):
+    root = tmp_path / "v"
+    copy_template(root, REPO / "template")
+    rename_bron(root)
+    copy_template(root, REPO / "template")
+    assert not (root / "System" / "Agents" / "Bron").exists()
+    assert (root / "System" / "Agents" / "Ava" / "Agent.md").is_file()
+
+
+def test_a_vault_from_before_the_record_keeps_its_renamed_agent(vault):
+    rename_bron(vault.root)
+    (vault.root / "Routines" / "Board.base").unlink()
+    copy_template(vault.root, REPO / "template")  # no template.json yet
+    assert not (vault.root / "System" / "Agents" / "Bron").exists()
+    assert (vault.root / "Routines" / "Board.base").is_file()  # other missing starting files come back once
+    assert "System/Agents/Bron/Agent.md" in seeded(vault.root)
+    (vault.root / "Routines" / "Board.base").unlink()
+    copy_template(vault.root, REPO / "template")
+    assert not (vault.root / "Routines" / "Board.base").exists()
+
+
+def test_a_deleted_starting_file_stays_deleted(tmp_path):
+    root = tmp_path / "v"
+    copy_template(root, REPO / "template")
+    (root / "Tickets" / "Board.base").unlink()
+    copy_template(root, REPO / "template")
+    assert not (root / "Tickets" / "Board.base").exists()
+
+
+def test_a_new_starting_file_in_a_newer_release_is_copied(tmp_path):
+    import shutil
+
+    root = tmp_path / "v"
+    copy_template(root, REPO / "template")
+    rename_bron(root)
+    newer = tmp_path / "template"
+    shutil.copytree(REPO / "template", newer)
+    (newer / "Knowledge" / "Start here.md").write_text("new\n")
+    (newer / "System" / "Agents" / "Bron" / "Notes.md").write_text("new\n")
+    copy_template(root, newer)
+    assert (root / "Knowledge" / "Start here.md").read_text() == "new\n"
+    assert not (root / "System" / "Agents" / "Bron").exists()  # its folder was renamed away
+
+
+def test_installer_rerun_keeps_a_renamed_agent_away(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "Bron"
+    monkeypatch.setattr(install.shutil, "which", lambda name: None)
+    assert install_vault(root, REPO, source="github", home=None) == 0
+    rename_bron(root)
+    (root / "Tickets" / "Board.base").unlink()
+    assert install_vault(root, REPO, source="github", home=None) == 0, capsys.readouterr().out
+    assert not (root / "System" / "Agents" / "Bron").exists()
+    assert not (root / "Tickets" / "Board.base").exists()
+
+
+# Home-folder steps never stop the install.
+
+def test_an_unwritable_home_bin_is_a_note_not_a_crash(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "Bron"
+    home = tmp_path / "home"
+    (home / ".local" / "bin").mkdir(parents=True)
+    (home / ".local" / "bin").chmod(0o500)
+    monkeypatch.setattr(install.shutil, "which", lambda name: None)
+    try:
+        code = install_vault(root, REPO, source="github", home=home)
+    finally:
+        (home / ".local" / "bin").chmod(0o700)
+    captured = capsys.readouterr()
+    assert code == 0, captured.out
+    assert "The global bron command couldn't be added (permission denied); inside your vault, use .bron/bin/bron." in captured.out
+    assert (root / "AGENTS.md").is_file()
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_an_unreadable_zprofile_and_codex_config_are_notes(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "Bron"
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".zprofile").write_bytes(b"\xff\xfe not text")
+    (home / ".codex").mkdir()
+    (home / ".codex" / "config.toml").write_bytes(b"\xff\xfe not text")
+    monkeypatch.setattr(install.shutil, "which", lambda name: None)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    assert install_vault(root, REPO, source="github", home=home) == 0
+    out = capsys.readouterr().out
+    assert "~/.zprofile couldn't be updated" in out
+    assert "Codex's settings couldn't be updated" in out and "Codex will ask the first time" in out
+    assert (home / ".zprofile").read_bytes() == b"\xff\xfe not text"
+
+
+def test_trust_codex_with_an_emoji_folder(tmp_path):
+    home = tmp_path / "home"
+    vault = tmp_path / "Cofre 🚀 Ágora"
+    assert "trusts this vault" in trust_codex(home, vault, codex_installed=True)
+    text = (home / ".codex" / "config.toml").read_text(encoding="utf-8")
+    assert "🚀" in text and "\\ud83d" not in text
+    assert tomllib.loads(text)["projects"][str(vault)]["trust_level"] == "trusted"
+
+
+# Migrations on install: a fresh vault has them all already; a repaired older vault gets the missing ones.
+
+def test_a_fresh_install_records_every_migration(tmp_path, monkeypatch, capsys):
+    from bron import migrations
+    from bron.migrations import Migration
+    from bron.setup import Change
+
+    applied = []
+
+    def build(cfg):
+        applied.append("x")
+        return Change(summary=["x"], writes={"Projects/X.md": "x\n"}, done="x")
+
+    monkeypatch.setattr(migrations, "MIGRATIONS", [Migration("m1", "0.1.0", "x", build), Migration("m9", "99.0.0", "x", build)])
+    monkeypatch.setattr(install.shutil, "which", lambda name: None)
+    root = tmp_path / "Bron"
+    assert install_vault(root, REPO, source="github", home=None) == 0
+    import json
+
+    assert json.loads((root / ".bron" / "state" / "migrations.json").read_text())["applied"] == ["m1", "m9"]
+    assert applied == []
+
+
+def test_reinstalling_over_an_older_vault_applies_its_migrations(tmp_path, monkeypatch, capsys):
+    from bron import migrations
+    from bron.migrations import Migration
+    from bron.setup import Change
+
+    version = (REPO / "core" / "VERSION").read_text().strip()
+    note = lambda cfg: Change(summary=["New note"], writes={"Projects/New.md": "new\n"}, done="Added a note")  # noqa: E731
+    monkeypatch.setattr(migrations, "MIGRATIONS", [Migration("new", version, "New note", note)])
+    monkeypatch.setattr(install.shutil, "which", lambda name: None)
+    root = tmp_path / "Bron"
+    assert install_vault(root, REPO, source="github", home=None) == 0
+    (root / ".bron" / "state" / "migrations.json").unlink()
+    (root / "System" / "Core" / "VERSION").write_text("0.0.1\n")  # an older vault
+    assert install_vault(root, REPO, source="github", home=None) == 0
+    assert (root / "Projects" / "New.md").read_text() == "new\n"
