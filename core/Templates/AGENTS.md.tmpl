@@ -24,7 +24,7 @@ $about
 
 ## Rules for every agent
 
-1. Never change files in `System/` without showing the user the change (a plain summary is enough; show the exact text when asked) and getting a yes. Make setup changes with the setup commands in `System/Core/Manual/setup.md`, not by editing files by hand. The only exceptions: saving the user's own name, role and company with `.bron/bin/bron settings set` straight away when they tell you, and saving memory (below), which you do straight away without asking first, even though memory files are in `System/`.
+1. Never change files in `System/` without showing the user the change (a plain summary is enough; show the exact text when asked) and getting a yes. Make setup changes with the setup commands in `System/Core/Manual/setup.md`, not by editing files by hand. The only exceptions: saving the user's own name, role and company with `.bron/bin/bron settings set` straight away when they tell you, and saving or forgetting memory (below), which you do straight away without asking first, even though memory files are in `System/`.
 2. Never edit `System/Core/`, `.claude/`, `.codex/`, `.agents/`, `AGENTS.md` or `CLAUDE.md`. Bron regenerates them from `System/`.
 3. Team members never run as subagents. To hand work to a team member, use a ticket. Subagents are only for helpers.
 4. Keep the vault tidy: one-off work in `Projects/`, repeating work in `Routines/`. Machine data lives in `.bron/`.
@@ -42,10 +42,10 @@ Work between agents goes through tickets in `Tickets/` (see `System/Core/Manual/
 ## Memory
 
 Facts you remember are in `System/Memory/Facts.md` (shared) and `System/Agents/<you>/Memory/Facts.md` (yours); summaries of past conversations are in `System/Agents/<you>/Memory/Conversations/`. Your key is your agent name in lower case with hyphens.
-- When the user states a lasting preference, decision or fact, or corrects you, save it straight away (no need to ask first: saving memory is the exception to rule 1) with `.bron/bin/bron memory remember '<fact>' --as <your key> [--mine] [--section about-you|firm|decisions|how] [--replaces '<words of the old fact>']` and tell them in one line: "Noted: …". Shared (the default) is for facts about the user, the firm and decisions every agent follows; `--mine` is for how you do your own work. If it contradicts a saved fact, use `--replaces`.
-- "Forget that" / "that's wrong": `.bron/bin/bron memory forget '<words>' --as <your key>` (or `--conversation '<title or date>'`), then save the correction if they gave one.
+- When the user states a lasting preference, decision or fact, or corrects you, save it straight away (no need to ask first: saving memory is the exception to rule 1) with `.bron/bin/bron memory remember '<fact>' --as <your key> [--mine] [--section about-you|firm|decisions|how] [--replaces '<words of the old fact>']` and tell them in one line: "Noted: …". Shared (the default) is for facts about the user, the firm and decisions every agent follows; `--mine` is for how you do your own work. If it contradicts a saved fact, use `--replaces`. If the fact contains a single quote, write it to a file and use `--file <file>` instead of '<fact>'.
+- "Forget that" / "that's wrong": straight away, without asking first, run `.bron/bin/bron memory forget '<words>' --as <your key>` (or `--conversation '<title or date>'`), then save the correction if they gave one.
 - When the user refers to something from before ("last time", "what did we decide"), run `.bron/bin/bron memory search '<words>' --as <your key>` before asking them; add `--all` to include other agents' conversations.
-- When memory is getting long, offer to tidy: draft the cleaned facts file, show it with `.bron/bin/bron memory tidy --as <your key> --file <draft> --preview`, and apply it (same command without `--preview`) after a yes.
+- When memory is getting long, offer to tidy: draft the cleaned facts file, show it with `.bron/bin/bron memory tidy --as <your key> [--mine] --file <draft> --preview` (the preview names the file it replaces), and apply it (same command without `--preview`) after a yes.
 - Never save passwords, keys, tokens, account numbers or sensitive personal details about other people.
 
 ## How Bron works

@@ -184,6 +184,13 @@ def _check_asks(cfg: Config, entries: list[str]) -> None:
         raise SetupError(f"Bron doesn't know these ask-first entries: {', '.join(unknown)}. See System/Core/Manual/permissions.md.")
 
 
+# Saving and forgetting memory needs no yes. The same sentence is in Bron's Agent.md and the 0.6.0 migration adds it.
+MEMORY_EXCEPTION = (
+    "Memory is different: when the user tells you something lasting, or asks you to forget something, do it straight away "
+    "with `.bron/bin/bron memory remember` or `forget` (see Memory in AGENTS.md) and say so in one line, without asking first."
+)
+
+
 def default_instructions() -> str:
     """Standard instructions; the name, role and boss are already at the top of the agent's prompt."""
     return (
@@ -193,7 +200,8 @@ def default_instructions() -> str:
         "- Save one-off work in `Projects/<Project>/` and repeating work in `Routines/<Routine>/`.\n"
         "- Say clearly what you did, what you found, and what still needs a decision.\n\n"
         "# Boundaries\n"
-        "- Never change anything in `System/` without showing the user the change first and getting a yes.\n"
+        "- Never change anything in `System/` without showing the user the change first and getting a yes. "
+        f"{MEMORY_EXCEPTION}\n"
         "- Never edit `System/Core/` or the hidden `.claude/`, `.codex/` and `.agents/` folders.\n"
         "- Ask before anything on your ask-first list, and before anything that leaves the vault.\n"
     )

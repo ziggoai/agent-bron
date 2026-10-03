@@ -29,7 +29,16 @@ class Migration:
     build: Callable[[Config], Change]
 
 
-MIGRATIONS: list[Migration] = []  # oldest first; none yet
+def _memory_saves(cfg: Config) -> Change:
+    from .memory_saves import build
+
+    return build(cfg)
+
+
+MIGRATIONS: list[Migration] = [  # oldest first
+    Migration(id="memory-saves-without-asking", version="0.6.0",
+              summary="Agents save what you tell them to remember without asking first.", build=_memory_saves),
+]
 
 
 def _applied(vault: Vault) -> set[str] | None:
@@ -70,7 +79,8 @@ def apply_pending(vault: Vault, previous: str, current: str, registry: list[Migr
         write_json(vault.state_dir / STATE, {"applied": sorted(done)})
     lines: list[str] = []
     for migration in pending(vault, previous, current, found):
-        lines += run(vault, migration.build, preview_only=False)
+        # A migration with nothing to do in this vault says nothing.
+        lines += [line for line in run(vault, migration.build, preview_only=False) if line.strip()]
         done.add(migration.id)
         write_json(vault.state_dir / STATE, {"applied": sorted(done)})
     return lines

@@ -27,8 +27,11 @@ def test_each_migration_applies_once(vault):
     assert not (vault.root / "Projects" / "Migrated.md").exists()
 
 
-def test_the_registry_starts_empty():
-    assert migrations.MIGRATIONS == []
+def test_the_registry_is_in_version_order_with_unique_ids():
+    ids = [m.id for m in migrations.MIGRATIONS]
+    assert len(ids) == len(set(ids))
+    versions = [migrations._key(m.version) for m in migrations.MIGRATIONS]
+    assert versions == sorted(versions)
 
 
 def test_without_a_record_older_migrations_count_as_applied(vault):

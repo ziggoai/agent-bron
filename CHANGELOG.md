@@ -7,6 +7,9 @@ What changed in each version of Bron, newest first. Bron shows the new sections 
 - Each agent also keeps its own work notes.
 - Every conversation gets a short summary, written in the background by a small model, so "what did we decide last week?" has an answer. Turn it off with `memory: summaries: false` in System/Settings.md.
 - Search past conversations and facts in English or Portuguese, with or without accents.
+- Conversations from the last two weeks get their summaries gradually, a few at a time, after you update.
+- Summaries use your Claude or Codex plan, the same login as the app you talk to Bron in.
+- Agents save what you tell them to remember without asking first.
 
 ## 0.5.0
 - Install Bron with one line pasted into Terminal, into the folder you choose (or `~/Documents/Bron`). Running it again repairs a vault and never changes your files.
