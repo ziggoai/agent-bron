@@ -55,7 +55,7 @@ Writes go through one lock (`.bron/state/memory.json`) so two sessions can't clo
 - **Trigger:** the existing `session-end` and `pre-compact` triggers (both CLIs) start `bron memory summarize --session <id>` as a detached background process and return at once. At session start, Bron starts `bron memory summarize --pending` in the background, which picks up: sessions whose transcript grew since its last summary and that have been quiet for 30 minutes, and `pending`/`failed` sessions with fewer than 3 attempts. Only one summarizer runs at a time (lock); others exit quietly.
 - **Which sessions:** taken from `.bron/state/markers.jsonl` (session id, CLI, agent, transcript path). Markers from ticket runs (`BRON_TICKET` set) and summarizer runs (§5 below) are skipped.
 - **Input:** only the typed messages and replies (the existing transcript reader), not tool calls or file contents. Long conversations: the first 20,000 and the last 60,000 characters, with a marker in between.
-- **Model:** the conversation's own CLI with its small model, run headless, with no tools, from a temporary folder outside the vault (so the vault's triggers, settings and memory never load), with `BRON_MEMORY_JOB=1` set. Settings: `memory.summary_model` (defaults: Claude Code `haiku`; Codex: its fastest model, confirmed during implementation). `memory.summaries: false` turns summaries off.
+- **Model:** the conversation's own CLI with its small model, run headless, with no tools, from a temporary folder outside the vault (so the vault's triggers, settings and memory never load), with `BRON_MEMORY_JOB=1` set. Settings: `memory.summary_model` (defaults: Claude Code `haiku`; Codex `gpt-6-luna` with low reasoning effort). `memory.summaries: false` turns summaries off.
 - **Output contract:** the model returns a title and the three sections; Bron writes the note itself (the model never writes files). Unusable output counts as a failed attempt.
 - **Failures:** offline, logged out, or a bad answer → `failed`, retried at the next session start; after 3 attempts it stops and the health check mentions it once. Nothing is ever shown in the conversation.
 - **Privacy:** the text goes only to the provider that already handled the conversation. Nothing new leaves the Mac.
@@ -92,12 +92,12 @@ Every memory command prints a plain reason on failure and changes nothing. The b
 - Unit: remember / update / forget / ambiguous forget / secret refusal / ticket-run shared refusal; facts file parsing with user edits; tidy preview and apply with rollback; search (English, Portuguese, accents, both scopes, `--all`); briefing caps and ticket-run variant; summarizer with stand-in transcripts from both CLIs and a stand-in model (success, update on resume, skip rules, failure and retry, give-up after 3, one-at-a-time lock); markers from ticket and summarizer runs skipped.
 - Live (one per CLI): save a fact, end the conversation, see the summary note appear, start a new session and get the fact and the title in the briefing, and find the conversation with search.
 
-## 11. Verify during implementation
+## 11. Verified before planning (2026-10-03)
 
-1. The exact headless invocation per CLI for a no-tools, small-model, one-shot call from a temporary folder: Claude Code `claude -p --model haiku` with tools disabled; Codex `codex exec` with its fastest model, read-only sandbox and no git check. Confirm neither loads the vault's triggers and neither leaves a session that Bron would later try to summarise.
-2. `session-end` fires on a normal exit in both CLIs and what happens on a closed window (the catch-up covers it either way).
-3. FTS5 is available in the uv-managed Python 3.12 build.
-4. The Codex fast model's name and how a user can override it.
+1. Claude Code: `claude -p --model haiku --tools "" --no-session-persistence --setting-sources ""`, prompt on stdin, run from a temporary folder: one-line summary in about 4 s, no session saved, no settings or triggers loaded.
+2. Codex: `codex exec --ephemeral --skip-git-repo-check -s read-only -m gpt-6-luna -c model_reasoning_effort=low -`, prompt on stdin, from a temporary folder: about 9 s, nothing saved. Default Codex summary model: `gpt-6-luna` ("fast and affordable model for easier tasks"), overridable in Settings.
+3. FTS5 with `unicode61 remove_diacritics 2` works in the uv-managed Python 3.12 ("relatorio" finds "Relatório").
+4. Both CLIs already write `session-end` markers with session id and transcript path (seen in the test vault: 42 session-end, 77 stop markers). A closed window may skip `session-end`; the catch-up at session start covers it.
 
 ## 12. Release
 
