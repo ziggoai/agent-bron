@@ -14,6 +14,9 @@ rsync -a --ignore-existing "$REPO/template/" "$VAULT/"
 rm -rf "$VAULT/System/Core"
 rsync -a --exclude '.venv' --exclude '__pycache__' --exclude '*.egg-info' --exclude '.pytest_cache' "$REPO/core/" "$VAULT/System/Core/"
 
+# Install the self-contained terminal payload; no Termy or npm is needed in the vault.
+python3 "$REPO/scripts/install-terminal.py" "$VAULT"
+
 uv venv --quiet --allow-existing --python 3.12 "$VAULT/.bron/venv"
 uv pip install --quiet --python "$VAULT/.bron/venv/bin/python" --reinstall-package bron-engine "$VAULT/System/Core/Engine"
 

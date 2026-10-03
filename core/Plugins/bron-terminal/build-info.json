@@ -1,0 +1,24 @@
+{
+  "manifestVersion": "0.6.0",
+  "packageVersion": "0.6.0",
+  "inputDigest": "e85b217ffcb6868865f1cf746f2bbcda2167d5f7005fcf811e9188f993543a00",
+  "inputs": [
+    "assets/claude.svg",
+    "assets/codex.svg",
+    "manifest.json",
+    "native/pty-host.c",
+    "package-lock.json",
+    "scripts/build.cjs",
+    "src/background-tasks.js",
+    "src/completion-layout.js",
+    "src/composer-service.js",
+    "src/file-drop.js",
+    "src/main.js",
+    "src/pty-process.js",
+    "src/terminal-input.js",
+    "src/terminal-presentation.js",
+    "src/terminal-service.js",
+    "src/transcript-style.js",
+    "styles.css"
+  ]
+}
