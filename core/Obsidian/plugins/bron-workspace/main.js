@@ -129,7 +129,6 @@ class SectionStore {
 
 const ACTIONS = [
   { id: 'graph:open', label: 'Open graph view', icon: 'git-fork' },
-  { id: 'termy:open-terminal', label: 'Open terminal', icon: 'terminal-square' },
   { id: 'bron-terminal:open', label: 'Open Bron Terminal', icon: 'terminal-square' },
   { id: 'command-palette:open', label: 'Open command palette', icon: 'command' },
 ];
