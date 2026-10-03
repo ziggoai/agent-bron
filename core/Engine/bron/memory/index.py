@@ -14,6 +14,7 @@ from .commands import agent_of, conversations_dir, facts_file
 
 _WORD = re.compile(r"\w+", re.UNICODE)
 _TITLE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}\.\d{2} (.+)$")
+_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -26,38 +27,53 @@ class Hit:
     path: Path
 
 
-def _db(vault: Vault) -> sqlite3.Connection:
+def _create_schema(con: sqlite3.Connection) -> None:
+    """Create the database schema with current version."""
+    con.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+    con.execute("CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, mtime_ns INTEGER, size INTEGER)")
+    con.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS entries USING fts5("
+        "path UNINDEXED, kind UNINDEXED, agent UNINDEXED, title, date UNINDEXED, body, "
+        "tokenize='unicode61 remove_diacritics 2')"
+    )
+
+
+def _db(vault: Vault, *, rebuild: bool = False) -> sqlite3.Connection:
+    """Open or create the index database, optionally rebuilding from scratch."""
     folder = vault.bron_dir / "memory"
     folder.mkdir(parents=True, exist_ok=True)
     db_path = folder / "index.db"
-    try:
-        con = sqlite3.connect(db_path)
-        con.execute("CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, mtime_ns INTEGER, size INTEGER)")
-        con.execute(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS entries USING fts5("
-            "path UNINDEXED, kind UNINDEXED, agent UNINDEXED, title, date UNINDEXED, body, "
-            "tokenize='unicode61 remove_diacritics 2')"
-        )
-        return con
-    except sqlite3.DatabaseError:
-        # Index is corrupt; delete it and retry once
-        con.close() if 'con' in locals() else None
+
+    if rebuild:
         for f in [db_path, db_path.with_suffix(".db-wal"), db_path.with_suffix(".db-journal"), db_path.with_suffix(".db-shm")]:
             try:
                 f.unlink()
             except OSError:
                 pass
+
+    con = sqlite3.connect(db_path)
+    try:
+        _create_schema(con)
+        # Check schema version after creating schema
+        version = con.execute("PRAGMA user_version").fetchone()[0]
+        if version != _SCHEMA_VERSION:
+            # Old schema detected; will be deleted and rebuilt by recovery wrapper
+            con.close()
+            raise sqlite3.DatabaseError(f"Schema version mismatch: got {version}, expected {_SCHEMA_VERSION}")
+        return con
+    except sqlite3.DatabaseError:
+        con.close()
+        raise
+
+
+def _delete_index_files(vault: Vault) -> None:
+    """Delete the index database and all its sidecar files."""
+    db_path = vault.bron_dir / "memory" / "index.db"
+    for f in [db_path, db_path.with_suffix(".db-wal"), db_path.with_suffix(".db-journal"), db_path.with_suffix(".db-shm")]:
         try:
-            con = sqlite3.connect(db_path)
-            con.execute("CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, mtime_ns INTEGER, size INTEGER)")
-            con.execute(
-                "CREATE VIRTUAL TABLE IF NOT EXISTS entries USING fts5("
-                "path UNINDEXED, kind UNINDEXED, agent UNINDEXED, title, date UNINDEXED, body, "
-                "tokenize='unicode61 remove_diacritics 2')"
-            )
-            return con
-        except sqlite3.DatabaseError as exc:
-            raise commands.MemoryError("Bron's memory search index couldn't be rebuilt; your notes are safe. Try again in a moment.") from exc
+            f.unlink()
+        except OSError:
+            pass
 
 
 def _sources(vault: Vault, cfg: Config) -> dict[Path, tuple[str, str]]:
@@ -86,7 +102,8 @@ def _rows(path: Path, kind: str, agent: str) -> list[tuple]:
     return [(str(path), kind, agent, title, str(meta.get("date", "")), body)]
 
 
-def refresh(vault: Vault, cfg: Config) -> None:
+def _refresh_impl(vault: Vault, cfg: Config) -> None:
+    """Internal refresh implementation without recovery wrapper."""
     con = _db(vault)
     with con:
         sources = _sources(vault, cfg)
@@ -113,12 +130,28 @@ def refresh(vault: Vault, cfg: Config) -> None:
     con.close()
 
 
+def refresh(vault: Vault, cfg: Config) -> None:
+    """Refresh the index with automatic recovery on corruption."""
+    try:
+        _refresh_impl(vault, cfg)
+    except (sqlite3.DatabaseError, sqlite3.OperationalError) as exc:
+        # Index is corrupt; delete it, rebuild, and retry once
+        _delete_index_files(vault)
+        try:
+            con = _db(vault, rebuild=True)
+            con.close()
+            _refresh_impl(vault, cfg)
+        except (sqlite3.DatabaseError, sqlite3.OperationalError) as retry_exc:
+            raise commands.MemoryError("Bron's memory search index couldn't be rebuilt; your notes are safe. Try again in a moment.") from retry_exc
+
+
 def _query(text: str, joiner: str) -> str:
     words = [w for w in _WORD.findall(facts.fold(text)) if w]
     return f" {joiner} ".join(f'"{w}"*' for w in words)
 
 
-def search(vault: Vault, cfg: Config, *, as_agent: str, query: str, all_agents: bool = False, limit: int = 8) -> list[Hit]:
+def _search_impl(vault: Vault, cfg: Config, *, as_agent: str, query: str, all_agents: bool = False, limit: int = 8) -> list[Hit]:
+    """Internal search implementation without recovery wrapper."""
     agent = agent_of(cfg, as_agent)
     refresh(vault, cfg)
     con = _db(vault)
@@ -142,6 +175,21 @@ def search(vault: Vault, cfg: Config, *, as_agent: str, query: str, all_agents: 
         return hits[:limit]
     finally:
         con.close()
+
+
+def search(vault: Vault, cfg: Config, *, as_agent: str, query: str, all_agents: bool = False, limit: int = 8) -> list[Hit]:
+    """Search with automatic recovery on corruption."""
+    try:
+        return _search_impl(vault, cfg, as_agent=as_agent, query=query, all_agents=all_agents, limit=limit)
+    except (sqlite3.DatabaseError, sqlite3.OperationalError) as exc:
+        # Index is corrupt; delete it, rebuild, and retry once
+        _delete_index_files(vault)
+        try:
+            con = _db(vault, rebuild=True)
+            con.close()
+            return _search_impl(vault, cfg, as_agent=as_agent, query=query, all_agents=all_agents, limit=limit)
+        except (sqlite3.DatabaseError, sqlite3.OperationalError) as retry_exc:
+            raise commands.MemoryError("Bron's memory search index couldn't be rebuilt; your notes are safe. Try again in a moment.") from retry_exc
 
 
 def render(hits: list[Hit], root: Path) -> str:

@@ -135,3 +135,95 @@ def test_same_size_edit_is_detected(vault, cfg):
     os.utime(path, ns=(time.time_ns() + 1_000_000_000, time.time_ns() + 1_000_000_000))
     assert not index.search(vault, cfg, as_agent="Bron", query="marketing")
     assert index.search(vault, cfg, as_agent="Bron", query="publicity")
+
+
+def test_partially_damaged_index_is_rebuilt(vault, cfg):
+    # Build a real index with ~30 notes first
+    for i in range(30):
+        note(vault, "Bron", f"2026-10-03 09.{i:02d} Item {i}", f"## Asked\n- Item {i} about funding", session=f"s{i}")
+    index.search(vault, cfg, as_agent="Bron", query="funding")  # build index
+    # Now corrupt it: valid page 1, garbage after byte 8192
+    db_path = vault.bron_dir / "memory" / "index.db"
+    original = db_path.read_bytes()
+    corrupted = original[:8192] + b"garbage data corruption" * 100
+    db_path.write_bytes(corrupted)
+    # Search should still work, having detected and rebuilt
+    hits = index.search(vault, cfg, as_agent="Bron", query="funding")
+    assert hits
+
+
+def test_old_schema_database_is_rebuilt(vault, cfg):
+    import sqlite3
+    # Create an old-schema database (files table with mtime instead of mtime_ns)
+    db_path = vault.bron_dir / "memory" / "index.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(db_path)
+    con.execute("CREATE TABLE files (path TEXT PRIMARY KEY, mtime REAL, size INTEGER)")
+    con.execute(
+        "CREATE VIRTUAL TABLE entries USING fts5("
+        "path UNINDEXED, kind UNINDEXED, agent UNINDEXED, title, date UNINDEXED, body, "
+        "tokenize='unicode61 remove_diacritics 2')"
+    )
+    con.execute("INSERT INTO files VALUES ('dummy.md', 1234567890.0, 100)")
+    con.commit()
+    con.close()
+    # Now try to search; the old schema should be detected and rebuilt
+    commands.remember(vault, cfg, as_agent="Bron", text="Schema migration test")
+    hits = index.search(vault, cfg, as_agent="Bron", query="Schema")
+    assert hits
+
+
+def test_irrecoverable_corruption_raises_memory_error(vault, cfg, monkeypatch):
+    # Build a valid index first
+    commands.remember(vault, cfg, as_agent="Bron", text="Important fact")
+    index.search(vault, cfg, as_agent="Bron", query="fact")
+
+    # Corrupt it
+    db_path = vault.bron_dir / "memory" / "index.db"
+    db_path.write_bytes(b"garbage")
+
+    # Monkeypatch the rebuild to keep failing
+    original_connect = __import__('sqlite3').connect
+    def failing_connect(*args, **kwargs):
+        raise __import__('sqlite3').DatabaseError("Simulated persistent failure")
+    monkeypatch.setattr(__import__('sqlite3'), 'connect', failing_connect)
+
+    # Search should raise MemoryError, not infinite loop
+    with pytest.raises(commands.MemoryError) as exc_info:
+        index.search(vault, cfg, as_agent="Bron", query="fact")
+    assert "couldn't be rebuilt" in str(exc_info.value)
+
+
+def test_sidecar_files_are_deleted(vault, cfg):
+    import os
+    # Build an index
+    for i in range(10):
+        note(vault, "Bron", f"2026-10-03 09.{i:02d} Item {i}", f"## Asked\n- Item {i}", session=f"s{i}")
+    index.search(vault, cfg, as_agent="Bron", query="Item")
+
+    # Create sidecar files manually to verify they get deleted
+    db_path = vault.bron_dir / "memory" / "index.db"
+    wal_file = db_path.with_suffix(".db-wal")
+    journal_file = db_path.with_suffix(".db-journal")
+    shm_file = db_path.with_suffix(".db-shm")
+
+    # Write marker files
+    wal_file.write_bytes(b"wal marker")
+    journal_file.write_bytes(b"journal marker")
+    shm_file.write_bytes(b"shm marker")
+
+    # Verify they exist
+    assert wal_file.exists()
+    assert journal_file.exists()
+    assert shm_file.exists()
+
+    # Corrupt main db to trigger rebuild
+    db_path.write_bytes(b"corrupted")
+
+    # Search triggers rebuild and cleanup
+    index.search(vault, cfg, as_agent="Bron", query="Item")
+
+    # All sidecars should be gone
+    assert not wal_file.exists(), "db-wal should be deleted"
+    assert not journal_file.exists(), "db-journal should be deleted"
+    assert not shm_file.exists(), "db-shm should be deleted"
