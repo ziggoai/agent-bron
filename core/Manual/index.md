@@ -10,6 +10,7 @@ How the Bron framework works, one page per topic. Read the page you need before 
 | [tickets.md](tickets.md) | Tickets: handing work between agents, statuses, approvals |
 | [routines.md](routines.md) | Routines: repeating work per period, checklists and due dates |
 | [setup.md](setup.md) | Setup commands: agents, projects, routines, skills, connectors and settings, each previewed first |
+| [updates.md](updates.md) | Installing Bron, updating it, undoing an update, and the daily new-version check |
 
 ## The basics
 
@@ -17,4 +18,4 @@ How the Bron framework works, one page per topic. Read the page you need before 
 - **Framework files:** `System/Core/`. Replaced on update; never edit.
 - **Generated files:** `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, `.claude/`, `.codex/`, `.agents/`. Rebuilt by `.bron/bin/bron sync` from `System/`, automatically at the start of each session.
 - **Health check:** `.bron/bin/bron check`.
-- **Updating Bron:** say "Bron, update yourself", or run `.bron/bin/bron update`. Your own files are kept.
+- **Updating Bron:** say "Bron, update yourself". Bron shows what's new first, keeps your files, and can undo the update (see updates.md).

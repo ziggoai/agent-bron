@@ -1,7 +1,11 @@
+from pathlib import Path
+
 import pytest
 
 from bron.cli import main
 from vaultkit import add_agent
+
+VERSION = (Path(__file__).resolve().parents[1] / "core" / "VERSION").read_text().strip()
 
 
 @pytest.fixture
@@ -54,7 +58,7 @@ def test_dry_run(run, vault):
 
 
 def test_version(run):
-    assert run("version")[:2] == (0, "0.4.1\n")
+    assert run("version")[:2] == (0, f"{VERSION}\n")
 
 
 def test_outside_a_vault(monkeypatch, tmp_path, capsys):

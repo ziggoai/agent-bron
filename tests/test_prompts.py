@@ -1,4 +1,5 @@
 import shlex
+from pathlib import Path
 
 from bron import frontmatter as fm
 from bron.agents_md import render_agents_md
@@ -7,6 +8,8 @@ from bron.loader import load
 from bron.prompts import agent_prompt, helper_prompt
 from bron.skills import skill_files
 from vaultkit import add_agent, set_meta, write_md
+
+VERSION = (Path(__file__).resolve().parents[1] / "core" / "VERSION").read_text().strip()
 
 
 def test_agents_md_lists_team_rules_and_manual(vault):
@@ -17,7 +20,7 @@ def test_agents_md_lists_team_rules_and_manual(vault):
     assert "System/Core/Manual/index.md" in text
     assert "Team members never run as subagents" in text
     assert "The only exception: saving the user's own name, role and company with `.bron/bin/bron settings set`" in text
-    assert "Framework version 0.4.1." in text
+    assert f"Framework version {VERSION}." in text
     assert "work with the user" in text
     assert len(text.encode()) < 8 * 1024
 

@@ -6,6 +6,7 @@ import bron
 from bron.vault import Vault, VaultNotFound
 
 REPO = Path(__file__).resolve().parents[1]
+VERSION = (Path(__file__).resolve().parents[1] / "core" / "VERSION").read_text().strip()
 
 
 def test_find_walks_up_from_a_subfolder(vault):
@@ -36,7 +37,7 @@ def test_paths_and_version(vault):
     assert vault.core_manual == vault.root / "System" / "Core" / "Manual"
     assert vault.state_dir == vault.root / ".bron" / "state"
     assert vault.bron_command == vault.root / ".bron" / "bin" / "bron"
-    assert vault.version() == "0.4.1"
+    assert vault.version() == VERSION
 
 
 def test_engine_version_matches_core_version():
