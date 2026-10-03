@@ -1,0 +1,9 @@
+{
+  "id": "bron-terminal",
+  "name": "Bron Terminal",
+  "version": "0.6.0",
+  "minAppVersion": "1.8.7",
+  "description": "A standalone terminal with a friendly composer for shell commands, Claude Code, and Codex.",
+  "author": "Ziggo AI",
+  "isDesktopOnly": true
+}

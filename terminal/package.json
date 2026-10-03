@@ -1,0 +1,19 @@
+{
+  "name": "bron-terminal",
+  "version": "0.6.0",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.cjs",
+    "test": "node --test test/*.test.js",
+    "check": "npm run build && npm test",
+    "package": "npm run check && node scripts/package.cjs",
+    "release:public": "node scripts/release-public.cjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0"
+  }
+}

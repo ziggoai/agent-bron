@@ -1,0 +1,14 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+const esbuild = require('esbuild');
+const root = path.join(__dirname, '..');
+fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
+if (process.platform !== 'darwin') throw new Error('Release builds currently target macOS.');
+execFileSync('/usr/bin/clang', ['-O2', '-Wall', '-Wextra', '-Werror', '-arch', 'arm64', '-arch', 'x86_64', '-mmacosx-version-min=11.0', path.join(root, 'native/pty-host.c'), '-o', path.join(root, 'bin/pty-host-darwin')], { stdio: 'inherit' });
+const identity = process.env.BRON_SIGN_IDENTITY || '-';
+const signing = identity === '-' ? [] : ['--options', 'runtime', '--timestamp'];
+execFileSync('/usr/bin/codesign', ['--force', '--sign', identity, '--identifier', 'bron.terminal.pty', ...signing, path.join(root, 'bin/pty-host-darwin')], { stdio: 'inherit' });
+esbuild.buildSync({ entryPoints: [path.join(root, 'src/main.js')], bundle: true, platform: 'node', format: 'cjs', external: ['obsidian', 'electron'], loader: { '.css': 'text', '.svg': 'text' }, outfile: path.join(root, 'main.js') });
+fs.writeFileSync(path.join(root, 'THIRD-PARTY-NOTICES.txt'), ['@xterm/xterm', '@xterm/addon-fit'].map(name => name + '\n\n' + fs.readFileSync(path.join(root, 'node_modules', name, 'LICENSE'), 'utf8')).join('\n\n') + '\n\nOpenAI icon: Simple Icons 11.10.0, CC0-1.0.\nClaude icon: bundled Claude mark (assets/claude.svg), a trademark of Anthropic used only to identify the Claude Code provider.\n\n' + fs.readFileSync(path.join(root, 'licenses/simple-icons-CC0.txt'), 'utf8'));
+console.log('Built plugin and universal macOS PTY helper.');

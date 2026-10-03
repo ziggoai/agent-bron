@@ -1,0 +1,56 @@
+{
+  "version": "0.6.0",
+  "date": "2026-10-02",
+  "platform": "macOS",
+  "live_architecture": "arm64",
+  "helper_architectures": [
+    "arm64",
+    "x86_64"
+  ],
+  "obsidian": "1.13.7",
+  "claude_code": "2.1.288",
+  "codex": "0.160.0",
+  "terminal_tests": {
+    "passed": 91,
+    "failed": 0
+  },
+  "framework_tests": {
+    "passed": 627,
+    "skipped_opt_in_live": 14,
+    "failed": 0
+  },
+  "installer_tests_rerun": {
+    "passed": 6,
+    "failed": 0
+  },
+  "clean_vault": {
+    "termy_installed": false,
+    "other_community_plugins": [],
+    "theme": "default"
+  },
+  "live_passed": [
+    "shell command",
+    "claude -c without history",
+    "claude -c with saved conversation",
+    "Claude response and cleared composer",
+    "Claude multiline Unicode message",
+    "codex resume picker",
+    "codex resume --last",
+    "Codex multiline Unicode message",
+    "model picker cancellation preserves unsent draft",
+    "plugin reload",
+    "fresh framework installation",
+    "standalone ZIP extraction and installation"
+  ],
+  "distribution": {
+    "internal_package": "built",
+    "public_release": "blocked",
+    "reason": "No Developer ID signing identity is installed; helper is ad-hoc signed, Gatekeeper assessment rejected it. Run release:public with signing and notarization setup.",
+    "linux_windows": "not packaged"
+  },
+  "archive": {
+    "path": "dist/bron-terminal-0.6.0-macos.zip",
+    "sha256": "1194cd751cb36f1aef01931cf27534ef763efea349a22fdeb7cd1294f66ad789"
+  },
+  "current_project_install": "updated on disk; existing live session preserved until reload"
+}
