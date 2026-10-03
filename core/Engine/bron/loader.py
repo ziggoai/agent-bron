@@ -170,6 +170,11 @@ def _settings(vault: Vault, issues: list[Issue]) -> Settings:
     rf = _Fields(runner, path, issues)
     settings.max_parallel = rf.number("max_parallel", 3)
     settings.max_minutes = rf.number("max_minutes", 30)
+    check = doc.meta.get("update_check", True)
+    if isinstance(check, bool):
+        settings.update_check = check
+    else:
+        f.problem("field.type", "'update_check' should be true or false", level="warning")
     groups = doc.meta.get("action_groups") or {}
     if isinstance(groups, dict):
         settings.action_groups = groups

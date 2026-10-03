@@ -126,4 +126,5 @@ class Settings:
     default_agent: str = "Bron"
     max_parallel: int = 3
     max_minutes: int = 30
+    update_check: bool = True
     action_groups: dict = field(default_factory=dict)

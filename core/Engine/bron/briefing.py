@@ -76,6 +76,14 @@ def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None, ch
         if notice:
             lines += ["", notice + " Tell the user in one line."]
         try:
+            from .update_check import update_notice
+
+            available = update_notice(vault, settings)
+        except Exception:  # noqa: BLE001 - never fails the briefing
+            available = ""
+        if available:
+            lines += ["", available + " Mention it to the user in one line."]
+        try:
             from .routines import briefing_lines, today as routines_today
 
             due = briefing_lines(vault, cfg, key, today or routines_today())
