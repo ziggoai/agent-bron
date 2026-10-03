@@ -7,3 +7,6 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .claude/worktrees/
+
+# The starting vault's Obsidian settings ship with the framework
+!/template/.obsidian/

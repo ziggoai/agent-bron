@@ -1,0 +1,9 @@
+{
+  "id": "bron-workspace",
+  "name": "Bron Workspace",
+  "version": "1.3.0",
+  "minAppVersion": "1.6.0",
+  "description": "Sidebar sections, workspace shortcuts, and live Claude Code and Codex usage for Bron.",
+  "author": "Ziggo AI",
+  "isDesktopOnly": true
+}
