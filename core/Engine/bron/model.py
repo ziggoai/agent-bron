@@ -127,4 +127,6 @@ class Settings:
     max_parallel: int = 3
     max_minutes: int = 30
     update_check: bool = True
+    memory_summaries: bool = True
+    summary_models: dict = field(default_factory=lambda: {"claude": "haiku", "codex": "gpt-6-luna"})
     action_groups: dict = field(default_factory=dict)

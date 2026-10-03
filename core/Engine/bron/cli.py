@@ -42,9 +42,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_chat.add_argument("agent", nargs="?", default="")
     p_chat.add_argument("--cli", choices=CLIS)
     from . import routines_cli, setup_cli, tickets_cli
+    from .memory import cli as memory_cli
 
     tickets_cli.add_parser(sub)
     routines_cli.add_parser(sub)
+    memory_cli.add_parser(sub)
     setup_cli.add_agent_parser(sub)
     setup_cli.add_work_parsers(sub)
     setup_cli.add_connection_parser(conn_commands)
@@ -117,6 +119,10 @@ def main(argv: list[str] | None = None) -> int:
         if not result.ok:
             print("The setup couldn't be refreshed yet; run `bron check` for details.")
         return 0
+    if args.command == "memory":
+        from .memory import cli as memory_cli
+
+        return memory_cli.handle(args, vault)
     if args.command == "run":
         return _run(vault, args)
     if args.command == "chat":

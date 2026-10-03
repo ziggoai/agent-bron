@@ -175,6 +175,22 @@ def _settings(vault: Vault, issues: list[Issue]) -> Settings:
         settings.update_check = check
     else:
         f.problem("field.type", "'update_check' should be true or false", level="warning")
+    memory = doc.meta.get("memory") or {}
+    if not isinstance(memory, dict):
+        f.problem("field.type", "'memory' should hold summaries and summary_model", level="warning")
+        memory = {}
+    summaries = memory.get("summaries", True)
+    if isinstance(summaries, bool):
+        settings.memory_summaries = summaries
+    else:
+        f.problem("field.type", "'memory.summaries' should be true or false", level="warning")
+    models = memory.get("summary_model") or {}
+    if isinstance(models, dict):
+        for cli, value in models.items():
+            if cli in ("claude", "codex") and isinstance(value, str) and value.strip():
+                settings.summary_models[cli] = value.strip()
+    else:
+        f.problem("field.type", "'memory.summary_model' should name a model for claude and codex", level="warning")
     groups = doc.meta.get("action_groups") or {}
     if isinstance(groups, dict):
         settings.action_groups = groups
