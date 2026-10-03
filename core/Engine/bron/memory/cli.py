@@ -8,7 +8,8 @@ def add_parser(sub) -> None:
     parser = sub.add_parser("memory", help="lasting facts and conversation summaries")
     commands = parser.add_subparsers(dest="memory_command", required=True)
     remember = commands.add_parser("remember", help="save a lasting fact")
-    remember.add_argument("text")
+    remember.add_argument("text", nargs="?", default="")
+    remember.add_argument("--file", default="", help="read the fact from a file (for text with single quotes)")
     remember.add_argument("--as", dest="as_agent", required=True)
     scope = remember.add_mutually_exclusive_group()
     scope.add_argument("--shared", dest="scope", action="store_const", const="shared")
@@ -43,7 +44,16 @@ def handle(args, vault) -> int:
     cfg = load(vault)
     try:
         if args.memory_command == "remember":
-            print(commands.remember(vault, cfg, as_agent=args.as_agent, text=args.text, scope=args.scope or "shared",
+            text = args.text
+            if args.file:
+                if text.strip():
+                    print("Give the fact's words or --file, not both.")
+                    return 1
+                text = commands.read_text_file(args.file)
+            elif not text.strip():
+                print("Say what to remember: the fact's words, or --file with a file that holds them.")
+                return 1
+            print(commands.remember(vault, cfg, as_agent=args.as_agent, text=text, scope=args.scope or "shared",
                                     section=args.section, replaces=args.replaces))
             return 0
         if args.memory_command == "forget":
@@ -73,10 +83,25 @@ def handle(args, vault) -> int:
             return 0
         if args.memory_command == "tidy":
             from ..setup_cli import read_file, run_change
+            from ..statefile import locked
 
-            return run_change(vault, lambda c: commands.tidy_change(vault, c, as_agent=args.as_agent,
-                                                                    scope=args.scope or "shared",
-                                                                    draft=read_file(args.file)), args)
+            seen: dict = {}
+
+            def build(c):
+                return commands.tidy_change(vault, c, as_agent=args.as_agent, scope=args.scope or "shared",
+                                            draft=read_file(args.file), preview=args.preview, seen=seen)
+
+            if args.preview:
+                code = run_change(vault, build, args)
+                if code == 0:
+                    commands.save_tidy_preview(vault, seen)
+                return code
+            # No fact can be saved between the check against the preview and the replacement.
+            with locked(vault.state_dir / commands.WRITE_LOCK):
+                code = run_change(vault, build, args)
+            if code == 0:
+                commands.clear_tidy_preview(seen)
+            return code
     except commands.MemoryError as exc:
         print(exc)
         return 1

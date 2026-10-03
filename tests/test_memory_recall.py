@@ -119,6 +119,7 @@ def test_tidy_refused_for_shared_in_ticket_run(run, vault, tmp_path, monkeypatch
     code, out = run("memory", "tidy", "--as", "Bron", "--file", str(draft))
     assert code == 1 and "Only a conversation with you" in out
     assert "Keep me" in (vault.memory_dir / "Facts.md").read_text()
+    assert run("memory", "tidy", "--as", "Bron", "--mine", "--file", str(draft), "--preview")[0] == 0
     code, _ = run("memory", "tidy", "--as", "Bron", "--mine", "--file", str(draft))
     assert code == 0
     assert "New." in (vault.agents_dir / "Bron" / "Memory" / "Facts.md").read_text()
@@ -137,3 +138,56 @@ def test_tidy_preview_lists_lost_free_text(run, vault, tmp_path):
 def test_tidy_unreadable_file(run, tmp_path):
     code, out = run("memory", "tidy", "--as", "Bron", "--file", str(tmp_path / "nope.md"))
     assert code == 1 and out.strip() and "Traceback" not in out
+
+
+# ---- final review fixes ----
+
+def test_tidy_preview_names_the_file_in_words(run, vault, tmp_path):
+    commands.remember(vault, load(vault), as_agent="Bron", text="Shared one")
+    commands.remember(vault, load(vault), as_agent="Bron", text="Mine one", scope="mine")
+    draft = tmp_path / "draft.md"
+    draft.write_text("## Decisions\n- Kept. (2026-10-03, Bron)\n")
+    code, out = run("memory", "tidy", "--as", "Bron", "--file", str(draft), "--preview")
+    assert code == 0 and out.splitlines()[0] == "Tidy the shared facts (System/Memory/Facts.md): 1 facts → 1."
+    code, out = run("memory", "tidy", "--as", "Bron", "--mine", "--file", str(draft), "--preview")
+    assert code == 0 and out.splitlines()[0] == "Tidy your own notes (System/Agents/Bron/Memory/Facts.md): 1 facts → 1."
+
+
+def test_tidy_refuses_when_memory_changed_since_the_preview(run, vault, tmp_path):
+    cfg = load(vault)
+    commands.remember(vault, cfg, as_agent="Bron", text="Old rule nobody needs")
+    draft = tmp_path / "draft.md"
+    draft.write_text("## Decisions\n- Fresh start. (2026-10-03, Bron)\n")
+    assert run("memory", "tidy", "--as", "Bron", "--file", str(draft), "--preview")[0] == 0
+    commands.remember(vault, load(vault), as_agent="Bron", text="Saved after the preview")
+    code, out = run("memory", "tidy", "--as", "Bron", "--file", str(draft))
+    assert code == 1 and out == "Memory changed since the preview; preview the tidy again.\n"
+    assert "Saved after the preview." in (vault.memory_dir / "Facts.md").read_text()
+
+
+def test_tidy_needs_a_preview_of_the_same_draft(run, vault, tmp_path):
+    commands.remember(vault, load(vault), as_agent="Bron", text="Keep me")
+    draft = tmp_path / "draft.md"
+    draft.write_text("## Decisions\n- New. (2026-10-03, Bron)\n")
+    code, out = run("memory", "tidy", "--as", "Bron", "--file", str(draft))
+    assert code == 1 and out == "Preview the tidy first: run the same command with --preview.\n"
+    assert run("memory", "tidy", "--as", "Bron", "--file", str(draft), "--preview")[0] == 0
+    draft.write_text("## Decisions\n- Something else. (2026-10-03, Bron)\n")
+    code, out = run("memory", "tidy", "--as", "Bron", "--file", str(draft))
+    assert code == 1 and out == "The draft changed since the preview; preview the tidy again.\n"
+    assert "Keep me." in (vault.memory_dir / "Facts.md").read_text()
+
+
+def test_tidy_apply_lists_what_is_no_longer_kept(run, vault, tmp_path):
+    for text in ("Fund I closes in May", "Old rule nobody needs"):
+        commands.remember(vault, load(vault), as_agent="Bron", text=text)
+    draft = tmp_path / "draft.md"
+    draft.write_text("## Decisions\n- Fund I closes in May. (2026-10-03, Bron)\n")
+    run("memory", "tidy", "--as", "Bron", "--file", str(draft), "--preview")
+    code, out = run("memory", "tidy", "--as", "Bron", "--file", str(draft))
+    assert code == 0
+    assert out.splitlines() == ["Tidied the shared facts (System/Memory/Facts.md).", "No longer kept as written:",
+                                "- Old rule nobody needs."]
+    # the preview was used up: applying again needs a new preview
+    code, out = run("memory", "tidy", "--as", "Bron", "--file", str(draft))
+    assert code == 1

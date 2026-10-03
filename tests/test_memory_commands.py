@@ -202,3 +202,60 @@ def test_replaces_multiple_matches_refused(run, vault):
     assert "Fund I closes in May." in out
     assert "Fund II closes in June." in out
     assert shared(vault).count("closes") == 2
+
+
+# ---- final review fixes ----
+
+def test_ticket_run_forget_refusal_is_exact(run, vault, monkeypatch):
+    run("memory", "remember", "Board meets on Tuesdays", "--as", "Bron")
+    monkeypatch.setenv("BRON_TICKET", "T-1")
+    code, out = run("memory", "forget", "board meets", "--as", "Bron")
+    assert code == 1 and out == "Only a conversation with you can change shared memory.\n"
+
+
+@pytest.fixture
+def read_only(vault):
+    folders = []
+
+    def _lock(folder):
+        folder.chmod(0o555)
+        folders.append(folder)
+    yield _lock
+    for folder in folders:
+        folder.chmod(0o755)
+
+
+def test_a_read_only_memory_folder_is_a_plain_error(run, vault, read_only):
+    run("memory", "remember", "Board meets on Tuesdays", "--as", "Bron")
+    before = shared(vault)
+    read_only(vault.memory_dir)
+    code, out = run("memory", "remember", "Fund II closes in June", "--as", "Bron")
+    assert code == 1 and out == "Bron couldn't save to Facts.md (Permission denied); nothing was changed.\n"
+    code, out = run("memory", "forget", "board meets", "--as", "Bron")
+    assert code == 1 and out == "Bron couldn't save to Facts.md (Permission denied); nothing was changed.\n"
+    assert shared(vault) == before
+
+
+def test_a_conversation_that_cant_be_deleted_is_a_plain_error(run, vault, read_only):
+    folder = vault.agents_dir / "Bron" / "Memory" / "Conversations" / "2026-10"
+    folder.mkdir(parents=True)
+    note = folder / "2026-10-03 09.15 Q3 report fields.md"
+    note.write_text("---\nsession_id: s1\n---\n## Asked\n- x\n")
+    read_only(folder)
+    code, out = run("memory", "forget", "--conversation", "q3 report", "--as", "Bron")
+    assert code == 1 and out.startswith("Bron couldn't delete 2026-10-03 09.15 Q3 report fields.md (")
+    assert "Traceback" not in out and note.exists()
+
+
+def test_remember_from_a_file_keeps_single_quotes(run, vault, tmp_path):
+    fact = tmp_path / "fact.txt"
+    fact.write_text("The fund's year ends in December\n", encoding="utf-8")
+    code, out = run("memory", "remember", "--file", str(fact), "--as", "Bron")
+    assert code == 0 and out == "Noted: The fund's year ends in December.\n"
+    assert "The fund's year ends in December." in shared(vault)
+    code, out = run("memory", "remember", "Other words", "--file", str(fact), "--as", "Bron")
+    assert code == 1 and "not both" in out
+    code, out = run("memory", "remember", "--as", "Bron")
+    assert code == 1 and "Say what to remember" in out
+    code, out = run("memory", "remember", "--file", str(tmp_path / "missing.txt"), "--as", "Bron")
+    assert code == 1 and out.startswith("Bron couldn't read missing.txt") and "Traceback" not in out

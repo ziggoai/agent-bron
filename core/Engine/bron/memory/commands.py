@@ -1,6 +1,7 @@
 """remember / forget: the commands agents run to keep lasting facts. Notes are the truth."""
 from __future__ import annotations
 
+import hashlib
 import os
 import tempfile
 from datetime import date as _date
@@ -8,13 +9,17 @@ from pathlib import Path
 
 from ..loader import Config
 from ..model import Agent, slug
-from ..statefile import locked
+from ..statefile import locked, read_json, write_json
 from ..vault import Vault
 from . import facts
 from .secrets import looks_secret
 
 SECRET = "That looks like a password or key, so I didn't save it."
+SHARED_ONLY = "Only a conversation with you can change shared memory."
 TICKET_SHARED = "Only a conversation with you can change shared memory, so I saved this to my own notes."
+TIDY_FIRST = "Preview the tidy first: run the same command with --preview."
+TIDY_CHANGED = "Memory changed since the preview; preview the tidy again."
+TIDY_DRAFT_CHANGED = "The draft changed since the preview; preview the tidy again."
 TIDY_HINT = " Memory is getting long; I can tidy it."
 WRITE_LOCK = "memory.json"
 
@@ -49,17 +54,34 @@ def read_lines(path: Path) -> list[str]:
         raise MemoryError(f"Bron couldn't read {path.name} ({exc.__class__.__name__}); nothing was changed.") from exc
 
 
+def _reason(exc: OSError) -> str:
+    return exc.strerror or exc.__class__.__name__
+
+
+def read_text_file(path: str) -> str:
+    """A fact given in a file (for text with single quotes, which the shell can't take in '…')."""
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        reason = _reason(exc) if isinstance(exc, OSError) else "not plain text"
+        raise MemoryError(f"Bron couldn't read {Path(path).name} ({reason}); nothing was changed.") from exc
+
+
 def write_lines(path: Path, lines: list[str]) -> None:
+    try:
+        _write_lines(path, lines)
+    except OSError as exc:
+        raise MemoryError(f"Bron couldn't save to {path.name} ({_reason(exc)}); nothing was changed.") from exc
+
+
+def _write_lines(path: Path, lines: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}-", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write("\n".join(lines).rstrip("\n") + "\n")
-        # Preserve existing file permissions, or use 0o644 for new files
-        if path.exists():
-            mode = path.stat().st_mode & 0o777
-        else:
-            mode = 0o644
+        # Keep the file's permissions, or use 0o644 for a new file
+        mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
         os.chmod(tmp, mode)
         os.replace(tmp, path)
     finally:
@@ -117,7 +139,7 @@ def forget(vault: Vault, cfg: Config, *, as_agent: str, text: str) -> str:
             shared_lines = read_lines(shared_path)
             shared_matches = facts.matches(shared_lines, text)
             if shared_matches:
-                raise MemoryError(f"{TICKET_SHARED}.")
+                raise MemoryError(SHARED_ONLY)
         if not found:
             raise MemoryError(f"I couldn't find a saved fact matching \"{text}\".")
         if len(found) > 1:
@@ -129,19 +151,36 @@ def forget(vault: Vault, cfg: Config, *, as_agent: str, text: str) -> str:
 
 
 def forget_conversation(vault: Vault, cfg: Config, *, as_agent: str, query: str) -> str:
+    from .summaries import mark_forgotten
+
     agent = agent_of(cfg, as_agent)
     folder = conversations_dir(cfg, agent.key)
     needle = facts.fold(query)
-    notes = sorted(p for p in folder.rglob("*.md") if needle in facts.fold(p.stem)) if folder.is_dir() else []
-    if not notes:
-        raise MemoryError(f"I couldn't find a conversation matching \"{query}\".")
-    if len(notes) > 1:
-        listed = "\n".join(f"- {p.stem}" for p in notes)
-        raise MemoryError(f"That matches more than one conversation; nothing was changed. Say which one:\n{listed}")
     with locked(vault.state_dir / WRITE_LOCK):
-        # File may have vanished between check and delete; treat as already forgotten
-        notes[0].unlink(missing_ok=True)
-    return f"Forgotten: the conversation \"{notes[0].stem}\"."
+        notes = sorted(p for p in folder.rglob("*.md") if needle in facts.fold(p.stem)) if folder.is_dir() else []
+        if not notes:
+            raise MemoryError(f"I couldn't find a conversation matching \"{query}\".")
+        if len(notes) > 1:
+            listed = "\n".join(f"- {p.stem}" for p in notes)
+            raise MemoryError(f"That matches more than one conversation; nothing was changed. Say which one:\n{listed}")
+        note = notes[0]
+        session_id = _note_session(note)
+        try:
+            if session_id:
+                mark_forgotten(vault, session_id)  # a resumed conversation must not bring the summary back
+            note.unlink(missing_ok=True)
+        except OSError as exc:
+            raise MemoryError(f"Bron couldn't delete {note.name} ({_reason(exc)}); nothing was changed.") from exc
+    return f"Forgotten: the conversation \"{note.stem}\"."
+
+
+def _note_session(path: Path) -> str:
+    from .. import frontmatter as fm
+
+    try:
+        return str(fm.read(path).meta.get("session_id") or "")
+    except Exception:  # noqa: BLE001 - a note without readable frontmatter is still forgotten
+        return ""
 
 
 def _other_text(lines: list[str]) -> set[str]:
@@ -159,28 +198,77 @@ def _other_text(lines: list[str]) -> set[str]:
     return out
 
 
-def tidy_change(vault: Vault, cfg: Config, *, as_agent: str, scope: str, draft: str):
+def _digest(data: bytes | None) -> str:
+    return "missing" if data is None else hashlib.sha256(data).hexdigest()
+
+
+def _tidy_record(vault: Vault, scope: str, agent_key: str) -> Path:
+    return vault.bron_dir / "memory" / f"tidy-{scope}-{agent_key}.json"
+
+
+def tidy_change(vault: Vault, cfg: Config, *, as_agent: str, scope: str, draft: str, preview: bool = False,
+                seen: dict | None = None):
+    """Replace a facts file with a reviewed draft. The preview records what it was based on; applying refuses
+    if the facts file or the draft changed since, so a fact saved after the preview is never dropped unseen."""
     from ..setup import Change, SetupError
 
     agent = agent_of(cfg, as_agent)
     if scope == "shared" and os.environ.get("BRON_TICKET"):
-        raise SetupError("Only a conversation with you can change shared memory.")
+        raise SetupError(SHARED_ONLY)
     if not draft.strip():
         raise SetupError("The draft is empty; nothing was changed.")
     if looks_secret(draft):
         raise SetupError(SECRET)
     path = facts_file(vault, cfg, scope, agent.key)
-    old = facts.parse(read_lines(path))
+    try:
+        current = path.read_bytes()
+    except FileNotFoundError:
+        current = None
+    except OSError as exc:
+        raise SetupError(f"Bron couldn't read {path.name} ({_reason(exc)}); nothing was changed.") from exc
+    record = _tidy_record(vault, scope, agent.key)
+    based_on = {"facts": _digest(current), "draft": _digest(draft.encode("utf-8"))}
+    if not preview:
+        before = read_json(record, {})
+        if not before:
+            raise SetupError(TIDY_FIRST)
+        if before.get("facts") != based_on["facts"]:
+            raise SetupError(TIDY_CHANGED)
+        if before.get("draft") != based_on["draft"]:
+            raise SetupError(TIDY_DRAFT_CHANGED)
+    if seen is not None:
+        seen.update(record=record, **based_on)
+    try:
+        lines = current.decode("utf-8").splitlines() if current is not None else []
+    except UnicodeDecodeError as exc:
+        raise SetupError(f"Bron couldn't read {path.name} (not plain text); nothing was changed.") from exc
+    old = facts.parse(lines)
     new = facts.parse(draft.splitlines())
     kept = {facts.fold(f.text) for f in new}
     dropped = [f.text for f in old if facts.fold(f.text) not in kept]
-    lost = _other_text(read_lines(path)) - _other_text(draft.splitlines())
+    lost = _other_text(lines) - _other_text(draft.splitlines())
     rel = path.relative_to(vault.root).as_posix()
-    summary = [f"Tidy {rel}: {len(old)} facts → {len(new)}."]
-    if dropped:
-        summary += ["No longer kept as written:", *[f"- {t}" for t in dropped]]
+    label = "the shared facts" if scope == "shared" else "your own notes"
+    gone = ["No longer kept as written:", *[f"- {t}" for t in dropped]] if dropped else []
+    summary = [f"Tidy {label} ({rel}): {len(old)} facts → {len(new)}.", *gone]
     if lost:
         shown = sorted(lost)
         summary += ["Other text that will be removed:"]
         summary += [f"- {t}" for t in shown[:10]] if len(shown) <= 10 else [f"- {len(shown)} other lines of your own text"]
-    return Change(summary=summary, writes={rel: draft.rstrip("\n") + "\n"}, done=f"Tidied {rel}.")
+    done = "\n".join([f"Tidied {label} ({rel}).", *gone])
+    return Change(summary=summary, writes={rel: draft.rstrip("\n") + "\n"}, done=done)
+
+
+def save_tidy_preview(vault: Vault, seen: dict) -> None:
+    try:
+        write_json(seen["record"], {"facts": seen["facts"], "draft": seen["draft"]})
+    except OSError as exc:
+        raise MemoryError(f"Bron couldn't save the preview ({_reason(exc)}); nothing was changed.") from exc
+
+
+def clear_tidy_preview(seen: dict) -> None:
+    """A preview is used once."""
+    try:
+        seen["record"].unlink(missing_ok=True)
+    except OSError:
+        pass  # harmless: the facts file changed, so the old preview no longer matches anyway

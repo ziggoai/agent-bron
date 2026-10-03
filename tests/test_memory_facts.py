@@ -80,6 +80,9 @@ def test_size_counts_fact_text_only():
     "client_secret=mysecret",
     "card 4111-1111-1111-1111",
     "pay with 4111111111111111 now",
+    "api key is 3f9a8b7c2d1e4f5a6b7c8d9e0f1a2b3c",
+    "the webhook secret 9c1e7a2b4d6f8e0a1b3c5d7e9f2a4b6c",
+    "log in with k2m9x7q1w5e6r4t0y8u2a3b5",
 ])
 def test_secrets_are_spotted(text):
     assert looks_secret(text)
@@ -99,6 +102,10 @@ def test_secrets_are_spotted(text):
     "Quarterly-Report-Q3-2026-Final-Version-v2",
     "Fund-II-2024-Q3-Final-v2-2025",
     "The token budget is 10k per run",
+    "Save it as quarterly_report_2026_final_version_2.xlsx",
+    "abcdefghijklmnopqrstuvwxyz is the alphabet",
+    "Order 123456789012345678901234 shipped",
+    "fund-ii-2024-q3-board-pack-final-v2.pdf",
 ])
 def test_ordinary_facts_are_not_secrets(text):
     assert not looks_secret(text)

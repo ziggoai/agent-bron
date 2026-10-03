@@ -7,6 +7,7 @@ _PREFIXES = re.compile(r"(?<![\w-])(sk-[\w-]{8,}|ghp_\w{20,}|gho_\w{20,}|xox[abp
 _PEM = re.compile(r"-----BEGIN [A-Z ]*(KEY|CERTIFICATE)-----")
 _LABELLED = re.compile(r"\b(password|passwd|senha|passcode|pin|api.?key|token|secret|client.?secret)\b[^:=]{0,30}[:=]\s*\S+", re.I)
 _RANDOM = re.compile(r"\b(?=[A-Za-z0-9_]*[A-Za-z])(?=[A-Za-z0-9_]*\d)[A-Za-z0-9_]{24,}\b")
+_LOWER = re.compile(r"(?<![A-Za-z0-9_-])[a-z0-9]{24,}(?![A-Za-z0-9_-])")  # hex keys and other lowercase tokens
 _IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){3,7}(?: ?[A-Z0-9]{1,4})?\b")
 _DIGITS = re.compile(r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)")
 
@@ -45,5 +46,9 @@ def looks_secret(text: str) -> bool:
     for match in _RANDOM.finditer(text):
         token = match.group(0)
         if sum(c.isupper() for c in token) and sum(c.islower() for c in token) and sum(c.isdigit() for c in token) >= 3:
+            return True
+    for match in _LOWER.finditer(text):
+        token = match.group(0)
+        if sum(c.isdigit() for c in token) >= 4 and sum(c.isalpha() for c in token) >= 4:
             return True
     return False
