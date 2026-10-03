@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 
 from bron import update
-from bron.obsidian import RESTART_NOTE, install_bundle
 from bron.cli import main
+from bron.obsidian import RESTART_NOTE, install_bundle
 from bron.releases import LocalReleases, ProjectFolder
 from releasekit import REPO, make_release, write_tags
 
@@ -530,6 +530,11 @@ def test_an_update_that_changes_the_obsidian_plugins_ends_with_the_restart_note(
     monkeypatch.setenv("BRON_RELEASE_SOURCE", str(folder))
     code, out, _ = run("update")
     assert code == 0, out
+    assert out.count(RESTART_NOTE) == 1
+    assert out.strip().splitlines()[-1] == RESTART_NOTE
+    code, out, _ = run("update", "--undo")
+    assert code == 0, out
+    assert out.count(RESTART_NOTE) == 1
     assert out.strip().splitlines()[-1] == RESTART_NOTE
 
 

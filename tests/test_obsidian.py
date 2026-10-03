@@ -50,7 +50,7 @@ def test_no_theme_tip_when_bron_is_already_the_theme(vault):
     shutil.rmtree(config(vault), ignore_errors=True)
     config(vault).mkdir()
     (config(vault) / "appearance.json").write_text('{"cssTheme": "Bron"}')
-    assert THEME_TIP not in install_bundle(vault.root, vault.core, TEMPLATE_CONFIG)
+    assert install_bundle(vault.root, vault.core, TEMPLATE_CONFIG) == [RESTART_NOTE]
 
 
 def test_unreadable_plugin_list_is_left_alone(vault):
@@ -186,3 +186,19 @@ def test_a_users_own_plugin_settings_never_trigger_the_note(vault):
     install_bundle(vault.root, vault.core, TEMPLATE_CONFIG)
     (config(vault) / "plugins" / "colored-tags" / "data.json").write_text('{"mine": 1}')
     assert refresh_bundle(vault.root, vault.core) == []
+
+
+def test_refresh_that_fails_after_changing_files_still_gives_the_restart_note(vault, monkeypatch):
+    from bron import obsidian
+
+    shutil.rmtree(config(vault), ignore_errors=True)
+    install_bundle(vault.root, vault.core, TEMPLATE_CONFIG)
+    (config(vault) / "plugins" / "colored-tags" / "main.js").write_text("old code")
+
+    def broken(*args, **kwargs):
+        raise BundleError("Bron Terminal couldn't be installed (disk full).")
+
+    monkeypatch.setattr(obsidian, "_terminal", broken)
+    with pytest.raises(BundleError) as caught:
+        refresh_bundle(vault.root, vault.core)
+    assert RESTART_NOTE in str(caught.value)

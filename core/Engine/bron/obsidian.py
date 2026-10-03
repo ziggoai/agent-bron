@@ -167,7 +167,12 @@ def refresh_bundle(vault_root: Path, core: Path) -> list[str]:
     if not config.is_dir():
         return []
     before = _fingerprint(config)
-    _copy_code(core, config, only_present=True)
-    if (config / "plugins" / "bron-terminal").is_dir():
-        _terminal(core, vault_root, enable=False)
+    try:
+        _copy_code(core, config, only_present=True)
+        if (config / "plugins" / "bron-terminal").is_dir():
+            _terminal(core, vault_root, enable=False)
+    except BundleError as exc:
+        if _fingerprint(config) != before:
+            raise BundleError(f"{exc} {RESTART_NOTE}") from exc
+        raise
     return [RESTART_NOTE] if _fingerprint(config) != before else []
