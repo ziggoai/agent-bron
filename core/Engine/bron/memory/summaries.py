@@ -108,6 +108,14 @@ def _ticket_sessions(vault: Vault) -> set[str]:
     return {str(e["session"]) for e in runs.values() if isinstance(e, dict) and isinstance(e.get("session"), str) and e["session"]}
 
 
+def clean_env() -> dict:
+    """The environment for a background model call: no BRON_*/Claude Code session state, login kept, marked as a memory job."""
+    env = {k: v for k, v in os.environ.items()
+           if k in _KEEP_ENV or (not k.startswith(("BRON_", "CLAUDE_CODE_")) and k != "CLAUDECODE")}
+    env["BRON_MEMORY_JOB"] = "1"
+    return env
+
+
 def call_model(cli: str, model: str, prompt: str, timeout: int = 180) -> str:
     if cli == "codex":
         argv = ["codex", "exec", "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "-m", model,
@@ -116,9 +124,7 @@ def call_model(cli: str, model: str, prompt: str, timeout: int = 180) -> str:
     else:
         argv = ["claude", "-p", "--model", model, "--tools", "", "--no-session-persistence", "--setting-sources", "",
                 "--strict-mcp-config", "--disable-slash-commands"]
-    env = {k: v for k, v in os.environ.items()
-           if k in _KEEP_ENV or (not k.startswith(("BRON_", "CLAUDE_CODE_")) and k != "CLAUDECODE")}
-    env["BRON_MEMORY_JOB"] = "1"
+    env = clean_env()
     try:
         with tempfile.TemporaryDirectory(prefix="bron-summary-") as work:
             done = subprocess.run(argv, input=prompt, capture_output=True, text=True, cwd=work, env=env, timeout=timeout)
@@ -358,17 +364,12 @@ def run(vault: Vault, *, session_id: str = "", pending: bool = False, call=call_
 
 
 def spawn(vault: Vault, *, session_id: str = "", pending: bool = False, popen=subprocess.Popen) -> bool:
-    if os.environ.get("BRON_MEMORY_JOB") or os.environ.get("BRON_TICKET") or not vault.bron_command.is_file():
+    if os.environ.get("BRON_MEMORY_JOB") or os.environ.get("BRON_TICKET"):
         return False
-    argv = [str(vault.bron_command), "memory", "summarize"] + (["--session", session_id] if session_id else ["--pending"])
-    log = vault.bron_dir / "logs" / "memory.log"
-    log.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with open(log, "a", encoding="utf-8") as out:
-            popen(argv, cwd=vault.root, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
-    except OSError:
-        return False
-    return True
+    from ..background import spawn_detached
+
+    argv = ["memory", "summarize"] + (["--session", session_id] if session_id else ["--pending"])
+    return spawn_detached(vault, argv, "memory.log", popen=popen)
 
 
 def _log(vault: Vault, text: str) -> None:

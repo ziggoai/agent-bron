@@ -129,4 +129,7 @@ class Settings:
     update_check: bool = True
     memory_summaries: bool = True
     summary_models: dict = field(default_factory=lambda: {"claude": "haiku", "codex": "gpt-6-luna"})
+    kb_model_pages: bool = True
+    kb_max_model_pages: int = 20
+    kb_labels: bool = True
     action_groups: dict = field(default_factory=dict)

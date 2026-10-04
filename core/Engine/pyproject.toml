@@ -9,7 +9,19 @@ dependencies = ["pyyaml>=6.0", "tomli-w>=1.0"]
 bron = "bron.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "pytest>=8",
+    "pypdfium2>=4.30",
+    "ocrmac>=1.0",
+    "python-calamine>=0.2",
+    "python-docx>=1.1",
+    "python-pptx>=1.0",
+    "trafilatura>=1.12",
+    "fastembed>=0.4",
+    "numpy>=1.26",
+    "pillow>=10",
+    "openpyxl>=3.1",
+]
 
 [build-system]
 requires = ["hatchling"]

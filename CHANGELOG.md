@@ -2,6 +2,15 @@
 
 What changed in each version of Bron, newest first. Bron shows the new sections when you ask it to update itself.
 
+## 0.7.0
+- Bron reads the documents you point it to: Google Drive links, files, folders, web links and a Knowledge/Inbox folder. Big folders are read in the background and Bron tells you when they are done.
+- Ask about your fund and companies in English or Portuguese; every agent searches what Bron read and answers with the document, page and link. If the documents don't say, it tells you.
+- Scanned pages are read on your Mac. Search finds numbers and dates in either format (1.500.000,00 or 1,500,000.00).
+- A one-time setup of about 300 MB the first time you add or search.
+- Two things go to your Claude or Codex plan: the first part of each document's text (about 3,000 characters) so Bron can label it with a company, type and date, and the image of a page that is too messy to read directly. Each one is logged in .bron/kb/model-log.jsonl. Turn them off with `knowledge: labels: false` and `knowledge: model_pages: false` in System/Settings.md; labels then come from file and folder names.
+- A document Bron already read is skipped when it hasn't changed, so nothing is read or sent twice; `bron kb add --again` reads it anyway. The first reading, scans, photos and anything over 50 pages are read in the background.
+- Fix a wrong company, type or date with `bron kb label`, remove a document with `bron kb forget`, and see what couldn't be read with `bron kb list --failed`. The health check warns about documents that couldn't be read.
+
 ## 0.6.1
 - After an update that changes Bron's Obsidian theme or plugins, Bron tells you to quit and reopen Obsidian so it loads them.
 

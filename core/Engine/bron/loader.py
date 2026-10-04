@@ -191,6 +191,25 @@ def _settings(vault: Vault, issues: list[Issue]) -> Settings:
                 settings.summary_models[cli] = value.strip()
     else:
         f.problem("field.type", "'memory.summary_model' should name a model for claude and codex", level="warning")
+    knowledge = doc.meta.get("knowledge") or {}
+    if not isinstance(knowledge, dict):
+        f.problem("field.type", "'knowledge' should hold model_pages, max_model_pages and labels", level="warning")
+        knowledge = {}
+    model_pages = knowledge.get("model_pages", True)
+    if isinstance(model_pages, bool):
+        settings.kb_model_pages = model_pages
+    else:
+        f.problem("field.type", "'knowledge.model_pages' should be true or false", level="warning")
+    labels_on = knowledge.get("labels", True)
+    if isinstance(labels_on, bool):
+        settings.kb_labels = labels_on
+    else:
+        f.problem("field.type", "'knowledge.labels' should be true or false", level="warning")
+    max_pages = knowledge.get("max_model_pages", 20)
+    if isinstance(max_pages, int) and not isinstance(max_pages, bool) and max_pages > 0:
+        settings.kb_max_model_pages = max_pages
+    else:
+        f.problem("field.type", "'knowledge.max_model_pages' should be a whole number above zero", level="warning")
     groups = doc.meta.get("action_groups") or {}
     if isinstance(groups, dict):
         settings.action_groups = groups

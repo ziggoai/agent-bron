@@ -1,3 +1,5 @@
+import os
+import tempfile
 import shutil
 from pathlib import Path
 
@@ -7,6 +9,19 @@ from bron.vault import Vault
 
 REPO = Path(__file__).resolve().parents[1]
 IGNORE = shutil.ignore_patterns(".venv", "__pycache__", "*.egg-info", "uv.lock", ".pytest_cache")
+
+
+@pytest.fixture(autouse=True)
+def _private_kb_socket_folder(request, monkeypatch):
+    """Long vault paths put the search helper's socket in a folder under the user's home; unit tests use a private one."""
+    if "live" in request.node.path.parts:
+        yield
+        return
+    folder = tempfile.mkdtemp(prefix="bk", dir="/tmp")  # short: socket paths are limited to about 104 bytes
+    os.chmod(folder, 0o700)
+    monkeypatch.setenv("BRON_KB_SOCKET_DIR", folder)
+    yield
+    shutil.rmtree(folder, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)
@@ -29,3 +44,17 @@ def vault(tmp_path, monkeypatch) -> Vault:
     monkeypatch.delenv("BRON_AGENT", raising=False)
     monkeypatch.delenv("BRON_TICKET", raising=False)
     return Vault(root)
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "slow: needs real OCR or the meaning model; run with BRON_SLOW=1")
+
+
+def pytest_collection_modifyitems(config, items):
+    import os
+    if os.environ.get("BRON_SLOW"):
+        return
+    skip = pytest.mark.skip(reason="slow; set BRON_SLOW=1")
+    for item in items:
+        if "slow" in item.keywords:
+            item.add_marker(skip)

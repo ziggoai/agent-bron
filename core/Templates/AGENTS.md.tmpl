@@ -48,6 +48,14 @@ Facts you remember are in `System/Memory/Facts.md` (shared) and `System/Agents/<
 - When memory is getting long, offer to tidy: draft the cleaned facts file, show it with `.bron/bin/bron memory tidy --as <your key> [--mine] --file <draft> --preview` (the preview names the file it replaces), and apply it (same command without `--preview`) after a yes.
 - Never save passwords, keys, tokens, account numbers or sensitive personal details about other people.
 
+## Knowledge base
+
+Bron reads the documents the user points to (Drive links, files, `Knowledge/Inbox/`, web links) and every agent can search them.
+- To read: `.bron/bin/bron kb add '<link or path>' [...]` (`--inbox` for the inbox). For a Google Doc, Sheet or Slides link, export it through the Google Drive connection to a text file, then `.bron/bin/bron kb add --file <file> --source '<link>' --name '<title>'`. Tell the user the one-line result; big folders, scans and photos read in the background and report when done. Unchanged documents are skipped (`--again` rereads them).
+- The first `bron kb` command in a vault can take a few minutes; use a long command timeout (10 minutes).
+- Before answering a question about fund or company documents, run `.bron/bin/bron kb search '<question>' [--company X] [--type T]`. Cite the document, page and link; when a passage shows `[p. N]`, use that page; copy numbers exactly as written; if the passages don't answer it, say so instead of guessing. For more context: `.bron/bin/bron kb show '<document>' --pages N-M`.
+- Corrections: `.bron/bin/bron kb label '<document>' --company … --type … --date …`; remove: `.bron/bin/bron kb forget '<document>'`; progress: `.bron/bin/bron kb status`; documents that couldn't be read: `.bron/bin/bron kb list --failed`.
+
 ## How Bron works
 
 The framework manual is in `System/Core/Manual/`. Start with `System/Core/Manual/index.md`, and read the page you need before changing any setup.

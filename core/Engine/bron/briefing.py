@@ -66,6 +66,14 @@ def build_briefing(vault: Vault, *, cli: str, notes: list[str] | None = None, ch
         lines.append("Ticket updates couldn't be loaded this time.")
     if not ticket_run:
         try:
+            from .kb import notices as kb_notices
+
+            reports = kb_notices.take(vault)
+        except Exception:  # noqa: BLE001 - never fails the briefing
+            reports = []
+        if reports:
+            lines += ["", "## Knowledge base", *reports, "Tell the user briefly what was read and what couldn't be."]
+        try:
             from .approvals import take_notice
 
             notice = take_notice(vault)

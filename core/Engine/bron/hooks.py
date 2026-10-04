@@ -36,7 +36,7 @@ def main(event: str, cli: str, stdin=None, stdout=None) -> int:
                 pass
         elif event == "user-prompt":
             payload = _payload(stdin)
-            text = _route(cli, payload) + _ticket_updates()
+            text = _route(cli, payload) + _ticket_updates() + _kb_reports(cli)
             if text:
                 try:
                     stdout.write(text)
@@ -119,6 +119,7 @@ def _session_start(cli: str) -> str:
     except Exception as exc:  # noqa: BLE001 - best effort, never fails the briefing
         _log_error("session-start", cli, exc)
     _start_summary(cli, pending=True)
+    _resume_reading(cli, vault)
     return build_briefing(vault, cli=cli, notes=notes, changed=changed)
 
 
@@ -146,6 +147,28 @@ def _ticket_updates() -> str:
         lines.append(f"- …and {len(updates) - 8} more: run `.bron/bin/bron ticket list`")
     lines.append("Read the ticket (.bron/bin/bron ticket show <id>) and tell the user what changed.")
     return "\n".join(lines) + "\n"
+
+
+def _kb_reports(cli: str) -> str:
+    """A finished background reading job's result, told once (like ticket updates)."""
+    if os.environ.get("BRON_TICKET"):
+        return ""  # a headless ticket run: the report belongs to the user's own sessions
+    from .vault import Vault, VaultNotFound
+
+    try:
+        vault = Vault.find()
+    except VaultNotFound:
+        return ""
+    try:
+        from .kb import notices
+
+        reports = notices.take(vault)
+    except Exception as exc:  # noqa: BLE001 - never costs the rest of the message
+        _log_error("user-prompt", cli, exc)
+        return ""
+    if not reports:
+        return ""
+    return "Knowledge base reading finished:\n" + "\n".join(reports) + "\nTell the user briefly what was read and what couldn't be.\n"
 
 
 def _route(cli: str, payload: dict) -> str:
@@ -213,6 +236,18 @@ def _start_summary(cli: str, **kwargs) -> None:
         summaries.spawn(Vault.find(), **kwargs)
     except Exception as exc:  # noqa: BLE001
         _log_error("memory", cli, exc)
+
+
+def _resume_reading(cli: str, vault) -> None:
+    """A reading job that a crash or restart stopped carries on in the background; never delays the session."""
+    if os.environ.get("BRON_TICKET") or os.environ.get("BRON_MEMORY_JOB"):
+        return
+    try:
+        from .kb import jobs
+
+        jobs.resume(vault)
+    except Exception as exc:  # noqa: BLE001
+        _log_error("session-start", cli, exc)
 
 
 def _log_error(event: str, cli: str, exc: Exception) -> None:

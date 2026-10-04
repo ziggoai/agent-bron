@@ -29,6 +29,12 @@ def run_checks(cfg: Config, *, include_environment: bool = True) -> list[Issue]:
             issues += memory_issues(cfg)
         except Exception:  # noqa: BLE001 - memory never breaks the health check
             pass
+        try:
+            from .kb.health import issues as kb_issues
+
+            issues += kb_issues(cfg)
+        except Exception:  # noqa: BLE001 - the knowledge base never breaks the health check
+            pass
     return issues
 
 
