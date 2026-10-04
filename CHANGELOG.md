@@ -4,7 +4,7 @@ What changed in each version of Bron, newest first. Bron shows the new sections 
 
 ## 0.7.1
 - Bron starts general: the knowledge base sorts documents into everyday types (contract, invoice, report…), and you can give it your own list with `knowledge: doc_types:` in System/Settings.md.
-- The separate fund label and the `--fund` search filter are gone: the company label covers any company or organisation a document is about. A fund label you set before now shows as the company.
+- The company label now covers any company or organisation a document is about (0.7.0's separate fund label is folded into it).
 
 ## 0.7.0
 - Bron reads the documents you point it to: Google Drive links, files, folders, web links and a Knowledge/Inbox folder. Big folders are read in the background and Bron tells you when they are done.
