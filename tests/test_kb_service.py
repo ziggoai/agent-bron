@@ -386,6 +386,13 @@ def test_cli_uses_helper_reply(vault, offline, monkeypatch, capsys):
     assert code == 0 and "liquidation preference" in out and "/drive/a.pdf" in out
 
 
+def test_a_request_from_a_070_client_with_a_fund_still_answers(vault):
+    d = add(vault, "a", ["The liquidation preference is one times."], company="", fund="Fund I")
+    reply = service._answer(vault, fake_embed, {"query": "liquidation", "vault": str(vault.root), "fund": "Fund II"})
+    assert [h["doc_id"] for h in reply["hits"]] == [d.doc_id] and reply["hits"][0]["labels"]["company"] == "Fund I"
+    assert "fund" not in service.FILTERS
+
+
 def test_kb_is_a_registered_command_and_serve_is_hidden():
     parser = bron_cli.build_parser()
     assert parser.parse_args(["kb", "serve"]).kb_command == "serve"

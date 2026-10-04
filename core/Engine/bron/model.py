@@ -132,4 +132,5 @@ class Settings:
     kb_model_pages: bool = True
     kb_max_model_pages: int = 20
     kb_labels: bool = True
+    kb_doc_types: list = field(default_factory=list)  # empty: the general default list
     action_groups: dict = field(default_factory=dict)

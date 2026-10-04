@@ -2,9 +2,13 @@
 
 What changed in each version of Bron, newest first. Bron shows the new sections when you ask it to update itself.
 
+## 0.7.1
+- Bron starts general: the knowledge base sorts documents into everyday types (contract, invoice, report…), and you can give it your own list with `knowledge: doc_types:` in System/Settings.md.
+- The separate fund label and the `--fund` search filter are gone: the company label covers any company or organisation a document is about. A fund label you set before now shows as the company.
+
 ## 0.7.0
 - Bron reads the documents you point it to: Google Drive links, files, folders, web links and a Knowledge/Inbox folder. Big folders are read in the background and Bron tells you when they are done.
-- Ask about your fund and companies in English or Portuguese; every agent searches what Bron read and answers with the document, page and link. If the documents don't say, it tells you.
+- Ask about your documents in English or Portuguese; every agent searches what Bron read and answers with the document, page and link. If the documents don't say, it tells you.
 - Scanned pages are read on your Mac. Search finds numbers and dates in either format (1.500.000,00 or 1,500,000.00).
 - A one-time setup of about 300 MB the first time you add or search.
 - Two things go to your Claude or Codex plan: the first part of each document's text (about 3,000 characters) so Bron can label it with a company, type and date, and the image of a page that is too messy to read directly. Each one is logged in .bron/kb/model-log.jsonl. Turn them off with `knowledge: labels: false` and `knowledge: model_pages: false` in System/Settings.md; labels then come from file and folder names.
@@ -15,7 +19,7 @@ What changed in each version of Bron, newest first. Bron shows the new sections 
 - After an update that changes Bron's Obsidian theme or plugins, Bron tells you to quit and reopen Obsidian so it loads them.
 
 ## 0.6.0
-- Bron remembers. Tell it a preference, a decision or a fact about you or the fund once; it saves it ("Noted: …") and every agent knows it from then on. "Forget that" works any time, and everything it remembers is a note you can open and edit.
+- Bron remembers. Tell it a preference, a decision or a fact about you or your work once; it saves it ("Noted: …") and every agent knows it from then on. "Forget that" works any time, and everything it remembers is a note you can open and edit.
 - Each agent also keeps its own work notes.
 - Every conversation gets a short summary, written in the background by a small model, so "what did we decide last week?" has an answer. Turn it off with `memory: summaries: false` in System/Settings.md.
 - Search past conversations and facts in English or Portuguese, with or without accents.

@@ -22,7 +22,7 @@ REPLY_TIMEOUT = 5.0
 IDLE_SECONDS = 1800
 MAX_SOCKET_PATH = 100  # macOS allows about 104 bytes in a socket path
 MAX_REQUEST = 1_000_000
-FILTERS = ("company", "fund", "doc_type", "after", "before")
+FILTERS = ("company", "doc_type", "after", "before")
 
 
 def _default_embedder(vault: Vault):

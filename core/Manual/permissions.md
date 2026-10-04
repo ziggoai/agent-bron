@@ -25,7 +25,7 @@ Each agent lists in `Agent.md`:
 An entry is one of:
 
 - **An action group** from the list above (or from `action_groups` in `System/Settings.md`), such as `send-email`.
-- **One tool on one connection:** `mcp:<connection>:<tool>`, such as `mcp:carta:mutate`.
+- **One tool on one connection:** `mcp:<connection>:<tool>`, such as `mcp:notion:create_page`.
 - **A shell command prefix:** `shell:<words>`, such as `shell:git push`.
 
 Groups only take effect for connections that exist in `System/Connections/`. Bron turns these rules into each CLI's own approval settings, so they work the same in Claude Code and Codex.

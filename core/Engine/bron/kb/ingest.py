@@ -444,7 +444,7 @@ def plural(n: int, word: str) -> str:
 
 def label_line(doc: Doc) -> str:
     labels = store.effective_labels(doc)
-    parts = [labels.get("company") or labels.get("fund"), labels.get("doc_type"), labels.get("date")]
+    parts = [labels.get("company"), labels.get("doc_type"), labels.get("date")]
     return " · ".join(str(p) for p in parts if p)
 
 

@@ -104,7 +104,7 @@ def _runbook(name: str, path: Path, meta: dict, issues: list[Issue]) -> Runbook 
     lists: dict[str, list[str] | str] = {}
     raw_lists = meta.get("lists") or {}
     if not isinstance(raw_lists, dict):
-        bad("routine.lists", "'lists' should name each list, like 'funds: [Fund I, Fund II]'")
+        bad("routine.lists", "'lists' should name each list, like 'teams: [Sales, Operations]'")
         raw_lists = {}
     for key, value in raw_lists.items():
         if isinstance(value, str) and value.strip():

@@ -38,15 +38,21 @@ Those exist only online, so Bron exports one to a text file through the Google D
 
 ## Searching
 
-- Just ask: "what is the purchase price in the Acme SPA?" The agent searches, then answers with the document, page and link. If the documents don't say, it tells you instead of guessing.
+- Just ask: "what are the payment terms in the Acme contract?" The agent searches, then answers with the document, page and link. If the documents don't say, it tells you instead of guessing.
 - Search works in English and Portuguese, with or without accents, and finds numbers in either format (`1.500.000,00` and `1,500,000.00`).
-- Narrow it down: `.bron/bin/bron kb search '<question>' --company Acme --type SPA --after 2025-01-01`.
+- Narrow it down: `.bron/bin/bron kb search '<question>' --company Acme --type contract --after 2025-01-01`.
 - See more around a hit: `.bron/bin/bron kb show '<document>' --pages 14-16`.
 
 ## Looking after it
 
 - `.bron/bin/bron kb list` shows what was read (`--failed` shows only what couldn't be, `--company` and `--type` narrow it).
-- `.bron/bin/bron kb label '<document>' --company … --type … --date … --title …` fixes a wrong label; an empty value undoes your correction. Types: LPA, side letter, subscription agreement, SPA, SHA, term sheet, convertible note, cap table, board minutes, board deck, financial statements, management report, K-1, capital call, distribution notice, valuation, legal opinion, other.
+- `.bron/bin/bron kb label '<document>' --company … --type … --date … --title …` fixes a wrong label; an empty value undoes your correction. The company is the company or organisation the document is about.
+- Types: contract, invoice, receipt, statement, report, financial statements, budget, presentation, meeting minutes, policy, letter, form, spreadsheet, other. To use your own, list them in `System/Settings.md`:
+  ```yaml
+  knowledge:
+    doc_types: [lease, utility bill, insurance policy]
+  ```
+  Your list replaces the default for documents read from then on and for corrections ("other" is always there). Documents already read keep their type; change one with `bron kb label`.
 - `.bron/bin/bron kb forget '<document>'` removes it from the knowledge base. The original is never touched.
 - `.bron/bin/bron kb status` shows progress; `--cancel` stops a reading.
 - The health check warns when documents couldn't be read.

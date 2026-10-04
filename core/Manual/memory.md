@@ -4,7 +4,7 @@ What Bron remembers between conversations, and where it keeps it.
 
 ## Facts
 
-- When you tell Bron something lasting (a preference, a decision, a fact about you or the fund), it saves one line and says "Noted: ...". If the new fact replaces an old one it says "Updated: ...".
+- When you tell Bron something lasting (a preference, a decision, a fact about you or your work), it saves one line and says "Noted: ...". If the new fact replaces an old one it says "Updated: ...".
 - "Forget that" removes the line and Bron says "Forgotten: ...".
 - Shared facts live in `System/Memory/Facts.md` and every agent sees them. Only a conversation with you can change them. Each agent also keeps its own work notes in `System/Agents/<Name>/Memory/Facts.md`.
 - A file has four sections: `## About you`, `## Your firm`, `## Decisions`, `## How you like things done`. A line looks like `- <fact>. (2026-10-03, Bron)`.

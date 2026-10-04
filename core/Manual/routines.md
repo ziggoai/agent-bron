@@ -1,6 +1,6 @@
 # Routines
 
-A routine is repeating work: monthly, quarterly or annual, often once per fund or per company. Nothing runs on its own: the briefing says what can start and what's due, and Bron does the work when you ask.
+A routine is repeating work: monthly, quarterly or annual, often once per client or per team. Nothing runs on its own: the briefing says what can start and what's due, and Bron does the work when you ask.
 
 ## Runbook: `Routines/<Routine>/Runbook.md`
 ```markdown
@@ -9,17 +9,17 @@ cadence: quarterly                 # monthly | quarterly | annual
 owner: bron                        # the agent that looks after it
 due: 45 days after period end      # "N days after period end" becomes a date; any other rule, Bron asks
 lists:
-  companies: active portfolio companies of each fund in Carta (FMV > 0), grouped by fund
-  funds: [Fund I, Fund II, Fund III]
+  clients: active clients in the CRM, grouped by region
+  teams: [Sales, Operations, Finance]
 steps:
-  - name: Collect financials and KPIs
-    for: companies
-  - name: Stacked ranking
+  - name: Collect figures
+    for: clients
+  - name: Review
     for: once
-    items: [Sent to the investment team, Back from the investment team]
-  - name: One-pager
-    for: funds
-    after: [Collect financials and KPIs, Stacked ranking]
+    items: [Sent to the managers, Back from the managers]
+  - name: Summary page
+    for: teams
+    after: [Collect figures, Review]
 ---
 
 ## How to do each step

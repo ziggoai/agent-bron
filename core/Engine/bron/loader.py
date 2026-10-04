@@ -143,6 +143,35 @@ def _subfolders(folder: Path) -> list[Path]:
     return sorted(p for p in folder.iterdir() if p.is_dir() and not p.name.startswith("."))
 
 
+MAX_DOC_TYPES = 50
+
+
+def _doc_types(value, f: _Fields) -> list[str]:
+    """knowledge.doc_types: the user's own document types (a list, or one line split at commas). Empty: the default."""
+    if value is None or value == "" or value == []:
+        return []
+    if isinstance(value, str):
+        value = value.split(",")
+    if not isinstance(value, list):
+        f.problem("field.type", "'knowledge.doc_types' should be a list of document types, like [contract, invoice]",
+                  level="warning")
+        return []
+    found: list[str] = []
+    for item in value:
+        if not isinstance(item, (str, int, float)) or isinstance(item, bool):
+            f.problem("field.type", "'knowledge.doc_types' should list plain words, like [contract, invoice]",
+                      level="warning")
+            continue
+        name = " ".join("".join(" " if c in "[]|" or not c.isprintable() else c for c in str(item)).split())[:60]
+        if name and name.lower() not in {t.lower() for t in found}:
+            found.append(name)
+    if len(found) > MAX_DOC_TYPES:
+        f.problem("field.value", f"'knowledge.doc_types' has more than {MAX_DOC_TYPES} types; Bron uses the first "
+                  f"{MAX_DOC_TYPES}", level="warning")
+        found = found[:MAX_DOC_TYPES]
+    return found
+
+
 def _settings(vault: Vault, issues: list[Issue]) -> Settings:
     path = vault.settings_file
     settings = Settings(path=path)
@@ -193,8 +222,10 @@ def _settings(vault: Vault, issues: list[Issue]) -> Settings:
         f.problem("field.type", "'memory.summary_model' should name a model for claude and codex", level="warning")
     knowledge = doc.meta.get("knowledge") or {}
     if not isinstance(knowledge, dict):
-        f.problem("field.type", "'knowledge' should hold model_pages, max_model_pages and labels", level="warning")
+        f.problem("field.type", "'knowledge' should hold model_pages, max_model_pages, labels and doc_types",
+                  level="warning")
         knowledge = {}
+    settings.kb_doc_types = _doc_types(knowledge.get("doc_types"), f)
     model_pages = knowledge.get("model_pages", True)
     if isinstance(model_pages, bool):
         settings.kb_model_pages = model_pages

@@ -44,13 +44,49 @@ def test_filters_exclude_other_companies_types_dates(vault):
     assert search.search(vault, "share price", company="nobody", **q) == []
 
 
-def test_fund_and_user_labels_filter(vault):
-    a = add(vault, "a", ["fee schedule"], fund="Fund I", user_labels={"company": "Override Ltda"})
-    add(vault, "b", ["fee schedule"], fund="Fund II")
+def test_user_labels_filter(vault):
+    a = add(vault, "a", ["fee schedule"], user_labels={"company": "Override Ltda"})
+    add(vault, "b", ["fee schedule"])
     q = dict(embedder=fake_embed)
-    assert [h.doc_id for h in search.search(vault, "fee", fund="fund i ", **q)][:1] == [a.doc_id]
     assert [h.doc_id for h in search.search(vault, "fee", company="override", **q)] == [a.doc_id]
-    assert search.search(vault, "fee", company="Acme", fund="fund ii", **q)[0].labels["company"] == "Acme"
+    assert search.search(vault, "fee", company="Acme", **q)[0].labels["company"] == "Acme"
+
+
+def test_a_stored_fund_label_counts_as_the_company(vault):
+    """Documents read by Bron 0.7.0 may carry a "fund" label: it is found and shown as the company when there is none."""
+    a = add(vault, "a", ["fee schedule"], company="", fund="Fund I")
+    add(vault, "b", ["fee schedule"], fund="Fund II")  # has a company: that one stands
+    c = add(vault, "c", ["fee schedule"], company="", user_labels={"fund": "Fund Three"})
+    q = dict(embedder=fake_embed)
+    hits = search.search(vault, "fee", company="fund i ", **q)
+    assert [h.doc_id for h in hits] == [a.doc_id]
+    assert hits[0].labels["company"] == "Fund I" and "fund" not in hits[0].labels
+    assert search.search(vault, "fee", company="fund ii", **q) == []
+    assert [h.doc_id for h in search.search(vault, "fee", company="fund three", **q)] == [c.doc_id]
+    with pytest.raises(TypeError):
+        search.search(vault, "fee", fund="Fund I", **q)  # the separate fund filter is gone
+
+
+def test_a_070_index_keeps_working_without_a_rebuild(vault):
+    """An index.db written by 0.7.0 (same schema, the fund in its own column) is searched as it is."""
+    d = add(vault, "a", ["fee schedule"], company="", fund="Fund I")
+    con = index.open(vault)
+    with con:
+        con.execute("UPDATE docs SET company = '', fund = 'Fund I' WHERE doc_id = ?", (d.doc_id,))  # as 0.7.0 wrote it
+    before = (index.counter(con), con.execute("PRAGMA user_version").fetchone()[0])
+    con.close()
+    inode = index.db_path(vault).stat().st_ino
+    q = dict(embedder=fake_embed)
+    assert [h.doc_id for h in search.search(vault, "fee", company="fund i", **q)] == [d.doc_id]
+    assert [h.doc_id for h in search.search(vault, "fee", **q)] == [d.doc_id]
+    con = index.open(vault)
+    assert (index.counter(con), con.execute("PRAGMA user_version").fetchone()[0]) == before
+    con.close()
+    assert index.db_path(vault).stat().st_ino == inode  # not rebuilt
+    index.put(vault, d, store.passages(vault, d.doc_id), fake_embed)  # written again: the company column holds it now
+    con = index.open(vault)
+    assert con.execute("SELECT company, fund FROM docs").fetchall() == [("Fund I", "")]
+    con.close()
 
 
 def test_search_finds_amount_in_other_format(vault):
@@ -343,7 +379,7 @@ def test_replace_updates_vector_rows_and_limit_zero(vault):
     assert search.search(vault, "short", embedder=fake_embed, limit=-3) == []
 
 
-def test_render_falls_back_to_fund(vault):
+def test_render_shows_a_stored_fund_as_the_company(vault):
     add(vault, "a", ["fund text"], company="", fund="Fund I", name="Report")
     out = search.render(search.search(vault, "fund", embedder=fake_embed))
     assert out.splitlines()[0].startswith("1. Report · Fund I · ")

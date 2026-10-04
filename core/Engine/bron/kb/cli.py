@@ -32,8 +32,7 @@ def add_parser(sub) -> None:
 
     search = commands.add_parser("search", help="search the knowledge base")
     search.add_argument("query")
-    search.add_argument("--company", default="")
-    search.add_argument("--fund", default="")
+    search.add_argument("--company", default="", help="the company or organisation a document is about")
     search.add_argument("--type", dest="doc_type", default="")
     search.add_argument("--after", default="", help="only documents dated on or after YYYY-MM-DD")
     search.add_argument("--before", default="", help="only documents dated on or before YYYY-MM-DD")
@@ -51,10 +50,9 @@ def add_parser(sub) -> None:
     forget = commands.add_parser("forget", help="remove a document from the knowledge base")
     forget.add_argument("doc", help="the document's id, name or part of its name")
 
-    label = commands.add_parser("label", help="correct a document's company, fund, type, date or title")
+    label = commands.add_parser("label", help="correct a document's company, type, date or title")
     label.add_argument("doc", help="the document's id, name or part of its name")
-    for flag, dest in (("--company", "company"), ("--fund", "fund"), ("--type", "doc_type"), ("--date", "date"),
-                       ("--title", "title")):
+    for flag, dest in (("--company", "company"), ("--type", "doc_type"), ("--date", "date"), ("--title", "title")):
         label.add_argument(flag, dest=dest, default=None, help="empty ('') undoes your correction")
 
     status = commands.add_parser("status", help="reading in progress, and how many documents Bron has")
@@ -126,7 +124,7 @@ def _embedder(vault):
 def _search(args, vault) -> int:
     from . import embed, search, service
 
-    request = {"query": args.query, "company": args.company, "fund": args.fund, "doc_type": args.doc_type,
+    request = {"query": args.query, "company": args.company, "doc_type": args.doc_type,
                "after": args.after, "before": args.before, "limit": args.limit}
     reply = service.query(vault, request)
     if reply is not None and "error" in reply:
@@ -137,7 +135,7 @@ def _search(args, vault) -> int:
         note = bool(reply.get("keyword_only"))
     else:
         probe = service.Probe(embed.get(vault))
-        hits = search.search(vault, args.query, embedder=probe, company=args.company, fund=args.fund,
+        hits = search.search(vault, args.query, embedder=probe, company=args.company,
                              doc_type=args.doc_type, after=args.after, before=args.before, limit=args.limit)
         note = probe.failed
     if note:
@@ -344,7 +342,7 @@ def _list(args, vault) -> int:
     shown = 0
     for d in sorted(docs, key=lambda d: (d.name.casefold(), d.doc_id)):
         labels = store.effective_labels(d)
-        if want_company and want_company not in fold(str(labels.get("company") or "") + " " + str(labels.get("fund") or "")):
+        if want_company and want_company not in fold(str(labels.get("company") or "")):
             continue
         if want_type and want_type != fold(str(labels.get("doc_type") or "")):
             continue
@@ -405,8 +403,8 @@ def _label(args, vault) -> int:
     doc = _find(vault, args.doc)
     if doc is None:
         return 1
-    given = {k: v for k, v in (("company", args.company), ("fund", args.fund), ("doc_type", args.doc_type),
-                               ("date", args.date), ("title", args.title)) if v is not None}
+    given = {k: v for k, v in (("company", args.company), ("doc_type", args.doc_type), ("date", args.date),
+                               ("title", args.title)) if v is not None}
     if not given:
         print(f"Labels for {doc.name}: {ingest.label_line(doc) or 'none'}")
         return 0
@@ -420,15 +418,23 @@ def _label(args, vault) -> int:
             print("Dates should look like YYYY-MM-DD (for example 2025-01-21).")
             return 1
     if given.get("doc_type"):
-        kind = next((t for t in models.DOC_TYPES if t.lower() == given["doc_type"].strip().lower()), None)
+        from ..loader import load
+
+        types = models.doc_types(load(vault))
+        kind = models.match_type(given["doc_type"], types)
         if kind is None:
-            print("The type should be one of: " + ", ".join(models.DOC_TYPES) + ".")
+            print("The type should be one of: " + ", ".join(types) + ". You can set your own list with "
+                  "`knowledge: doc_types:` in System/Settings.md.")
             return 1
         given["doc_type"] = kind
-    for key in ("company", "fund", "title"):
+    for key in ("company", "title"):
         if key in given:
             given[key] = models.clean(given[key], None, 120)
-    user = {**doc.user_labels, **given}
+    user = dict(doc.user_labels)
+    fund = user.pop("fund", "")  # Bron 0.7.0 had a fund label: it becomes the company when there is none
+    if fund and not user.get("company") and not (isinstance(doc.labels, dict) and doc.labels.get("company")):
+        user["company"] = fund
+    user.update(given)
     doc.user_labels = {k: v for k, v in user.items() if v}  # an empty value undoes a correction
     pages = store.pages(vault, doc.doc_id)
     passages = split([(i + 1, t) for i, t in enumerate(pages)], store.effective_labels(doc))  # headers carry the labels

@@ -185,4 +185,15 @@ def indexing_ids(vault: Vault) -> list[str]:
 
 
 def effective_labels(doc: Doc) -> dict:
-    return {**doc.labels, **{k: v for k, v in doc.user_labels.items() if v}}
+    """The model's labels with the user's corrections on top."""
+    labels = {**(doc.labels if isinstance(doc.labels, dict) else {}),
+              **{k: v for k, v in (doc.user_labels if isinstance(doc.user_labels, dict) else {}).items() if v}}
+    return fold_fund(labels)
+
+
+def fold_fund(labels: dict) -> dict:
+    """Bron 0.7.0 had a separate "fund" label; it now counts as the company (when there is no company)."""
+    fund = labels.pop("fund", "")
+    if fund and not labels.get("company"):
+        labels["company"] = fund
+    return labels

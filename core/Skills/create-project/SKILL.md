@@ -1,6 +1,6 @@
 ---
 name: create-project
-description: Start a project folder for one-off work ("start a project for the Fund III audit") with a README for its goal, status and key decisions.
+description: Start a project folder for one-off work ("start a project for the year-end audit") with a README for its goal, status and key decisions.
 ---
 
 # Start a project

@@ -10,9 +10,9 @@ A routine is a folder in `Routines/` with a `Runbook.md`: how often it runs, who
 Put free text in single quotes; if the text contains a single quote, write it to a file and use `--file` (result) or `--note-file` (status).
 
 ## Start a period (when the briefing says "can start", and only after the user says yes)
-1. Read the runbook. For each list that is a sentence (a source), get the items from that source (for example Carta), grouped the way the runbook says, and show the user the full lists. Wait for their yes or corrections.
-2. Write each confirmed list to `.bron/tmp/<name>.txt` (create the `.bron/tmp` folder if it doesn't exist), one item per line, as `Group: item` when grouped (for example `Fund I: Company A`).
-3. If the runbook's `due` isn't "N days after period end" (for example "two weeks before the LP meeting"), work out the date for this period, confirm it with the user if you're unsure, and add `--due <date>` (as YYYY-MM-DD) to the command below.
+1. Read the runbook. For each list that is a sentence (a source), get the items from that source (for example a CRM or a spreadsheet), grouped the way the runbook says, and show the user the full lists. Wait for their yes or corrections.
+2. Write each confirmed list to `.bron/tmp/<name>.txt` (create the `.bron/tmp` folder if it doesn't exist), one item per line, as `Group: item` when grouped (for example `North: Client A`).
+3. If the runbook's `due` isn't "N days after period end" (for example "two weeks before the board meeting"), work out the date for this period, confirm it with the user if you're unsure, and add `--due <date>` (as YYYY-MM-DD) to the command below.
 4. Run `.bron/bin/bron routine start '<Routine>' --list <name>=.bron/tmp/<name>.txt` with one `--list` per list from a source (add `--period <period>` for a period other than the latest one that ended). With a date from step 3: `.bron/bin/bron routine start '<Routine>' --list <name>=.bron/tmp/<name>.txt --due <date>`.
 5. Tell the user in one line what was set up and when it's due.
 

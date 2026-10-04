@@ -44,6 +44,7 @@ def _create_schema(con: sqlite3.Connection) -> None:
     )
     con.execute("CREATE TABLE IF NOT EXISTS vectors (doc_id TEXT, n INTEGER, w INTEGER, vec BLOB)")
     con.execute("CREATE INDEX IF NOT EXISTS vectors_doc ON vectors(doc_id)")
+    # `fund` is no longer used (0.7.0 had a fund label); it stays so a 0.7.0 index keeps working without a rebuild.
     con.execute("CREATE TABLE IF NOT EXISTS docs (doc_id TEXT PRIMARY KEY, company TEXT, fund TEXT, doc_type TEXT, date TEXT)")
     con.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, val INTEGER)")
     con.execute("INSERT OR IGNORE INTO meta VALUES ('counter', 0)")
@@ -282,8 +283,7 @@ def _put(con: sqlite3.Connection, vault: Vault, doc: Doc, passages: list[dict], 
         con.execute("DELETE FROM docs WHERE doc_id = ?", (doc.doc_id,))
         con.execute(
             "INSERT INTO docs VALUES (?,?,?,?,?)",
-            (doc.doc_id, str(labels.get("company", "")), str(labels.get("fund", "")),
-             str(labels.get("doc_type", "")), str(labels.get("date", ""))),
+            (doc.doc_id, str(labels.get("company", "")), "", str(labels.get("doc_type", "")), str(labels.get("date", ""))),
         )
         con.executemany("INSERT INTO fts(doc_id, n, body) VALUES (?,?,?)",
                         [(doc.doc_id, n, _body(p)) for n, p in enumerate(passages)])

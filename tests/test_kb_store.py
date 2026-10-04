@@ -109,6 +109,42 @@ def test_knowledge_settings(vault):
     assert (s.kb_model_pages, s.kb_max_model_pages, s.kb_labels) == (False, 5, False)
 
 
+def test_doc_types_setting(vault):
+    assert load(vault).settings.kb_doc_types == []  # absent: the general default
+    set_meta(vault.settings_file, knowledge={"doc_types": [" Lease ", "utility  bill", "lease", "Bad [x] | y\x07", "", 2024]})
+    cfg = load(vault)
+    assert cfg.settings.kb_doc_types == ["Lease", "utility bill", "Bad x y", "2024"]
+    assert not [i for i in cfg.issues if "doc_types" in i.message]
+    set_meta(vault.settings_file, knowledge={"doc_types": "lease, invoice"})
+    assert load(vault).settings.kb_doc_types == ["lease", "invoice"]
+    for bad in ({"a": 1}, ["lease", {"a": 1}], [True]):
+        set_meta(vault.settings_file, knowledge={"doc_types": bad})
+        cfg = load(vault)
+        assert any("doc_types" in i.message and i.level == "warning" for i in cfg.issues)
+        assert cfg.settings.kb_doc_types in ([], ["lease"])
+    set_meta(vault.settings_file, knowledge={"doc_types": [f"type {i}" for i in range(60)]})
+    cfg = load(vault)
+    assert len(cfg.settings.kb_doc_types) == 50 and any("more than 50" in i.message for i in cfg.issues)
+
+
+def test_a_stored_fund_label_folds_into_company():
+    """Bron 0.7.0 had a "fund" label; it counts as the company when there is none, and never crashes."""
+    assert store.effective_labels(make_doc(labels={"company": "", "fund": "Fund I"})) == {"company": "Fund I"}
+    assert store.effective_labels(make_doc(labels={"company": "Acme"}, user_labels={"fund": "Fund I"})) == {"company": "Acme"}
+    assert store.effective_labels(make_doc(labels={}, user_labels={"fund": "Fund I"})) == {"company": "Fund I"}
+    assert store.effective_labels(make_doc(labels=["odd"], user_labels={})) == {}
+
+
+def test_a_070_meta_with_fund_loads(vault):
+    doc = make_doc(labels={"company": "", "fund": "Fund I", "doc_type": "LPA"})
+    store.save(vault, doc, ["text"], [{"text": "text", "page": 1}])
+    folder = store.kb_dir(vault) / "docs" / doc.doc_id
+    (folder / store.USER_LABELS).write_text(json.dumps({"fund": "Fund II"}), encoding="utf-8")
+    loaded = store.load(vault, doc.doc_id)
+    assert loaded.user_labels == {"fund": "Fund II"}
+    assert store.effective_labels(loaded) == {"company": "Fund II", "doc_type": "LPA"}
+
+
 def test_template_has_inbox_and_files():
     root = Path(__file__).resolve().parents[1] / "template" / "Knowledge"
     assert (root / "Inbox").is_dir() and (root / "Files").is_dir()

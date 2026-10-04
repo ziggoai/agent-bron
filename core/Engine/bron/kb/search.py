@@ -37,13 +37,12 @@ class Hit:
     score: float
 
 
-def _filtered(con, company, fund, doc_type, after, before) -> set[str]:
-    want_company, want_fund, want_type = fold(company).strip(), fold(fund).strip(), fold(doc_type).strip()
+def _filtered(con, company, doc_type, after, before) -> set[str]:
+    want_company, want_type = fold(company).strip(), fold(doc_type).strip()
     keep = set()
+    # `fund`: only rows written by Bron 0.7.0 have one; it counts as the company when there is none
     for doc_id, c, f, t, d in con.execute("SELECT doc_id, company, fund, doc_type, date FROM docs"):
-        if want_company and want_company not in fold(c or ""):
-            continue
-        if want_fund and want_fund not in fold(f or ""):
+        if want_company and want_company not in fold(c or f or ""):
             continue
         if want_type and want_type != fold(t or ""):
             continue
@@ -142,14 +141,14 @@ def _fuse(*rankings: list[tuple[str, int]]) -> list[tuple[tuple[str, int], float
     return sorted(score.items(), key=lambda kv: (-kv[1], kv[0]))
 
 
-def _search(vault, query, embedder, company, fund, doc_type, after, before, limit) -> list[Hit]:
+def _search(vault, query, embedder, company, doc_type, after, before, limit) -> list[Hit]:
     if limit <= 0:
         return []
     index.ensure(vault, embedder)
     con = index.open(vault)
     try:
-        filtering = any((company, fund, doc_type, after, before))
-        allowed = _filtered(con, company, fund, doc_type, after, before) if filtering else None
+        filtering = any((company, doc_type, after, before))
+        allowed = _filtered(con, company, doc_type, after, before) if filtering else None
         if allowed is not None and not allowed:
             return []
         keyword = _keyword(con, query, allowed)
@@ -173,17 +172,18 @@ def _search(vault, query, embedder, company, fund, doc_type, after, before, limi
     return hits
 
 
-def search(vault: Vault, query: str, *, embedder, company: str = "", fund: str = "", doc_type: str = "",
+def search(vault: Vault, query: str, *, embedder, company: str = "", doc_type: str = "",
            after: str = "", before: str = "", limit: int = 8) -> list[Hit]:
     return index.with_recovery(
-        vault, embedder, lambda: _search(vault, query, embedder, company, fund, doc_type, after, before, limit)
+        vault, embedder, lambda: _search(vault, query, embedder, company, doc_type, after, before, limit)
     )
 
 
 def render(hits: list[Hit]) -> str:
     blocks = []
     for i, h in enumerate(hits, start=1):
-        parts = [h.labels.get("title") or h.name, h.labels.get("company") or h.labels.get("fund"), h.labels.get("doc_type"), h.labels.get("date")]
+        labels = store.fold_fund(dict(h.labels))  # hits from a helper still running 0.7.0 may carry "fund"
+        parts = [labels.get("title") or h.name, labels.get("company"), labels.get("doc_type"), labels.get("date")]
         if h.page:
             parts.append(f"p. {h.page}")
         if h.section:

@@ -29,7 +29,7 @@ def kb(vault, tmp_path, monkeypatch):
     env.cfg = load(vault)
     env.ocr = FakeOcr()
     env.model = FakeModel("| Ano | Receita |\n| --- | --- |\n| 2024 | 12.345 |")
-    env.labels = FakeLabels({"spa.pdf": {"company": "Acme", "type": "SPA", "date": "2025-01-21", "title": "Acme SPA"}})
+    env.labels = FakeLabels({"spa.pdf": {"company": "Acme", "type": "contract", "date": "2025-01-21", "title": "Acme SPA"}})
     env.deps = dict(readers_ocr=env.ocr, model_call=env.model, label_call=env.labels, embedder=fake_embed)
     env.root = fake_drive(tmp_path)
     monkeypatch.setenv("BRON_DRIVE_ROOT", str(env.root))
@@ -60,7 +60,7 @@ def test_drive_file_is_read_in_place_labelled_and_searchable(kb):
     doc = kb.read(item)
     assert doc.status == "read" and doc.identity == "drive:SPA1" and doc.path == str(path)
     assert doc.source == "https://drive.google.com/open?id=SPA1"
-    assert doc.labels["company"] == "Acme" and doc.labels["doc_type"] == "SPA" and doc.labels["date"] == "2025-01-21"
+    assert doc.labels["company"] == "Acme" and doc.labels["doc_type"] == "contract" and doc.labels["date"] == "2025-01-21"
     assert store.load(kb.vault, doc.doc_id) == doc
     assert not (kb.vault.root / "Knowledge" / "Files").exists() or not any((kb.vault.root / "Knowledge" / "Files").rglob("*.pdf"))
     hits = find(kb.vault, "purchase price")
@@ -232,7 +232,7 @@ def test_summary_lists_labels_and_reasons(kb):
     bad = store.Doc("x", "file:/x.zip", "file", "/x.zip", "x.zip", "/x.zip", status="failed", error="Bron can't read .zip files yet.")
     text = ingest.summary([good, bad], ["Couldn't find https://drive.google.com/file/d/NOPE/view in Google Drive on this Mac."])
     assert text.startswith("Read 1 document (0 scanned pages, 0 pages read by the model).")
-    assert "- spa.pdf — Acme · SPA · 2025-01-21" in text
+    assert "- spa.pdf — Acme · contract · 2025-01-21" in text
     assert "Couldn't read: x.zip (Bron can't read .zip files yet)" in text
     assert "Couldn't find https://drive.google.com/file/d/NOPE/view" in text
 

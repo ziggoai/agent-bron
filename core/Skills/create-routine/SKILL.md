@@ -1,6 +1,6 @@
 ---
 name: create-routine
-description: 'Turn repeating work into a routine ("make the quarterly LP report a routine"): how often, who looks after it, when it''s due, its lists and steps.'
+description: 'Turn repeating work into a routine ("make the quarterly client report a routine"): how often, who looks after it, when it''s due, its lists and steps.'
 ---
 
 # Create a routine
