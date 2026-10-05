@@ -4,9 +4,10 @@ One job reads at a time; the others wait. Every document is written down as soon
 interrupted (a crash, the laptop closed) picks up where it stopped and never reads a finished document again.
 A file that stopped the reader twice is skipped, and `bron kb status --cancel` stops what's waiting.
 
-Once a job is read, its documents' wiki pages are written by one background agent run (kb/wiki_run.py). One wiki run
-at a time: others wait. The reader and the wiki writer have their own locks, so documents can be read while a folder
-is being written.
+Once a job is read, its documents' wiki pages are written by background agent runs (kb/wiki_run.py), one ticket per
+batch of documents, one batch after another. A batch that was interrupted or whose run failed is tried once more; an
+interrupted job picks up at its first unfinished batch. One wiki run at a time: others wait. The reader and the wiki
+writer have their own locks, so documents can be read while a folder is being written.
 """
 from __future__ import annotations
 
@@ -52,8 +53,10 @@ class Job:
     wiki_status: str = ""  # "" (no wiki run) | waiting | writing | done | failed | cancelled
     wiki_docs: list[str] = field(default_factory=list)  # ids of the documents whose pages the run writes
     wiki_since: str = ""  # when it began waiting to be written
-    wiki_attempts: int = 0  # wiki runs started (a third is never tried)
-    ticket: str = ""  # the wiki run's ticket
+    wiki_attempts: int = 0  # runs started for the current batch (a third is never tried)
+    ticket: str = ""  # the current batch's ticket ("" until it's made; the last batch's once done)
+    wiki_batch: int = 0  # batches of wiki_docs written (wiki_run.BATCH documents each); the next one is this index
+    wiki_tickets: list[str] = field(default_factory=list)  # every batch's ticket, in order
     label: str = ""  # "the Leases folder" (empty: "N documents"), for the ticket's title
     report: str = ""  # the reading report: handed to the wiki run, and told to the user if the run fails
 
@@ -113,6 +116,13 @@ def pending(vault: Vault) -> list[Job]:
 def wiki_pending(vault: Vault) -> list[Job]:
     """Jobs whose wiki pages are waiting to be written, or being written."""
     return [j for j in all_jobs(vault) if j.wiki_status in ("waiting", "writing")]
+
+
+def wiki_left(job: Job) -> list[str]:
+    """The documents whose batch isn't written yet."""
+    from .wiki_run import BATCH
+
+    return job.wiki_docs[job.wiki_batch * BATCH:]
 
 
 def _prune(vault: Vault) -> None:
@@ -317,20 +327,28 @@ def _finish(vault: Vault, job: Job, status: str, *, shown: bool = False) -> str:
 def cancel(vault: Vault) -> list[str]:
     """Stop every waiting or running job, and every wiki run that is waiting. Jobs nobody is working on stop now (their
     reports are returned, for the caller to print); the one being read stops after its current document and reports as
-    usual; a wiki run already writing finishes."""
+    usual; a wiki run already writing finishes, unless its writer is gone (then it stops now, like a waiting one).
+    Each job is read again just before it's changed, so one that finished meanwhile is left as it is."""
     texts: list[str] = []
     active = runner_active(vault)
-    for job in pending(vault):
-        _cancel_path(vault, job.job_id).touch()
+    for listed in pending(vault):
+        _cancel_path(vault, listed.job_id).touch()
+        job = load(vault, listed.job_id)
+        if job is None or job.status not in ("queued", "running"):
+            continue
         if job.status == "queued" or not active:
             texts.append(_finish(vault, job, "cancelled", shown=True))
-    for job in wiki_pending(vault):
-        if job.wiki_status == "waiting":
-            job.wiki_status, job.finished = "cancelled", time.strftime("%Y-%m-%d %H:%M")
-            save(vault, job)
-            note = (f"Cancelled: the wiki pages for {_plural(len(job.wiki_docs), 'document')} weren't written; "
-                    "say \"finish the wiki pages\" when you want them.")
-            texts.append(f"{job.report}\n{note}" if job.report else note)
+    writer = wiki_active(vault)
+    for listed in wiki_pending(vault):
+        job = load(vault, listed.job_id)
+        if job is None or not (job.wiki_status == "waiting" or (job.wiki_status == "writing" and not writer)):
+            continue
+        left = wiki_left(job)
+        job.wiki_status, job.finished = "cancelled", time.strftime("%Y-%m-%d %H:%M")
+        save(vault, job)
+        note = (f"Cancelled: the wiki pages for {_plural(len(left), 'document')} weren't written; "
+                "say \"finish the wiki pages\" when you want them.")
+        texts.append(f"{job.report}\n{note}" if job.report else note)
     return texts
 
 
@@ -442,35 +460,61 @@ def _wiki_failed(vault: Vault, job: Job, why: str) -> None:
     save(vault, job)
 
 
-def _write_one(vault: Vault, cfg, job: Job, *, run_ticket=None) -> None:
+WENT_WRONG = "something went wrong; the details are in .bron/logs/kb-errors.log"
+
+
+def _write_batch(vault: Vault, cfg, job: Job, run_ticket) -> tuple[bool, str, bool]:
+    """One run of the job's current batch: (written, why not, worth trying again)."""
     from . import wiki_run
 
-    fresh = load(vault, job.job_id)
-    if fresh is None or fresh.wiki_status not in ("waiting", "writing"):
-        return  # cancelled or written since it was picked
-    job = fresh
-    if job.wiki_attempts >= MAX_ATTEMPTS:  # it stopped the writer twice: never a third time
-        _wiki_failed(vault, job, "it stopped twice before finishing")
-        return
     job.wiki_status, job.wiki_attempts = "writing", job.wiki_attempts + 1
     save(vault, job)  # written down first, so an interruption counts
     _beat(vault, wiki=True)
     try:
         if not job.ticket:
             job.ticket = wiki_run.start_ticket(vault, cfg, job)
+            job.wiki_tickets.append(job.ticket)
             save(vault, job)
-        if run_ticket is None:
-            from ..runner import run_ticket
         outcome = run_ticket(vault, job.ticket)
-        ok = outcome.status == "in-review"  # a ticket already in review (finished before a crash) counts as written
-        why = "" if ok else (outcome.message or f"its ticket is {outcome.status or 'not finished'}")
+    except store.KbError as exc:  # already a plain sentence (no default agent, say): another run wouldn't help
+        return False, str(exc), False
     except Exception as exc:  # noqa: BLE001 - one failed run never stops the queue (Ctrl-C still stops it)
-        ok, why = False, str(exc) if isinstance(exc, store.KbError) else f"{exc.__class__.__name__}: {exc}"
-    if ok:
-        job.wiki_status, job.finished = "done", time.strftime("%Y-%m-%d %H:%M")
-        save(vault, job)
-    else:
-        _wiki_failed(vault, job, why)
+        from .ingest import _log
+
+        _log(vault, f"the wiki run of job {job.job_id}", exc)
+        return False, WENT_WRONG, True
+    if outcome.status == "in-review":  # a ticket already in review (finished before a crash) counts as written
+        return True, "", False
+    return False, outcome.message or f"its ticket is {outcome.status or 'not finished'}", True
+
+
+def _write_one(vault: Vault, cfg, job: Job, *, run_ticket=None) -> None:
+    """Write the job's batches one after another, from the first unfinished one. A batch whose run failed or was
+    interrupted is tried once more; after that the user is told which documents got pages."""
+    from . import wiki_run
+
+    fresh = load(vault, job.job_id)
+    if fresh is None or fresh.wiki_status not in ("waiting", "writing"):
+        return  # cancelled or written since it was picked
+    job = fresh
+    if run_ticket is None:
+        from ..runner import run_ticket
+    parts = wiki_run.batches(job.wiki_docs)
+    while job.wiki_batch < len(parts):
+        if job.wiki_attempts >= MAX_ATTEMPTS:  # it stopped the writer twice: never a third time
+            _wiki_failed(vault, job, "it stopped twice before finishing")
+            return
+        ok, why, again = _write_batch(vault, cfg, job, run_ticket)
+        if ok:
+            job.wiki_batch += 1
+            if job.wiki_batch < len(parts):
+                job.ticket, job.wiki_attempts = "", 0
+            save(vault, job)
+        elif not again or job.wiki_attempts >= MAX_ATTEMPTS:
+            _wiki_failed(vault, job, why)
+            return
+    job.wiki_status, job.finished = "done", time.strftime("%Y-%m-%d %H:%M")
+    save(vault, job)
 
 
 def give_up(vault: Vault, reason: str) -> None:
@@ -512,6 +556,8 @@ def _when(stamp: str) -> str:
 
 def status_lines(vault: Vault) -> list[str]:
     """What `bron kb status` says. Idle, nothing in it contains "reading" (an agent once waited for that word)."""
+    from . import wiki_run
+
     lines: list[str] = []
     active = runner_active(vault)
     for job in pending(vault):
@@ -528,6 +574,9 @@ def status_lines(vault: Vault) -> list[str]:
     writer = runner_active(vault, wiki=True)
     for job in wiki_pending(vault):
         what = job.label or _plural(len(job.wiki_docs), "document")
+        parts = len(wiki_run.batches(job.wiki_docs))
+        if job.wiki_status == "writing" and parts > 1:
+            what += f", part {min(job.wiki_batch + 1, parts)} of {parts},"
         if job.wiki_status == "writing" and writer:
             lines.append(f"Writing {what} into the wiki ({job.ticket or 'starting'}, since {_when(job.wiki_since)}).")
         elif job.wiki_status == "writing":

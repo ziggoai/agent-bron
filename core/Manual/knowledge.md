@@ -15,7 +15,7 @@ This follows Andrej Karpathy's "LLM wiki" idea: knowledge is compiled once and k
 
 - Say "read this: <Google Drive link>", give a file or folder path or a web link, or say "read the inbox". Several at once is fine.
 - **Up to three documents** are read right away, in the conversation. The agent writes their pages and then tells you in a few lines what it learned, what changed or contradicted earlier pages, and which pages it created or updated. A short document takes under a minute.
-- **A folder, or more than three documents,** is read and written into the wiki in the background; you keep working. One agent works through the documents one after another and checks the pages it touched; its summary reaches you like any ticket update, in your next message or briefing. One folder is written at a time: anything you add meanwhile, even in the conversation, waits its turn ("A folder is being written into the wiki; I'll add these after it").
+- **A folder, or more than three documents,** is read and written into the wiki in the background; you keep working. An agent works through the documents ten at a time, one batch after another, and checks the pages it touched; each batch's summary reaches you like any ticket update, in your next message or briefing. One folder is written at a time: anything you add meanwhile, even in the conversation, waits its turn ("A folder is being written into the wiki; I'll add these after it").
 - The very first reading sets up the reading and search tools (about 300 MB, a few minutes).
 - A document Bron already read is skipped when it hasn't changed; `--again` reads it again anyway. Reading a document again replaces its text, and the agent updates its page.
 - More than 300 documents or 3,000 pages: Bron asks first (`--yes` goes ahead).
@@ -86,7 +86,7 @@ Knowledge/
 ## Privacy
 
 - Everything stays in your vault: the text and search database in `.bron/kb/`, the wiki in `Knowledge/`. Scanned pages are read on your Mac; search runs on your Mac.
-- Your agents read the documents' text and write the pages with your Claude or Codex plan (the same login you use to talk to Bron). A folder in the background is one agent run.
+- Your agents read the documents' text and write the pages with your Claude or Codex plan (the same login you use to talk to Bron). A folder in the background is one agent run per ten documents.
 - A page too messy for Mac text recognition (a bad scan, a photo) is sent as an image to your plan's model. Turn it off with `knowledge: model_pages: false` in `System/Settings.md`; `max_model_pages` (default 20) limits the pages per document. Each one is logged in `.bron/kb/model-log.jsonl`.
 - No document text is sent to a model just to label it: a document's organisation, type and date come from its wiki page (before it has one, from its file and folder names).
 
@@ -95,5 +95,5 @@ Knowledge/
 - A short page (under 50 words, like a cover or signature page) is joined to the next page in search results; the text then shows `[p. N]` where each page starts, and the agent cites that page.
 - A badly scanned page can still contain misread characters, so check the numbers that matter against the original.
 - Charts and pictures inside documents are not described.
-- A background run stops after the time limit in `System/Settings.md` (`runner: max_minutes`, 30 by default); a very large folder may not finish. What was read stays searchable, the documents without a page show up in the check, and "finish the wiki pages" picks them up.
+- Each background run writes ten documents, well inside the time limit in `System/Settings.md` (`runner: max_minutes`, 30 by default). A run that stops or fails is tried once more; if it fails again, what was read stays searchable, the documents without a page show up in the check, and "finish the wiki pages" picks them up.
 - If the meaning-search model can't be downloaded (no internet, say), documents are still read and found by their words; meaning search starts once the model downloads.

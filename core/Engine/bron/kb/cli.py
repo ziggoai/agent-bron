@@ -177,7 +177,7 @@ def _ahead(vault) -> tuple[int, bool]:
     whether a wiki writer is, or will be, at work (one at a time)."""
     from . import jobs
 
-    waiting = sum(len(j.wiki_docs) for j in jobs.wiki_pending(vault))
+    waiting = sum(len(jobs.wiki_left(j)) for j in jobs.wiki_pending(vault))  # batches already written don't count
     reading = [j for j in jobs.pending(vault) if j.wiki]
     count = waiting + sum(len(j.items) for j in reading)
     return count, bool(count) or bool(reading) or jobs.wiki_active(vault)
