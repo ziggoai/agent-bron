@@ -233,14 +233,18 @@ def _add_export(args, vault) -> int:
 
 
 def _sizes(items) -> tuple[int, float]:
-    """Pages and estimated reading seconds of a few documents (PDFs on this Mac are opened to count them)."""
+    """Pages and estimated reading seconds of a few documents (PDFs on this Mac are opened to count them). An online-only
+    PDF isn't downloaded to look inside, so it's timed as a scan: a big one goes to the background rather than outlast
+    the command."""
     from . import ingest
 
     pages, seconds = 0, 0.0
     for item in items:
         n = ingest.page_count(item)
         pages += n
-        seconds += n * (SCAN_SECONDS_PER_PAGE if ingest.looks_scanned(item) else TEXT_SECONDS_PER_PAGE)
+        unseen = (item.kind in ("file", "drive") and Path(item.path).suffix.lower() == ".pdf"
+                  and ingest.online_only(item.path))
+        seconds += n * (SCAN_SECONDS_PER_PAGE if unseen or ingest.looks_scanned(item) else TEXT_SECONDS_PER_PAGE)
     return pages, seconds
 
 
@@ -444,7 +448,10 @@ def _forget(args, vault) -> int:
         text += f" Its page [[{title}]] is still there; delete it or keep it."
         note += f"; its page [[{title}]] was kept"
     print(text)
-    wiki.append_log(vault, [("forget", note)])
+    try:
+        wiki.append_log(vault, [("forget", note)])
+    except store.KbError as exc:  # log.md can't be read: the document is forgotten all the same
+        print(exc)
     return 0
 
 

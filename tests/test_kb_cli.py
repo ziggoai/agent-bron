@@ -217,6 +217,16 @@ def test_show_list_forget(env, capsys):
     assert len(store.all_docs(env.vault)) == 2
 
 
+def test_forget_with_an_unreadable_log_still_forgets(env, capsys):
+    add_all(env, capsys)
+    (env.vault.knowledge_dir / "log.md").write_bytes(b"\xff\xfe\x00bad")
+    code, out = run(env, capsys, "forget", "spa.pdf")
+    assert code == 0 and out.splitlines() == [
+        "Forgot spa.pdf; searches won't find it any more. The original wasn't touched.",
+        "log.md can't be read (it isn't plain text), so Bron left it as it is."]
+    assert len(store.all_docs(env.vault)) == 2
+
+
 def test_a_070_fund_correction_still_counts_as_the_company(env, capsys):
     add_all(env, capsys)
     memo = next(d for d in store.all_docs(env.vault) if d.name == "memo.docx")
@@ -456,6 +466,21 @@ def test_a_long_read_goes_to_the_background(env, capsys, tmp_path, monkeypatch):
     monkeypatch.setattr(ingest, "page_count", lambda item: 300)  # 300 scanned pages: about 5 minutes, still here
     code, out = run(env, capsys, "add", str(one))
     assert out.startswith("Read one.pdf (") and len(env.spawned) == 1
+
+
+def test_an_online_only_pdf_is_timed_like_a_scan(env, capsys, tmp_path, monkeypatch):
+    from bron.kb.sources import Item
+
+    big = make_text_pdf(tmp_path / "big.pdf", [SPA_TEXT])
+    monkeypatch.setattr(ingest, "online_only", lambda path: True)  # streamed from Drive: whether it's scanned is unknown
+    monkeypatch.setattr(ingest, "page_count", lambda item: 600)  # guessed from its size
+    assert kb_cli._sizes([Item("drive", "drive:BIG", "https://drive.google.com/open?id=BIG", "big.pdf", str(big))]) == (
+        600, 600 * kb_cli.SCAN_SECONDS_PER_PAGE)
+    note = tmp_path / "note.txt"
+    note.write_text("A short note.")
+    assert kb_cli._sizes([Item("file", f"file:{note}", str(note), "note.txt", str(note))])[1] == kb_cli.TEXT_SECONDS_PER_PAGE * 600
+    code, out = run(env, capsys, "add", str(big))
+    assert out.startswith("Reading 1 document into the wiki in the background (") and len(env.spawned) == 1
 
 
 def test_a_scan_is_read_in_the_conversation(env, capsys, tmp_path):
