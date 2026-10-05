@@ -312,3 +312,31 @@ def test_cancel_leaves_a_run_alone_that_finished_meanwhile(vault, tmp_path, monk
     monkeypatch.setattr(jobs, "wiki_pending", listed_then_finished)
     assert jobs.cancel(vault) == []
     assert jobs.load(vault, job.job_id).wiki_status == "done"
+
+
+def test_a_finished_folder_shows_a_banner_and_records_how_long_it_took(vault, tmp_path, desktop_notices):
+    job, _ = read_folder(vault, tmp_path)
+    assert len(desktop_notices) == 1
+    assert re.fullmatch(r"The Leases folder is in the wiki \(3 documents, \d+ s\)\.", desktop_notices[0])
+    thread = load_ticket(find_ticket(vault, job.ticket)).thread
+    assert re.search(r"Timing: 3 documents read in \d+ s; wiki pages written in \d+ s; \d+ s in all\.", thread[-1])
+    assert re.fullmatch(r"Last batch finished .+: 3 documents read in \d+ s, 0 couldn't be read; "
+                        r"wiki pages written in \d+ s\.", jobs.status_lines(vault)[-1])
+
+
+def test_a_failed_wiki_run_shows_a_banner_saying_what_to_do(vault, tmp_path, desktop_notices):
+    read_folder(vault, tmp_path, runner=FakeTicketRunner(status="blocked", message="the run failed"))
+    assert desktop_notices == ["Bron couldn't write all the wiki pages for the Leases folder. "
+                               "Say \"finish the wiki pages\" to write the rest."]
+
+
+def test_a_background_read_without_a_wiki_run_shows_a_banner(vault, tmp_path, desktop_notices):
+    found = sources.resolve_targets(vault, [str(folder_of(tmp_path, 2))])
+    job = jobs.create(vault, found.items)
+    jobs.run(vault, job.job_id, embedder=fake_embed, run_ticket=FakeTicketRunner())
+    assert len(desktop_notices) == 1 and re.fullmatch(r"Bron read 2 documents \(\d+ s\)\.", desktop_notices[0])
+
+
+def test_how_long_it_took_reads_plainly():
+    assert [jobs.took(s) for s in (0.4, 19.2, 60, 162, 3600, 3725)] == [
+        "1 s", "19 s", "1 min", "2 min 42 s", "1 h", "1 h 2 min"]

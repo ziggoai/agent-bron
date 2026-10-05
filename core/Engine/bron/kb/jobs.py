@@ -59,6 +59,10 @@ class Job:
     wiki_tickets: list[str] = field(default_factory=list)  # every batch's ticket, in order
     label: str = ""  # "the Leases folder" (empty: "N documents"), for the ticket's title
     report: str = ""  # the reading report: handed to the wiki run, and told to the user if the run fails
+    started: str = ""  # when reading began; with the three below, how long each part took
+    read_done: str = ""
+    wiki_started: str = ""
+    wiki_done: str = ""
 
 
 def _dir(vault: Vault) -> Path:
@@ -274,6 +278,46 @@ def _plural(n: int, word: str) -> str:
     return f"{n} {word}" + ("" if n == 1 else "s")
 
 
+def _now() -> str:
+    return datetime.now().isoformat(timespec="microseconds")
+
+
+def _span(start: str, end: str) -> float | None:
+    try:
+        return (datetime.fromisoformat(end) - datetime.fromisoformat(start)).total_seconds()
+    except (TypeError, ValueError):
+        return None
+
+
+def took(seconds: float) -> str:
+    """19 s, 2 min 42 s, 1 h 2 min."""
+    s = max(1, round(seconds))
+    if s < 60:
+        return f"{s} s"
+    if s < 3600:
+        m, s = divmod(s, 60)
+        return f"{m} min" + (f" {s} s" if s else "")
+    h, m = s // 3600, s % 3600 // 60
+    return f"{h} h" + (f" {m} min" if m else "")
+
+
+def _banner(text: str) -> None:
+    from .. import desktop
+
+    desktop.notify(text)
+
+
+def _read_banner(job: Job) -> None:
+    failed = sum(1 for f in job.failed if f.get("name"))
+    parts = [f"read {_plural(len(job.read), 'document')}"]
+    if job.unchanged:
+        parts.append(f"{len(job.unchanged)} unchanged")
+    if failed:
+        parts.append(f"{failed} couldn't be read")
+    seconds = _span(job.started or job.created, job.read_done)
+    _banner("Bron " + ", ".join(parts) + (f" ({took(seconds)})." if seconds is not None else "."))
+
+
 def report(vault: Vault, job: Job) -> str:
     from . import ingest
 
@@ -306,21 +350,24 @@ def _needs_pages(vault: Vault, job: Job) -> list[str]:
     return out
 
 
-def _finish(vault: Vault, job: Job, status: str, *, shown: bool = False) -> str:
+def _finish(vault: Vault, job: Job, status: str, *, shown: bool = False, banner: bool = False) -> str:
     """Report first, then mark the job finished: an interruption in between gives the report once, never zero times.
-    A wiki job keeps its report for its wiki run, whose ticket update becomes what the user is told."""
+    A wiki job keeps its report for its wiki run, whose ticket update becomes what the user is told. A background read
+    (banner) that ends here shows a Mac banner; one with a wiki run shows it when its pages are written."""
     if status == "cancelled":
         job.cancelled = [str(raw.get("name", "")) if isinstance(raw, dict) else str(raw) for raw in _remaining(job)]
     text = report(vault, job)
     pages = _needs_pages(vault, job) if job.wiki and status == "done" else []
     if pages:
         job.report, job.wiki_docs, job.wiki_status = text, pages, "waiting"
-        job.wiki_since = datetime.now().isoformat(timespec="microseconds")
+        job.wiki_since = _now()
     else:
         notices.add(vault, text, job_id=job.job_id, shown=shown)
-    job.status = status
+    job.status, job.read_done = status, _now()
     job.finished = time.strftime("%Y-%m-%d %H:%M")
     save(vault, job)  # the cancel flag stays until the job is pruned: a runner that already picked it up stops too
+    if banner and status == "done" and not pages:
+        _read_banner(job)
     return text
 
 
@@ -367,7 +414,7 @@ def _work(vault: Vault, cfg, job: Job, *, embedder, readers_ocr, model_call) -> 
     if fresh is None or fresh.status not in ("queued", "running"):
         return  # finished or cancelled since it was picked
     job = fresh
-    job.status = "running"
+    job.status, job.started = "running", job.started or _now()
     save(vault, job)
     for raw in _remaining(job):
         if _cancel_path(vault, job.job_id).exists():
@@ -399,7 +446,7 @@ def _work(vault: Vault, cfg, job: Job, *, embedder, readers_ocr, model_call) -> 
             job.failed.append({"identity": identity, "name": doc.name, "error": doc.error})
         save(vault, job)  # committed: an interrupted job never reads this item again
         _beat(vault)
-    _finish(vault, job, "done")
+    _finish(vault, job, "done", banner=True)
 
 
 def run(vault: Vault, job_id: str, *, embedder=None, readers_ocr=None, model_call=None, cfg=None, run_ticket=None) -> bool:
@@ -456,8 +503,36 @@ def _wiki_failed(vault: Vault, job: Job, why: str) -> None:
         note += f"\nNo page yet: {', '.join(unwritten)}."
     note += "\nSay \"finish the wiki pages\" to write the rest."
     notices.add(vault, f"{job.report}\n{note}" if job.report else note, job_id=f"{job.job_id}-wiki")
-    job.wiki_status, job.finished = "failed", time.strftime("%Y-%m-%d %H:%M")
+    job.wiki_status, job.finished, job.wiki_done = "failed", time.strftime("%Y-%m-%d %H:%M"), _now()
     save(vault, job)
+    what = job.label or _plural(len(job.wiki_docs), "document")
+    _banner(f"Bron couldn't write all the wiki pages for {what}. Say \"finish the wiki pages\" to write the rest.")
+
+
+def _wiki_written(vault: Vault, job: Job) -> None:
+    """How long it took: a line in the last ticket's thread and the Mac banner."""
+    from .. import tickets
+
+    n = len(job.wiki_docs)
+    total, writing = _span(job.started or job.created, job.wiki_done), _span(job.wiki_started, job.wiki_done)
+    reading = _span(job.started, job.read_done) if job.started else None
+    parts = [f"{_plural(len(job.read), 'document')} read in {took(reading)}"] if reading is not None else []
+    if writing is not None:
+        parts.append(f"wiki pages written in {took(writing)}")
+    if total is not None:
+        parts.append(f"{took(total)} in all")
+    if parts and job.ticket:
+        try:
+            with tickets.editing(vault, job.ticket) as ticket:
+                tickets.add_message(ticket, "runner", "Timing: " + "; ".join(parts) + ".")
+        except Exception as exc:  # noqa: BLE001 - the pages are written; a timing line never undoes that
+            from .ingest import _log
+
+            _log(vault, f"the timing line of job {job.job_id}", exc)
+    head = (job.label[:1].upper() + job.label[1:] + " is") if job.label else \
+        (_plural(n, "document") + (" is" if n == 1 else " are"))
+    detail = ", ".join(([_plural(n, "document")] if job.label else []) + ([took(total)] if total is not None else []))
+    _banner(f"{head} in the wiki" + (f" ({detail})." if detail else "."))
 
 
 WENT_WRONG = "something went wrong; the details are in .bron/logs/kb-errors.log"
@@ -500,6 +575,9 @@ def _write_one(vault: Vault, cfg, job: Job, *, run_ticket=None) -> None:
     if run_ticket is None:
         from ..runner import run_ticket
     parts = wiki_run.batches(job.wiki_docs)
+    if not job.wiki_started:
+        job.wiki_started = _now()
+        save(vault, job)
     while job.wiki_batch < len(parts):
         if job.wiki_attempts >= MAX_ATTEMPTS:  # it stopped the writer twice: never a third time
             _wiki_failed(vault, job, "it stopped twice before finishing")
@@ -513,8 +591,9 @@ def _write_one(vault: Vault, cfg, job: Job, *, run_ticket=None) -> None:
         elif not again or job.wiki_attempts >= MAX_ATTEMPTS:
             _wiki_failed(vault, job, why)
             return
-    job.wiki_status, job.finished = "done", time.strftime("%Y-%m-%d %H:%M")
+    job.wiki_status, job.finished, job.wiki_done = "done", time.strftime("%Y-%m-%d %H:%M"), _now()
     save(vault, job)
+    _wiki_written(vault, job)
 
 
 def give_up(vault: Vault, reason: str) -> None:
@@ -529,7 +608,7 @@ def give_up(vault: Vault, reason: str) -> None:
                 shown = ", ".join(names[:5]) + (", …" if len(names) > 5 else "")
                 job.failed.append({"identity": "", "name": "", "error": (
                     f"{reason.rstrip()} Nothing was read ({shown}); run the same `bron kb add` again to try again.")})
-            _finish(vault, job, "done")
+            _finish(vault, job, "done", banner=True)
 
 
 def _finish_indexing(vault: Vault, embedder) -> None:
@@ -590,6 +669,9 @@ def status_lines(vault: Vault) -> list[str]:
         last = finished[-1]
         failed = sum(1 for f in last.failed if f.get("name"))
         how = "was cancelled" if last.status == "cancelled" else "finished"
-        lines.append(f"Last batch {how} {last.finished}: {_plural(len(last.read), 'document')} read, "
-                     f"{failed} couldn't be read.")
+        reading = _span(last.started or last.created, last.read_done) if last.read_done else None
+        writing = _span(last.wiki_started, last.wiki_done) if last.wiki_status == "done" else None
+        lines.append(f"Last batch {how} {last.finished}: {_plural(len(last.read), 'document')} read"
+                     + (f" in {took(reading)}" if reading is not None else "") + f", {failed} couldn't be read"
+                     + (f"; wiki pages written in {took(writing)}" if writing is not None else "") + ".")
     return lines

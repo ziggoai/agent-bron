@@ -1,6 +1,7 @@
 import fcntl
 import json
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -313,7 +314,7 @@ def test_status_lines(kb, tmp_path):
     jobs.run(kb.vault, job.job_id, **kb.deps)
     lines = jobs.status_lines(kb.vault)
     assert lines[0] == "Nothing is being read."
-    assert lines[1].startswith("Last batch finished ") and lines[1].endswith(": 2 documents read, 0 couldn't be read.")
+    assert re.fullmatch(r"Last batch finished .+: 2 documents read in \d+ s, 0 couldn't be read\.", lines[1])
 
 
 def test_spawn_starts_a_detached_run_job(kb):

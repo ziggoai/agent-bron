@@ -1,4 +1,6 @@
 """`bron kb add` in 0.8.0: up to 3 documents in the conversation, a folder or more in the background with a wiki run."""
+import re
+
 import pytest
 
 from bron.kb import cli as kb_cli
@@ -98,7 +100,8 @@ def test_idle_status_never_says_reading(env, capsys, tmp_path, monkeypatch, stat
     code, out = run(env, capsys, "status")
     assert code == 0 and jobs.IDLE in out and "reading" not in out.lower()
     if state == "after a batch":
-        assert "Last batch finished " in out and ": 1 document read, 0 couldn't be read." in out
+        assert re.search(r"Last batch finished .+: 1 document read in \d+ s, 0 couldn't be read; "
+                         r"wiki pages written in \d+ s\.", out)
 
 
 def test_status_shows_a_waiting_wiki_run_and_cancel_stops_it(env, capsys):

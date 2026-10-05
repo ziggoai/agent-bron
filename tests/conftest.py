@@ -34,6 +34,17 @@ def _private_codex_home(request, tmp_path_factory, monkeypatch):
     monkeypatch.setenv("BRON_RELEASE_SOURCE", str(tmp_path_factory.mktemp("no-releases")))
 
 
+@pytest.fixture(autouse=True)
+def desktop_notices(request, monkeypatch) -> list[str]:
+    """Unit tests never show a real Mac notification; a test can read what would have been shown."""
+    shown: list[str] = []
+    if "live" not in request.node.path.parts:
+        from bron import desktop
+
+        monkeypatch.setattr(desktop, "notify", shown.append)
+    return shown
+
+
 @pytest.fixture
 def vault(tmp_path, monkeypatch) -> Vault:
     """A fresh vault from template/ + core/, in a folder whose name has a space and an accent."""
