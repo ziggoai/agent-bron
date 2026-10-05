@@ -69,6 +69,20 @@ def fake_drive(account: Path) -> Path:
     return my_drive
 
 
+def wait_for_model(vault: Path, limit: float = 600) -> None:
+    """Wait until the search helper has the meaning model loaded. A search of an empty knowledge base never needs the
+    model, so the warm-up search returns while the helper is still downloading it in the background; without this wait
+    the first `kb add` would download it again, inside its timing."""
+    from bron.kb import service
+    from bron.vault import Vault
+
+    started = time.time()
+    while (reply := service.query(Vault(vault), {"query": "warm up"}, start=False)) is None:
+        assert time.time() - started < limit, "the search helper never finished loading the model"
+        time.sleep(0.5)
+    assert "error" not in reply and not reply.get("keyword_only"), reply
+
+
 @pytest.fixture(scope="module", params=["claude", "codex"])
 def vault(request, tmp_path_factory):
     from vaultkit import set_meta
@@ -89,7 +103,8 @@ def vault(request, tmp_path_factory):
         set_meta(root / "System" / "Settings.md", default_cli=cli)  # the background run uses this CLI
         bron(root, "sync")
         started = time.time()
-        bron(root, "kb", "search", "warm up")  # installs the tools and loads the model, outside the timings
+        bron(root, "kb", "search", "warm up")  # installs the tools and starts the search helper
+        wait_for_model(root)  # outside the timings: the first download of the model
         print(f"\n[{cli} setup] {time.time() - started:.0f}s")
         yield cli, root
     finally:
