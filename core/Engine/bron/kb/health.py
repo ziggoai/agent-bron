@@ -36,4 +36,17 @@ def issues(cfg: Config) -> list[Issue]:
     if _index_unreadable(vault):
         out.append(Issue("warning", "kb.index-unreadable",
                          "The knowledge base search index can't be read; it will be rebuilt on the next search."))
+    try:
+        from . import wiki_check
+
+        problems = wiki_check.run(vault)
+    except Exception:  # noqa: BLE001 - the wiki never breaks the health check
+        problems = []
+    for code in (wiki_check.ORDER if problems else ()):
+        found = [p for p in problems if p.code == code]
+        if found:
+            first = "; ".join(p.text.rstrip(".") for p in found[:3])
+            more = f"; …and {len(found) - 3} more" if len(found) > 3 else ""
+            out.append(Issue("warning", f"wiki.{code}", f"{wiki_check.TITLES[code]} ({len(found)}): {first}{more}. "
+                                                         "Run `bron wiki check --all` for the list."))
     return out

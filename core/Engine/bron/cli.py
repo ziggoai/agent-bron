@@ -42,13 +42,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_chat.add_argument("agent", nargs="?", default="")
     p_chat.add_argument("--cli", choices=CLIS)
     from . import routines_cli, setup_cli, tickets_cli
-    from .kb import cli as kb_cli
+    from .kb import cli as kb_cli, wiki_cli
     from .memory import cli as memory_cli
 
     tickets_cli.add_parser(sub)
     routines_cli.add_parser(sub)
     memory_cli.add_parser(sub)
     kb_cli.add_parser(sub)
+    wiki_cli.add_parser(sub)
     setup_cli.add_agent_parser(sub)
     setup_cli.add_work_parsers(sub)
     setup_cli.add_connection_parser(conn_commands)
@@ -129,6 +130,10 @@ def main(argv: list[str] | None = None) -> int:
         from .kb import cli as kb_cli
 
         return kb_cli.handle(args, vault)
+    if args.command == "wiki":
+        from .kb import wiki_cli
+
+        return wiki_cli.handle(args, vault)
     if args.command == "run":
         return _run(vault, args)
     if args.command == "chat":
