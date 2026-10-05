@@ -136,3 +136,26 @@ def test_a_wiki_that_cannot_be_checked_is_one_health_warning(vault, monkeypatch)
     found = [i for i in run_checks(load(vault)) if i.code.startswith("wiki.")]
     assert [(i.level, i.code, i.message) for i in found] == [
         ("warning", "wiki.unchecked", "The wiki couldn't be checked; run `bron wiki check` for details.")]
+
+
+def test_a_document_page_with_broken_properties_still_counts_as_its_page(vault):
+    from bron.kb import store, wiki
+
+    doc = stored_doc(vault, "lease.pdf", ["Lease text"])
+    page = write_page(vault, "Documents/Lease.md", "See [[Harbor Bakery]].\n", type="document", summary="A lease",
+                      doc=doc.doc_id)
+    org(vault, "Harbor Bakery", "Rents a shop (see [[Lease]]).\n")
+    wiki.link_documents(vault, wiki.all_pages(vault))
+    page.write_text("---\ntype: [document\n---\nSee [[Harbor Bakery]].\n", encoding="utf-8")  # a YAML typo
+    found = codes(vault)
+    assert ("bad-properties", "Knowledge/Documents/Lease.md") in found
+    assert ("no-page-yet", doc.doc_id) not in found  # no agent is sent to write a second page for it
+    assert store.load(vault, doc.doc_id).page == "Knowledge/Documents/Lease.md"
+    page.unlink()  # the page is gone: now the document has no page
+    assert ("no-page-yet", doc.doc_id) in codes(vault)
+
+
+def test_an_escaped_pipe_in_a_table_link_is_still_a_link(vault):
+    org(vault, "Acme Ltda", "| Who | Role |\n|---|---|\n| [[Beta Ltda\\|Beta]] | buyer |\n")
+    org(vault, "Beta Ltda", "| Who | Role |\n|---|---|\n| [[Acme Ltda\\|Acme]] | seller |\n")
+    assert wiki_check.run(vault) == []  # no broken link to "Acme Ltda\", no orphan

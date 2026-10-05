@@ -1,7 +1,7 @@
 """The wiki's rules file, Knowledge/Schema.md, and the headers of the two files Bron's code writes (index.md, log.md).
 
-Schema.md's properties hold what code reads (`page_types`: the page folders, in index order; `doc_types`); its body is
-plain English for the agents. It's the user's file: Bron only reads it (the 0.8.0 migration creates it once)."""
+Schema.md's properties hold two lists: `page_types` (the page folders, in index order) is what code reads; `doc_types` is
+for the agents (code only writes it, in the 0.8.0 migration). Its body is plain English for the agents. It's the user's file: Bron only reads it (the 0.8.0 migration creates it once)."""
 from __future__ import annotations
 
 from pathlib import Path

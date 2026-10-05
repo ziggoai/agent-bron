@@ -162,3 +162,35 @@ def test_an_unreadable_log_is_one_line_and_the_rest_carries_on(vault):
     assert lines[1] == "log.md can't be read (it isn't plain text), so Bron left it as it is."
     assert store.load(vault, doc.doc_id).page == "Knowledge/" + LEASE
     assert "[[Harbor Bakery]]" in (vault.knowledge_dir / "index.md").read_text(encoding="utf-8")
+
+
+def test_two_wiki_done_runs_take_turns(vault):
+    import threading
+
+    from bron import statefile
+
+    doc = stored_doc(vault, "lease.pdf", ["Lease text"])
+    write_lease(vault, doc)
+    write_bakery(vault)
+    held, release, result = threading.Event(), threading.Event(), []
+
+    def other_run():
+        with statefile.locked(store.kb_dir(vault) / "wiki-done"):
+            held.set()
+            release.wait(10)
+
+    other = threading.Thread(target=other_run)
+    other.start()
+    assert held.wait(10)
+    mine = threading.Thread(target=lambda: result.append(done(vault)))
+    mine.start()
+    mine.join(1.0)
+    try:
+        assert mine.is_alive() and result == []  # it waits for the other run instead of logging the same pages twice
+    finally:
+        release.set()
+        mine.join(20)
+        other.join(20)
+    assert result[0] == "Wiki updated: 2 pages (2 new)."
+    assert done(vault) == "Nothing changed in the wiki."
+    assert log(vault).count("ingest | [[Office lease (2025-03-01)]]") == 1

@@ -19,7 +19,8 @@ from . import schema, store
 
 RESERVED = {schema.SCHEMA, schema.INDEX, schema.LOG}
 OTHER = "Other"  # pages directly in Knowledge/, outside any type folder
-LINK = re.compile(r"!?\[\[([^\[\]|#]*)(?:#[^\[\]|]*)?(?:\|[^\[\]]*)?\]\]")
+# [[Acme Ltda\|Acme]] in a table escapes its "|": the "\" isn't part of the name
+LINK = re.compile(r"!?\[\[([^\[\]|#]*?)\\?(?:#[^\[\]|]*)?(?:\|[^\[\]]*)?\]\]")
 LOG_KINDS = ("ingest", "update", "save", "check", "forget")
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 

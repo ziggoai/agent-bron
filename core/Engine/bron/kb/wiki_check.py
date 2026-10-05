@@ -126,7 +126,9 @@ def run(vault: Vault, *, only: set[str] | None = None, pages: list[wiki.Page] | 
     if only is None:
         with_pages = {p.doc_id for p in good if p.doc_id}
         for doc in store.all_docs(vault):
-            if doc.status == "read" and doc.doc_id not in with_pages:
+            # a page whose properties can't be read is still its document's page (reported above, never written twice)
+            recorded = bool(doc.page) and (vault.root / doc.page).is_file()
+            if doc.status == "read" and doc.doc_id not in with_pages and not recorded:
                 out.append(Problem("no-page-yet", doc.doc_id, f"{doc.name} (doc {doc.doc_id}): read but no page yet."))
     return sorted(out, key=lambda p: (ORDER.index(p.code), p.where, p.text))
 

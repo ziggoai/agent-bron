@@ -5,7 +5,7 @@ doc_types: [contract, invoice, receipt, statement, report, financial statements,
 
 # Wiki schema
 
-The rules for the wiki in `Knowledge/`. Agents read this file before they write pages. It's yours: change it to fit your work, or ask Bron to change it. The two lists at the top are what Bron's code reads: `page_types` (the page folders, in the order `index.md` shows them) and `doc_types` (the kinds of document a document page can be).
+The rules for the wiki in `Knowledge/`. Agents read this file before they write pages. It's yours: change it to fit your work, or ask Bron to change it. The two lists at the top are yours to edit too: Bron's code reads `page_types` (the page folders, in the order `index.md` shows them), and agents read `doc_types` (the kinds of document a document page can be).
 
 ## Page types
 

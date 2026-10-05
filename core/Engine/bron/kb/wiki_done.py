@@ -53,6 +53,12 @@ def _index(vault: Vault) -> None:
 
 
 def done(vault: Vault, *, log_text: str = "") -> str:
+    """One `wiki done` at a time: two at once would both see the same changed pages and log them twice."""
+    with statefile.locked(store.kb_dir(vault) / "wiki-done"):  # not "wiki-log": append_log takes that one inside
+        return _done(vault, log_text)
+
+
+def _done(vault: Vault, log_text: str) -> str:
     state = statefile.read_json(_state_path(vault), {})
     before = state.get("pages") if isinstance(state.get("pages"), dict) else {}
     reads = state.get("docs") if isinstance(state.get("docs"), dict) else {}
