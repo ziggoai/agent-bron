@@ -2,6 +2,9 @@
 
 What changed in each version of Bron, newest first. Bron shows the new sections when you ask it to update itself.
 
+## 0.8.2
+- Fix: the briefing's list of open items no longer shows "Nothing" from a conversation that left nothing open.
+
 ## 0.8.1
 - First-run setup asks which connectors Bron should use and switches the rest off, instead of using every connector it finds. It points out when the same app was found twice (a connector and a plugin's copy of it). Later, "stop using Spotify" changes Bron's connectors rather than saving a note.
 - Giving an agent a new role also rewrites the "Who you are" part of its instructions. When only the role changes, the preview says so.

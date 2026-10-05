@@ -40,6 +40,8 @@ def _open_items(notes) -> list[str]:
                 inside = line.strip() == "## Open"
             elif inside and line.startswith("- ") and line[2:].strip():
                 item = line[2:].strip()
+                if item.rstrip(".").casefold() == "nothing":
+                    continue  # the summary's placeholder for an empty section
                 if item.casefold() not in seen:
                     seen.add(item.casefold())
                     out.append(item)

@@ -229,3 +229,12 @@ def test_ticket_runs_get_no_open_items(vault, monkeypatch):
     conv_open(vault, "2026-10-01 09.00 Busy", "MFN question")
     monkeypatch.setenv("BRON_TICKET", "T-1")
     assert "MFN question" not in build_briefing(vault, cli="claude")
+
+
+def test_the_summaries_nothing_placeholder_is_not_an_open_item(vault):
+    conv_open(vault, "2026-10-01 09.00 Busy", "MFN question")
+    conv_open(vault, "2026-10-02 09.00 Quiet", "Nothing")
+    text = build_briefing(vault, cli="claude")
+    assert "- MFN question" in text and "- Nothing" not in text
+    conv_open(vault, "2026-10-01 09.00 Busy", "Nothing.")
+    assert OPEN not in build_briefing(vault, cli="claude")
