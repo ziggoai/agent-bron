@@ -316,6 +316,24 @@ EXPORT_SOURCE = ("--source should be the Google Drive link of the document you e
                  "(it starts with https://docs.google.com/ or https://drive.google.com/).")
 
 
+NOT_TEXT = "--file is only for text exported from a Google Doc, Sheet or Slides; give Bron the Drive link instead."
+
+
+def read_text_file(text_file: Path | str) -> str:
+    """The text of an exported Google file. Anything that isn't UTF-8 text (a PDF, an image, a Word file…) is refused:
+    a Drive file is always given to `bron kb add` by its link."""
+    try:
+        data = Path(text_file).read_bytes()
+    except OSError as exc:
+        raise KbError(f"There's no readable file at {text_file}.") from exc
+    if b"\x00" in data or data.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"%PDF"):
+        raise KbError(NOT_TEXT)
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise KbError(NOT_TEXT) from None
+
+
 def export_item(text_file: Path | str, source: str, name: str) -> Item:
     """An exported Google file, checked now and read with add_export (in a background job, when the tools are
     still being set up)."""
@@ -323,8 +341,7 @@ def export_item(text_file: Path | str, source: str, name: str) -> Item:
     did = sources.drive_id(source)
     if not did:
         raise KbError(EXPORT_SOURCE)
-    if not Path(text_file).is_file():
-        raise KbError(f"There's no readable file at {text_file}.")
+    read_text_file(text_file)  # a plain error now: missing, or not exported text
     return Item("export", f"drive:{did}", source, name.strip(), str(Path(text_file).resolve()), source)
 
 
@@ -352,16 +369,11 @@ def _export_pages(text: str):
 
 def add_export(vault: Vault, cfg, text_file: Path, source: str, name: str, *, embedder, label_call=None) -> Doc:
     """A Google Doc, Sheet or Slides file exported through the Drive connection, read as that document."""
-    from .readers import decode
-
     source = sources.as_link(source.strip())
     did = sources.drive_id(source)
     if not did:
         raise KbError(EXPORT_SOURCE)
-    try:
-        text = decode(Path(text_file).read_bytes())
-    except OSError as exc:
-        raise KbError(f"There's no readable file at {text_file}.") from exc
+    text = read_text_file(text_file)
     item = Item("native", f"drive:{did}", source, name.strip() or Path(text_file).stem, "", source)
     doc_id = store.doc_id_for(item.identity)
     previous = store.load(vault, doc_id)

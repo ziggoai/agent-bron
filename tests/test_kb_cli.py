@@ -544,3 +544,18 @@ def test_schemeless_drive_links_are_links(env, capsys):
     assert code == 0 and out.startswith("Read 1 document (")
     code, out = run(env, capsys, "add", "docs.google.com/document/d/NOPE/edit")
     assert "Couldn't find https://docs.google.com/document/d/NOPE/edit in Google Drive" in out
+
+
+@pytest.mark.parametrize("kind", ["pdf", "nul", "cp1252"])
+def test_file_takes_only_exported_text(env, capsys, tmp_path, kind):
+    path = tmp_path / "export.txt"
+    if kind == "pdf":
+        make_text_pdf(path, [SPA_TEXT])
+    elif kind == "nul":
+        path.write_bytes(b"PK\x03\x04\x00\x00binary")
+    else:
+        path.write_bytes("Relatório de 2025".encode("cp1252"))
+    code, out = run(env, capsys, "add", "--file", str(path), "--source", "https://docs.google.com/document/d/GDOC1/edit",
+                    "--name", "Memo")
+    assert code == 1 and out.strip() == ingest.NOT_TEXT
+    assert store.all_docs(env.vault) == [] and env.spawned == []

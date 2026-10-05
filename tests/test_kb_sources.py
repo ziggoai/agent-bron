@@ -209,3 +209,70 @@ def test_a_schemeless_drive_link_resolves(vault, tmp_path, monkeypatch):
     monkeypatch.setenv("BRON_DRIVE_ROOT", str(root))
     items, failed = sources.resolve(vault, ["drive.google.com/file/d/FILE7/view?usp=sharing"])
     assert failed == [] and items[0].identity == "drive:FILE7" and items[0].path == str(spa)
+
+
+def _shared_layout(tmp_path, monkeypatch):
+    """Drive for desktop's layout: My Drive beside .shortcut-targets-by-id/<folder id>/<folder name>/."""
+    account = tmp_path / "GoogleDrive-test"
+    my_drive = account / "My Drive"
+    my_drive.mkdir(parents=True)
+    shared = account / sources.SHORTCUTS / "SHARED1" / "Leases"
+    shared.mkdir(parents=True)
+    lease = shared / "lease.pdf"
+    lease.write_bytes(b"%PDF-1.4")
+    set_drive_id(lease, "LEASE1")
+    set_drive_id(shared, "SHARED1")
+    monkeypatch.setenv("BRON_DRIVE_ROOT", str(my_drive))
+    return account, shared, lease
+
+
+def test_a_file_in_a_folder_shared_with_the_user_is_found(vault, tmp_path, monkeypatch):
+    _, _, lease = _shared_layout(tmp_path, monkeypatch)
+    items, failed = sources.resolve(vault, ["https://drive.google.com/file/d/LEASE1/view"])
+    assert failed == [] and items[0].path == str(lease) and items[0].identity == "drive:LEASE1"
+
+
+def test_a_shared_folder_link_goes_straight_to_its_shortcut_folder(vault, tmp_path, monkeypatch):
+    _, _, lease = _shared_layout(tmp_path, monkeypatch)
+    walked = []
+    real = sources._search
+    monkeypatch.setattr(sources, "_search", lambda vault, ids, roots=None: walked.append(set(ids)) or real(vault, ids, roots))
+    found = sources.resolve_targets(vault, ["https://drive.google.com/drive/folders/SHARED1"])
+    assert [i.path for i in found.items] == [str(lease)] and found.failed == [] and found.folders == ["Leases"]
+    assert walked == []  # found by its id at once: no walk through the whole Drive
+
+
+def test_the_real_drive_layout_includes_shared_folders(tmp_path, monkeypatch):
+    monkeypatch.delenv("BRON_DRIVE_ROOT", raising=False)
+    account = tmp_path / "Library" / "CloudStorage" / "GoogleDrive-someone@example.com"
+    for sub in ("My Drive", ".shortcut-targets-by-id/ABC/Team", ".Trash"):
+        (account / sub).mkdir(parents=True)
+    roots = sources.drive_roots(home=tmp_path)
+    assert account / "My Drive" in roots and account / sources.SHORTCUTS in roots
+    assert all(r.name != ".Trash" for r in roots)
+    assert sources.shortcut_dirs(home=tmp_path) == [account / sources.SHORTCUTS]
+
+
+def test_other_hidden_folders_stay_skipped_and_shortcuts_are_walked(vault, tmp_path, monkeypatch):
+    root = fake_drive(tmp_path)
+    (root / ".hidden").mkdir()
+    (root / ".hidden" / "x.pdf").write_bytes(b"x")
+    set_drive_id(root / ".hidden" / "x.pdf", "HID1")
+    inner = root / sources.SHORTCUTS / "F9" / "Shared"
+    inner.mkdir(parents=True)
+    (inner / "y.pdf").write_bytes(b"y")
+    set_drive_id(inner / "y.pdf", "SH1")
+    monkeypatch.setenv("BRON_DRIVE_ROOT", str(root))
+    assert sources.find_drive_item(vault, "HID1") is None
+    assert sources.find_drive_item(vault, "SH1") == inner / "y.pdf"
+
+
+def test_folders_asked_for_are_named(vault, tmp_path):
+    folder = tmp_path / "Receipts"
+    folder.mkdir()
+    (folder / "a.txt").write_text("a")
+    single = tmp_path / "b.txt"
+    single.write_text("b")
+    found = sources.resolve_targets(vault, [str(folder), str(single)])
+    assert found.folders == ["Receipts"] and len(found.items) == 2
+    assert sources.resolve_targets(vault, [], inbox=True).folders == []

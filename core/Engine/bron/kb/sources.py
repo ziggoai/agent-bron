@@ -21,6 +21,7 @@ MAX_ENTRIES = 200_000
 MAX_SECONDS = 120
 SAVE_EVERY = 2000
 NATIVE = {".gdoc", ".gsheet", ".gslides"}
+SHORTCUTS = ".shortcut-targets-by-id"  # Drive for desktop keeps folders shared with the user here, by folder id
 _ID_PATTERNS = (
     re.compile(r"/(?:file|document|spreadsheets|presentation)(?:/u/\d+)?/d/(?!e/)([\w-]+)"),
     re.compile(r"/folders/([\w-]+)"),
@@ -65,11 +66,24 @@ def drive_id(link: str) -> str | None:
     return None
 
 
+def shortcut_dirs(home: Path | None = None) -> list[Path]:
+    """Where Google Drive for desktop keeps the folders shared with the user: <account>/.shortcut-targets-by-id."""
+    override = os.environ.get("BRON_DRIVE_ROOT")
+    if override:
+        candidates = [Path(override) / SHORTCUTS, Path(override).parent / SHORTCUTS]
+    else:
+        base = (home or Path.home()) / "Library" / "CloudStorage"
+        candidates = [account / SHORTCUTS for account in sorted(base.glob("GoogleDrive-*"))] if base.is_dir() else []
+    return [c for c in candidates if c.is_dir()]
+
+
 def drive_roots(home: Path | None = None) -> list[Path]:
     override = os.environ.get("BRON_DRIVE_ROOT")
     if override:
         p = Path(override)
-        return [p] if p.is_dir() else []
+        if not p.is_dir():
+            return []
+        return [p] + [s for s in shortcut_dirs() if not is_under(s, p)]  # one inside p is walked from p
     base = (home or Path.home()) / "Library" / "CloudStorage"
     roots: list[Path] = []
     if base.is_dir():
@@ -78,7 +92,16 @@ def drive_roots(home: Path | None = None) -> list[Path]:
             subs = [s for s in sorted(account.iterdir(), key=lambda s: s.name not in ("My Drive", "Shared drives"))
                     if s.is_dir() and not s.name.startswith(".")]
             roots += subs
-    return roots
+    return roots + shortcut_dirs(home)
+
+
+def shared_folder(item_id: str) -> Path | None:
+    """A folder shared with the user, straight from its id, without a walk: .shortcut-targets-by-id/<folder id>."""
+    for base in shortcut_dirs():
+        candidate = base / item_id
+        if candidate.is_dir():
+            return candidate
+    return None
 
 
 _libc = None
@@ -111,7 +134,7 @@ def _load_cache(vault: Vault) -> dict:
 
 
 def _hidden(name: str) -> bool:
-    return name.startswith(".")
+    return name.startswith(".") and name != SHORTCUTS  # folders shared with the user live in .shortcut-targets-by-id
 
 
 def _save_cache(vault: Vault, cache: dict) -> None:
@@ -225,12 +248,40 @@ def _item_for_file(path: Path, *, from_drive_id: str | None = None, keep: bool =
     return Item("file", f"file:{path}", str(path), path.name, str(path))
 
 
+@dataclass
+class Resolved:
+    items: list[Item]
+    failed: list[str]
+    folders: list[str]  # the names of the folders asked for (a folder is read in the background)
+
+
+def _folder_name(path: Path) -> str:
+    """The folder's own name; a shared folder's id folder is named after the one folder inside it."""
+    if path.parent.name == SHORTCUTS:
+        try:
+            inside = [p for p in path.iterdir() if p.is_dir() and not _hidden(p.name)]
+        except OSError:
+            inside = []
+        if len(inside) == 1:
+            return inside[0].name
+    return path.name
+
+
 def resolve(vault: Vault, targets: list[str], *, inbox: bool = False) -> tuple[list[Item], list[str]]:
+    found = resolve_targets(vault, targets, inbox=inbox)
+    return found.items, found.failed
+
+
+def resolve_targets(vault: Vault, targets: list[str], *, inbox: bool = False) -> Resolved:
     targets = [as_link(t.strip()) for t in targets if t.strip()]
     wanted = {drive_id(t) for t in targets if _is_drive_link(t)} - {None}
-    located, out_of_budget = _search(vault, wanted) if wanted else ({}, False)
+    direct = {i: p for i in wanted if (p := shared_folder(i)) is not None}
+    rest = wanted - set(direct)
+    located, out_of_budget = _search(vault, rest) if rest else ({}, False)
+    located = {**located, **direct}
     items: list[Item] = []
     failed: list[str] = []
+    folders: list[str] = []
     for target in targets:
         if _is_drive_link(target):
             did = drive_id(target)
@@ -240,6 +291,7 @@ def resolve(vault: Vault, targets: list[str], *, inbox: bool = False) -> tuple[l
                 failed.append(f"Couldn't find {target} in Google Drive on this Mac{note}. "
                               "Open Google Drive for desktop and make sure the file is available.")
             elif path.is_dir():
+                folders.append(_folder_name(path))
                 items += [_item_for_file(f) for f in _files_under(path)]
             else:
                 items.append(_item_for_file(path, from_drive_id=did))
@@ -252,6 +304,7 @@ def resolve(vault: Vault, targets: list[str], *, inbox: bool = False) -> tuple[l
                 path = Path.cwd() / path
             keep = is_under(path, inbox_dir(vault))
             if path.is_dir():
+                folders.append(path.name)
                 items += [_item_for_file(f, keep=keep) for f in _files_under(path)]
             elif path.is_file():
                 items.append(_item_for_file(path, keep=keep))
@@ -261,4 +314,4 @@ def resolve(vault: Vault, targets: list[str], *, inbox: bool = False) -> tuple[l
         folder = inbox_dir(vault)
         if folder.is_dir():
             items += [_item_for_file(f, keep=True) for f in _files_under(folder)]
-    return items, failed
+    return Resolved(items, failed, folders)

@@ -832,3 +832,15 @@ def test_an_export_can_wait_in_a_job(kb, tmp_path):
     done = jobs.load(kb.vault, job.job_id)
     assert len(done.read) == 1 and store.load(kb.vault, done.read[0]).name == "IC memo"
     assert done.failed[0]["name"] == "Gone" and "no readable file" in done.failed[0]["error"]
+
+
+def test_exported_text_is_checked_before_reading(tmp_path):
+    good = tmp_path / "ok.txt"
+    good.write_bytes("﻿Minutes of the meeting, São Paulo".encode("utf-8"))
+    assert ingest.read_text_file(good) == "Minutes of the meeting, São Paulo"
+    pdf = make_text_pdf(tmp_path / "x.pdf", ["x"])
+    with pytest.raises(KbError) as err:
+        ingest.export_item(pdf, "https://docs.google.com/document/d/G1/edit", "X")
+    assert str(err.value) == ingest.NOT_TEXT
+    with pytest.raises(KbError, match="no readable file"):
+        ingest.read_text_file(tmp_path / "missing.txt")
