@@ -2,18 +2,23 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 NOTHING = "Nothing in the knowledge base matches that. Try other words, or check `bron kb list`."
 HIDDEN = {"serve", "run-job"}
 KEYWORD_NOTE = "Meaning search isn't available right now; these are keyword matches."
 MAX_DOCS = 300
 MAX_PAGES = 3000
-FOREGROUND = 5
-FOREGROUND_PAGES = 50  # more pages than this, or any scan or photo, is read in the background
-SECONDS_PER_PAGE = 0.2  # 0.05 s per text page, about 1 s per scanned page: 0.2 s on average
+FOREGROUND = 3  # up to 3 documents are read in the conversation; a folder, or more, in the background
+FOREGROUND_SECONDS = 300  # …and only while they read in about 5 minutes, so a command never outlasts its 10-minute limit
+TEXT_SECONDS_PER_PAGE = 0.05
+SCAN_SECONDS_PER_PAGE = 1.0  # Mac text recognition
+SECONDS_PER_PAGE = 0.2  # a mix of text and scanned pages, for estimates of what isn't opened
+BACKGROUND = "Reading {count} into the wiki in the background ({duration}); I'll report when it's done."
+BEHIND = "A folder is being written into the wiki; I'll add these after it ({duration})."
+NEXT = "Next: load the read-documents skill, write their wiki pages, then run `.bron/bin/bron wiki done`."
 SHOW_PAGES = 20
 NEEDS_TOOLS = {"search", "serve", "run-job"}  # `add` never installs in the foreground: its background job does
-SETTING_UP = "Setting up the knowledge base tools and reading in the background; I'll report when it's done."
 CRASHED = "Something went wrong in the knowledge base ({}). Details are in .bron/logs/kb-errors.log."
 
 
@@ -167,20 +172,44 @@ def _ask_first(vault, documents: int, pages: int) -> str:
     return text + ". Run the same command with --yes to go ahead."
 
 
-def _queue(vault, items, failed, *, again: bool, setting_up: bool) -> int:
-    from . import jobs
+def _queue(vault, items, failed, *, again: bool, label: str, pages: int) -> int:
+    """Read in the background, then write the wiki pages in the same background job."""
+    from . import jobs, wiki_run
 
-    job = jobs.create(vault, items, failed=failed, again=again)
+    ahead = sum(len(j.wiki_docs) for j in jobs.wiki_pending(vault))
+    behind = bool(ahead) or jobs.wiki_active(vault)
+    job = jobs.create(vault, items, failed=failed, again=again, wiki=True, label=label)
     if not jobs.spawn(vault, job.job_id):
         print("Bron couldn't start reading in the background (.bron/bin/bron is missing). Run `.bron/bin/bron check`.")
         return 1
-    print(SETTING_UP if setting_up else f"Reading {_plural(len(items), 'document')} in the background; I'll report when it's done.")
+    duration = _duration(pages * SECONDS_PER_PAGE + (ahead + len(items)) * wiki_run.SECONDS_PER_DOC)
+    print(BEHIND.format(duration=duration) if behind
+          else BACKGROUND.format(count=_plural(len(items), "document"), duration=duration))
     return 0
 
 
-def _add_export(args, vault, setting_up: bool) -> int:
+def _report(vault, docs, notes) -> int:
+    """What was read in the conversation; then either "write their pages now" or, while a background wiki run is
+    writing, queue them behind it (one wiki writer at a time)."""
+    from . import ingest, jobs, wiki_run
+
+    print(ingest.lines(docs, notes))
+    todo = [d.doc_id for d in docs if d.status == "read" or (d.status == "unchanged" and not d.page)]
+    if todo:
+        ahead = jobs.wiki_pending(vault)
+        if ahead or jobs.wiki_active(vault):
+            job = jobs.create_wiki(vault, todo)
+            jobs.spawn(vault, job.job_id)  # if it can't start now, the next session or `bron kb status` starts it
+            count = sum(len(j.wiki_docs) for j in ahead) + len(todo)
+            print(BEHIND.format(duration=_duration(count * wiki_run.SECONDS_PER_DOC)))
+        else:
+            print(NEXT)
+    return 0 if any(d.status in ("read", "unchanged") for d in docs) else 1
+
+
+def _add_export(args, vault) -> int:
     from ..loader import load
-    from . import ingest
+    from . import ingest, tools
 
     if args.targets or args.inbox:
         print("--file reads one exported Google file on its own. Run it separately from other links, paths or --inbox.")
@@ -188,52 +217,61 @@ def _add_export(args, vault, setting_up: bool) -> int:
     if not (args.file and args.source and args.name):
         print("To add an exported Google Doc, give all three: --file <text file> --source <Drive link> --name '<title>'.")
         return 1
-    item = ingest.export_item(args.file, args.source, args.name)  # a plain error now if the link or file is wrong
-    if setting_up:
-        return _queue(vault, [item], [], again=False, setting_up=True)
+    ingest.export_item(args.file, args.source, args.name)  # a plain error now: the link, the file, or not text
+    tools.ensure(vault)  # the first time, the tools are set up right here
     doc = ingest.add_export(vault, load(vault), args.file, args.source, args.name, embedder=_embedder(vault))
-    print(ingest.summary([doc]))
-    return 0 if doc.status == "read" else 1
+    return _report(vault, [doc], [])
+
+
+def _sizes(items) -> tuple[int, float]:
+    """Pages and estimated reading seconds of a few documents (PDFs on this Mac are opened to count them)."""
+    from . import ingest
+
+    pages, seconds = 0, 0.0
+    for item in items:
+        n = ingest.page_count(item)
+        pages += n
+        seconds += n * (SCAN_SECONDS_PER_PAGE if ingest.looks_scanned(item) else TEXT_SECONDS_PER_PAGE)
+    return pages, seconds
 
 
 def _add(args, vault) -> int:
     from ..loader import load
     from . import ingest, jobs, sources, tools
 
-    setting_up = bool(tools.missing())  # the first time: the background job installs the tools, then reads
     if args.file or args.source or args.name:
-        return _add_export(args, vault, setting_up)
+        return _add_export(args, vault)
     if not args.targets and not args.inbox:
         print("Tell me what to read: a Google Drive link, a file or folder path, a web link, or --inbox.")
         return 1
-    found, failed = sources.resolve(vault, args.targets, inbox=args.inbox)
+    found = sources.resolve_targets(vault, args.targets, inbox=args.inbox)
     items, seen = [], set()
-    for item in found:  # the same file named twice is read once
+    for item in found.items:  # the same file named twice is read once
         if item.identity not in seen:
             seen.add(item.identity)
             items.append(item)
     if not items:
-        if failed:
-            print("\n".join(failed))
+        if found.failed:
+            print("\n".join(found.failed))
             return 1
         print("The inbox (Knowledge/Inbox) is empty." if args.inbox and not args.targets else "There's nothing to read there.")
         return 0
-    # A few files are opened to count their pages; more are estimated from their size, so nothing is downloaded
-    # from Drive before the user says yes. Online-only files are never opened to count.
-    few = len(items) <= FOREGROUND and not setting_up
-    pages = sum((ingest.page_count if few else ingest.guess_pages)(item) for item in items) if few or not args.yes else 0
+    few = len(items) <= FOREGROUND and not found.folders
+    if few:
+        tools.ensure(vault)  # the first time, the tools are set up right here (a few minutes; one line says so)
+        pages, seconds = _sizes(items)
+    else:
+        # Many files are estimated from their size, so nothing is downloaded from Drive before the user says yes.
+        pages, seconds = (0 if args.yes else sum(ingest.guess_pages(item) for item in items)), 0.0
     if not args.yes and (len(items) > MAX_DOCS or pages > MAX_PAGES):
         print(_ask_first(vault, len(items), pages))
         return 0
-    # Only a quick read stays in the foreground, so an agent's command never outlasts its time limit.
-    quick = (few and pages <= FOREGROUND_PAGES and not any(ingest.looks_scanned(item) for item in items)
-             and not jobs.runner_active(vault))  # never two readers at once
-    if not quick:
-        return _queue(vault, items, failed, again=args.again, setting_up=setting_up)
+    if not few or seconds > FOREGROUND_SECONDS or jobs.runner_active(vault):  # never two readers at once
+        label = f"the {found.folders[0]} folder" if len(found.folders) == 1 else ""
+        return _queue(vault, items, found.failed, again=args.again, label=label, pages=pages)
     cfg, embedder = load(vault), _embedder(vault)
     docs = [ingest.read_item(vault, cfg, item, embedder=embedder, again=args.again) for item in items]
-    print(ingest.summary(docs, failed))
-    return 0 if any(d.status in ("read", "unchanged") for d in docs) else 1
+    return _report(vault, docs, found.failed)
 
 
 def _run_job(args, vault) -> int:
@@ -302,6 +340,8 @@ def _show(args, vault) -> int:
     title = store.effective_labels(doc).get("title")
     if title:
         print(f"Title: {title}")
+    if doc.page:
+        print(f"Page: [[{Path(doc.page).stem}]]")
     print(doc.source)
     if doc.status == "failed":
         print(f"It couldn't be read: {doc.error}")
@@ -375,7 +415,7 @@ def _drop_index_files(vault) -> None:
 
 
 def _forget(args, vault) -> int:
-    from . import store
+    from . import store, wiki
 
     doc = _find(vault, args.doc)
     if doc is None:
@@ -388,7 +428,14 @@ def _forget(args, vault) -> int:
         _drop_index_files(vault)
     store.forget(vault, doc.doc_id)
     kept = " Its copy in Knowledge/Files is still there." if doc.kind == "file" else ""
-    print(f"Forgot {doc.name}; searches won't find it any more. The original wasn't touched.{kept}")
+    text = f"Forgot {doc.name}; searches won't find it any more. The original wasn't touched.{kept}"
+    note = f"{doc.name} (doc {doc.doc_id})"
+    if doc.page:  # the page isn't deleted: the check flags it until the user decides
+        title = Path(doc.page).stem
+        text += f" Its page [[{title}]] is still there; delete it or keep it."
+        note += f"; its page [[{title}]] was kept"
+    print(text)
+    wiki.append_log(vault, [("forget", note)])
     return 0
 
 
@@ -398,7 +445,7 @@ def _status(args, vault) -> int:
     from . import jobs, store, tools
 
     if args.cancel:
-        if not jobs.pending(vault):
+        if not jobs.pending(vault) and not jobs.wiki_pending(vault):
             print("Nothing is being read, so there's nothing to cancel.")
             return 0
         reports = jobs.cancel(vault)
@@ -406,6 +453,8 @@ def _status(args, vault) -> int:
             print(text)
         if jobs.runner_active(vault):
             print("Bron stops after the document it's reading now and reports what it read.")
+        if jobs.wiki_active(vault):
+            print("Bron finishes the wiki pages it's writing now.")
         return 0
     missing = tools.missing()
     if not missing and store.indexing_ids(vault):
@@ -422,10 +471,10 @@ def _status(args, vault) -> int:
         line += f" {_plural(failed, 'document')} couldn't be read; see `bron kb list --failed`."
     print(line)
     if missing:
-        print("The reading and search tools aren't installed yet; Bron sets them up the first time you add or search.")
+        print("The knowledge base tools aren't installed yet; Bron sets them up the first time you add or search.")
     for text in jobs.status_lines(vault):
         print(text)
     stalled = jobs.stalled(vault)
     if stalled and jobs.spawn(vault, stalled[0].job_id):
-        print("Reading stopped before it finished; Bron is picking it up again in the background.")
+        print("Bron stopped before it finished; it's picking it up again in the background.")
     return 0

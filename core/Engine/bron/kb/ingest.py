@@ -489,3 +489,19 @@ def summary(docs: list[Doc], notes: list[str] | tuple = ()) -> str:
         lines.append(f"Couldn't read: {shown}{more}.")
     lines += [str(n) for n in notes]
     return "\n".join(lines) if lines else "There was nothing to read."
+
+
+def lines(docs: list[Doc], notes: list[str] | tuple = ()) -> str:
+    """What `bron kb add` prints in a conversation: one line per document, with its id for `bron kb show`, then the
+    links that weren't found."""
+    out: list[str] = []
+    for d in docs:
+        if d.status == "read":
+            out.append(f"Read {d.name} ({plural(d.pages, 'page')}, {d.scanned} scanned) — doc {d.doc_id}")
+        elif d.status == "unchanged":
+            page = f"page: [[{Path(d.page).stem}]]" if d.page else "no page yet"
+            out.append(f"Already read {d.name} — doc {d.doc_id} ({page})")
+        else:
+            out.append(f"Couldn't read {d.name}: {d.error}")
+    out += [str(n) for n in notes]
+    return "\n".join(out) if out else "There was nothing to read."

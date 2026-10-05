@@ -4,11 +4,12 @@ import json
 import pytest
 
 from bron import cli as bron_cli
+from bron import runner
 from bron.briefing import build_briefing
 from bron.hooks import main as hook
 from bron.kb import cli as kb_cli, embed, ingest, jobs, models, readers, service, store, tools
 from bron.memory import summaries
-from kbkit import FakeModel, FakeOcr, fake_drive, fake_embed, make_docx, make_scanned_pdf, make_text_pdf, set_drive_id
+from kbkit import FakeModel, FakeOcr, FakeTicketRunner, fake_drive, fake_embed, make_docx, make_scanned_pdf, make_text_pdf, set_drive_id
 
 SPA_TEXT = ("Share Purchase Agreement between Acme Ltda and the Fund. The purchase price is USD 2,000,000.00 "
             "payable at closing on January 21, 2025.")
@@ -16,7 +17,9 @@ SPA_TEXT = ("Share Purchase Agreement between Acme Ltda and the Fund. The purcha
 
 @pytest.fixture
 def env(vault, tmp_path, monkeypatch):
-    monkeypatch.setattr(tools, "ensure", lambda vault, say=print: None)
+    ensured = []
+    monkeypatch.setattr(tools, "ensure", lambda vault, say=print: ensured.append(vault))
+    monkeypatch.setattr(runner, "run_ticket", FakeTicketRunner())
     monkeypatch.setattr(service, "query", lambda *a, **k: None)
     monkeypatch.setattr(embed, "get", lambda vault: fake_embed)
     monkeypatch.setattr(readers, "ocr_page", FakeOcr())
@@ -33,6 +36,7 @@ def env(vault, tmp_path, monkeypatch):
 
     e = Env()
     e.vault, e.root, e.spawned = vault, root, spawned
+    e.ensured = ensured
     return e
 
 
@@ -55,13 +59,13 @@ def acme_folder(env):
 
 
 def add_all(env, capsys):
-    """The folder holds a scan, so it is read in the background; the test runs that job here and returns its report."""
-    from bron.kb import notices
-
+    """A folder is read in the background and then written into the wiki; the test runs that job here and returns its
+    reading report (the wiki run's ticket carries it)."""
     code, out = run(env, capsys, "add", acme_folder(env))
-    assert code == 0 and out.strip() == "Reading 3 documents in the background; I'll report when it's done.", out
+    assert code == 0 and out.strip() == ("Reading 3 documents into the wiki in the background (about 3 minutes); "
+                                         "I'll report when it's done."), out
     jobs.run(env.vault, env.spawned[-1], embedder=fake_embed)  # what the detached `bron kb run-job` does
-    return notices.take(env.vault)[0]
+    return jobs.load(env.vault, env.spawned[-1]).report
 
 
 def test_add_a_drive_folder_then_search_with_citations(env, capsys):
@@ -78,19 +82,21 @@ def test_add_a_drive_folder_then_search_with_citations(env, capsys):
     assert out.strip() == kb_cli.NOTHING
 
 
-def test_more_than_five_documents_read_in_the_background_and_report_in_the_briefing_once(env, capsys, tmp_path):
+def test_a_folder_is_read_and_written_in_the_background_and_a_failure_is_told_once(env, capsys, tmp_path, monkeypatch):
     folder = tmp_path / "pile"
     folder.mkdir()
     for i in range(6):
-        make_text_pdf(folder / f"report{i}.pdf", [f"Quarterly report number {i} for the portfolio, with revenue and burn."])
+        make_text_pdf(folder / f"report{i}.pdf", [f"Quarterly report number {i}, with revenue and costs."])
     code, out = run(env, capsys, "add", str(folder))
-    assert code == 0 and out.strip() == "Reading 6 documents in the background; I'll report when it's done."
+    assert code == 0 and out.strip() == ("Reading 6 documents into the wiki in the background (about 6 minutes); "
+                                         "I'll report when it's done.")
     assert len(env.spawned) == 1 and store.all_docs(env.vault) == []
     code, out = run(env, capsys, "status")
     assert "Waiting to read 6 documents" in out
+    monkeypatch.setattr(runner, "run_ticket", FakeTicketRunner(status="blocked", message="the run failed"))
     jobs.run(env.vault, env.spawned[0], embedder=fake_embed)  # what the detached `bron kb run-job` does
     first = build_briefing(env.vault, cli="claude")
-    assert "## Knowledge base" in first and "Read 6 documents" in first
+    assert "## Knowledge base" in first and "Read 6 documents" in first and "finish the wiki pages" in first
     assert "## Knowledge base" not in build_briefing(env.vault, cli="claude")
 
 
@@ -156,16 +162,17 @@ def test_many_documents_ask_first_without_opening_them(env, capsys, tmp_path, mo
 
 
 def test_failures_are_reported_and_never_stop_the_batch(env, capsys, tmp_path):
-    folder = tmp_path / "mixed"
-    folder.mkdir()
-    make_text_pdf(folder / "good.pdf", [SPA_TEXT])
-    (folder / "bad.pdf").write_bytes(b"not a pdf")
-    (folder / "song.mp3").write_bytes(b"x")
-    code, out = run(env, capsys, "add", str(folder), "https://drive.google.com/file/d/NOPE/view")
-    assert code == 0 and out.startswith("Read 1 document (")
-    assert "Couldn't read: bad.pdf (This file is damaged or isn't really a PDF)" in out
-    assert "song.mp3 (Bron can't read .mp3 files yet)" in out
+    good = make_text_pdf(tmp_path / "good.pdf", [SPA_TEXT])
+    bad = tmp_path / "bad.pdf"
+    bad.write_bytes(b"not a pdf")
+    song = tmp_path / "song.mp3"
+    song.write_bytes(b"x")
+    code, out = run(env, capsys, "add", str(good), str(bad), str(song), "https://drive.google.com/file/d/NOPE/view")
+    assert code == 0 and out.startswith("Read good.pdf (1 page, 0 scanned) — doc ")
+    assert "Couldn't read bad.pdf: This file is damaged or isn't really a PDF" in out
+    assert "Couldn't read song.mp3: Bron can't read .mp3 files yet." in out
     assert "Couldn't find https://drive.google.com/file/d/NOPE/view in Google Drive on this Mac" in out
+    assert out.strip().endswith(kb_cli.NEXT)
 
 
 def test_nothing_readable_is_exit_one(env, capsys, tmp_path):
@@ -182,7 +189,7 @@ def test_add_an_exported_google_doc(env, capsys, tmp_path):
     text.write_text("The investment committee approved a follow-on of BRL 750.000,00 in Acme.")
     code, out = run(env, capsys, "add", "--file", str(text), "--source", "https://docs.google.com/document/d/GDOC1/edit",
                     "--name", "IC memo")
-    assert code == 0 and out.startswith("Read 1 document")
+    assert code == 0 and out.startswith("Read IC memo (1 page, 0 scanned) — doc ")
     doc = store.load(env.vault, store.doc_id_for("drive:GDOC1"))
     assert doc.name == "IC memo" and doc.status == "read"
     code, out = run(env, capsys, "add", "--file", str(text))
@@ -284,10 +291,11 @@ def test_internal_commands_are_hidden():
 
 
 def test_a_small_request_waits_behind_a_running_job(env, capsys, tmp_path, monkeypatch):
-    monkeypatch.setattr(jobs, "runner_active", lambda vault: True)
+    monkeypatch.setattr(jobs, "runner_active", lambda vault, wiki=False: not wiki)
     one = make_text_pdf(tmp_path / "one.pdf", [SPA_TEXT])
     code, out = run(env, capsys, "add", str(one))
-    assert code == 0 and out.strip() == "Reading 1 document in the background; I'll report when it's done."
+    assert code == 0 and out.strip() == ("Reading 1 document into the wiki in the background (about 1 minute); "
+                                         "I'll report when it's done.")
     assert len(env.spawned) == 1 and store.all_docs(env.vault) == []
 
 
@@ -327,19 +335,19 @@ def test_an_unreadable_inbox_file_is_reported_and_the_rest_is_read(env, capsys):
         code, out = run(env, capsys, "add", "--inbox")
     finally:
         locked.chmod(0o644)
-    assert code == 0 and out.startswith("Read 1 document (") and "Traceback" not in out
-    assert "Couldn't read: locked.pdf (Bron couldn't open this file (Permission denied))." in out
+    assert code == 0 and out.startswith("Read good.pdf (") and "Traceback" not in out
+    assert "Couldn't read locked.pdf: Bron couldn't open this file (Permission denied)." in out
 
 
 def test_reading_the_same_file_again_is_skipped_unless_asked(env, capsys, tmp_path):
     spa = make_text_pdf(tmp_path / "spa.pdf", [SPA_TEXT])
     code, out = run(env, capsys, "add", str(spa))
-    assert code == 0 and out.startswith("Read 1 document (")
+    assert code == 0 and out.startswith("Read spa.pdf (1 page, 0 scanned) — doc ")
+    doc_id = out.split("— doc ", 1)[1].split()[0]
     code, out = run(env, capsys, "add", str(spa))
-    assert code == 0
-    assert out.strip() == "Already read, unchanged: spa.pdf (1 unchanged, skipped; add --again to read it again)."
+    assert code == 0 and out.splitlines()[0] == f"Already read spa.pdf — doc {doc_id} (no page yet)"
     code, out = run(env, capsys, "add", str(spa), "--again")
-    assert code == 0 and out.startswith("Read 1 document (")
+    assert code == 0 and out.startswith("Read spa.pdf (")
 
 
 def test_again_reaches_a_background_job(env, capsys, tmp_path):
@@ -373,40 +381,45 @@ def test_ctrl_c_is_not_swallowed(env, capsys, monkeypatch):
         run(env, capsys, "list")
 
 
-SETUP_BACKGROUND = "Setting up the knowledge base tools and reading in the background; I'll report when it's done."
-
-
-def test_first_add_without_the_tools_sets_up_and_reads_in_the_background(env, capsys, tmp_path, monkeypatch):
-    monkeypatch.setattr(tools, "missing", lambda: ["fastembed"])
-    monkeypatch.setattr(tools, "ensure", lambda vault, say=print: pytest.fail("never installed in the foreground"))
+def test_the_first_add_sets_the_tools_up_and_reads_in_the_conversation(env, capsys, tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(tools, "ensure", lambda vault, say=print: calls.append("ensure") or say(tools.SETUP))
     one = make_text_pdf(tmp_path / "one.pdf", [SPA_TEXT])
     code, out = run(env, capsys, "add", str(one))
-    assert code == 0 and out.strip() == SETUP_BACKGROUND
-    assert len(env.spawned) == 1 and store.all_docs(env.vault) == []
+    assert code == 0 and calls == ["ensure"] and env.spawned == []
+    assert out.splitlines()[0] == tools.SETUP and out.splitlines()[1].startswith("Read one.pdf (")
     text = tmp_path / "memo.txt"
-    text.write_text("The investment committee approved a follow-on of BRL 750.000,00 in Acme.")
+    text.write_text("The committee approved a budget of BRL 750.000,00 for the office move.")
     code, out = run(env, capsys, "add", "--file", str(text), "--source", "https://docs.google.com/document/d/GDOC1/edit",
                     "--name", "IC memo")
-    assert code == 0 and out.strip() == SETUP_BACKGROUND and len(env.spawned) == 2
-    queued = jobs.load(env.vault, env.spawned[1])
-    assert queued.items[0]["kind"] == "export" and queued.items[0]["path"] == str(text.resolve())
-    monkeypatch.setattr(tools, "missing", lambda: [])
-    for job_id in env.spawned:
-        jobs.run(env.vault, job_id, embedder=fake_embed)
-    assert {d.name for d in store.all_docs(env.vault)} == {"one.pdf", "IC memo"}
+    assert code == 0 and calls == ["ensure", "ensure"] and out.splitlines()[1].startswith("Read IC memo (")
+
+
+def test_a_setup_that_fails_in_the_conversation_is_one_plain_line(env, capsys, tmp_path, monkeypatch):
+    from bron.kb.store import KbError
+
+    def refuse(vault, say=print):
+        raise KbError("The knowledge base tools couldn't be installed (No route to host). Check the internet connection and try again.")
+
+    monkeypatch.setattr(tools, "ensure", refuse)
+    code, out = run(env, capsys, "add", str(make_text_pdf(tmp_path / "one.pdf", [SPA_TEXT])))
+    assert code == 1 and out.strip() == ("The knowledge base tools couldn't be installed (No route to host). "
+                                         "Check the internet connection and try again.")
 
 
 def test_a_failed_setup_in_the_background_is_reported(env, capsys, tmp_path, monkeypatch):
     from bron.kb import notices
     from bron.kb.store import KbError
 
-    monkeypatch.setattr(tools, "missing", lambda: ["fastembed"])
-    one = make_text_pdf(tmp_path / "one.pdf", [SPA_TEXT])
-    run(env, capsys, "add", str(one))
+    folder = tmp_path / "F"
+    folder.mkdir()
+    make_text_pdf(folder / "one.pdf", [SPA_TEXT])
+    run(env, capsys, "add", str(folder))
 
     def refuse(vault, say=print):
         raise KbError("The knowledge base tools couldn't be installed (No route to host).")
 
+    monkeypatch.setattr(tools, "missing", lambda: ["fastembed"])
     monkeypatch.setattr(tools, "ensure", refuse)
     code, out = run(env, capsys, "run-job", env.spawned[0])
     assert code == 1
@@ -415,13 +428,15 @@ def test_a_failed_setup_in_the_background_is_reported(env, capsys, tmp_path, mon
     assert len(told) == 1 and "couldn't be installed (No route to host)" in told[0] and "one.pdf" in told[0]
 
 
-def test_a_failed_setup_leaves_jobs_alone_while_another_runner_reads_them(env, capsys, tmp_path, monkeypatch):
+def test_a_failed_setup_leaves_jobs_alone_while_another_runner_reads_them(env, capsys, tmp_path):
     import fcntl
 
     from bron.kb import notices
 
-    monkeypatch.setattr(tools, "missing", lambda: ["fastembed"])
-    run(env, capsys, "add", str(make_text_pdf(tmp_path / "one.pdf", [SPA_TEXT])))
+    folder = tmp_path / "F"
+    folder.mkdir()
+    make_text_pdf(folder / "one.pdf", [SPA_TEXT])
+    run(env, capsys, "add", str(folder))
     lock = jobs._lock_path(env.vault)
     lock.parent.mkdir(parents=True, exist_ok=True)
     with open(lock, "a+") as held:
@@ -430,25 +445,22 @@ def test_a_failed_setup_leaves_jobs_alone_while_another_runner_reads_them(env, c
     assert [j.job_id for j in jobs.pending(env.vault)] == env.spawned[:1] and notices.take(env.vault) == []
 
 
-def test_more_than_fifty_pages_read_in_the_background(env, capsys, tmp_path, monkeypatch):
+def test_a_long_read_goes_to_the_background(env, capsys, tmp_path, monkeypatch):
     one = make_text_pdf(tmp_path / "one.pdf", [SPA_TEXT])
-    monkeypatch.setattr(ingest, "page_count", lambda item: 51)
+    monkeypatch.setattr(ingest, "page_count", lambda item: 301)
+    monkeypatch.setattr(ingest, "looks_scanned", lambda item: True)
     code, out = run(env, capsys, "add", str(one))
-    assert code == 0 and out.strip() == "Reading 1 document in the background; I'll report when it's done."
-    monkeypatch.setattr(ingest, "page_count", lambda item: 50)
+    assert out.strip() == ("Reading 1 document into the wiki in the background (about 2 minutes); "
+                           "I'll report when it's done.")
+    monkeypatch.setattr(ingest, "page_count", lambda item: 300)  # 300 scanned pages: about 5 minutes, still here
     code, out = run(env, capsys, "add", str(one))
-    assert out.startswith("Read 1 document (") and len(env.spawned) == 1
+    assert out.startswith("Read one.pdf (") and len(env.spawned) == 1
 
 
-@pytest.mark.parametrize("name", ["photo.png", "receipt.HEIC", "scan.pdf"])
-def test_images_and_scans_read_in_the_background(env, capsys, tmp_path, name):
-    path = tmp_path / name
-    if name == "scan.pdf":
-        make_scanned_pdf(path, ["scanned term sheet"])
-    else:
-        path.write_bytes(b"not really an image")
+def test_a_scan_is_read_in_the_conversation(env, capsys, tmp_path):
+    path = make_scanned_pdf(tmp_path / "scan.pdf", ["scanned page"])
     code, out = run(env, capsys, "add", str(path))
-    assert code == 0 and out.strip() == "Reading 1 document in the background; I'll report when it's done."
+    assert code == 0 and out.startswith("Read scan.pdf (1 page, 1 scanned) — doc ") and env.spawned == []
 
 
 def test_the_scan_check_never_opens_online_only_files(env, monkeypatch, tmp_path):
@@ -500,7 +512,7 @@ def test_schemeless_drive_links_are_links(env, capsys):
     spa = make_text_pdf(folder / "spa.pdf", [SPA_TEXT])
     set_drive_id(spa, "SPA9")
     code, out = run(env, capsys, "add", "drive.google.com/file/d/SPA9/view")
-    assert code == 0 and out.startswith("Read 1 document (")
+    assert code == 0 and out.startswith("Read spa.pdf (")
     code, out = run(env, capsys, "add", "docs.google.com/document/d/NOPE/edit")
     assert "Couldn't find https://docs.google.com/document/d/NOPE/edit in Google Drive" in out
 
