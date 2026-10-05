@@ -217,3 +217,34 @@ def hook_reads(monkeypatch, before) -> None:
         return real(item, ocr, work)
 
     monkeypatch.setattr(ingest, "_read", hooked)
+
+
+def write_page(vault, rel: str, body: str = "", **meta) -> Path:
+    """A wiki page under Knowledge/ (rel like "Organisations/Acme Ltda.md") with these properties."""
+    from bron import frontmatter as fm
+
+    path = vault.knowledge_dir / rel
+    fm.write(path, fm.Document(dict(meta), body))
+    return path
+
+
+def later(path: Path, seconds: float = 5.0) -> None:
+    """Move a file's modification time forward, so a quick edit in a test always counts as a change."""
+    st = path.stat()
+    os.utime(path, (st.st_atime + seconds, st.st_mtime + seconds))
+
+
+def stored_doc(vault, name: str, pages: list[str], *, folder: str = "", index_it: bool = False):
+    """A document Bron has read (in the store; in the search index too with index_it), without any reader."""
+    from bron.kb import index, store
+    from bron.kb.models import labels_from_names
+    from bron.kb.passages import split
+
+    identity = f"file:/docs/{name}"
+    doc = store.Doc(store.doc_id_for(identity), identity, "file", f"/docs/{name}", name, f"/docs/{name}",
+                    labels=labels_from_names(name, folder), read_at="2026-10-04", pages=len(pages))
+    passages = split([(i + 1, t) for i, t in enumerate(pages)], store.effective_labels(doc))
+    store.save(vault, doc, pages, passages)
+    if index_it:
+        index.put(vault, doc, passages, fake_embed)
+    return store.load(vault, doc.doc_id)

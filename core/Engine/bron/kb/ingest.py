@@ -268,6 +268,13 @@ def _failed(vault: Vault, item: Item, exc: BaseException) -> Doc:
                read_at=time.strftime("%Y-%m-%d"), status="failed", error=_reason(exc, item))
 
 
+def _page_record(vault: Vault, doc_id: str) -> dict:
+    """The document's wiki page, when it has one, so reading it again keeps the page's labels for search."""
+    linked = store.page_of(vault, doc_id)
+    labels = linked.get("labels")
+    return {"page": linked.get("page", ""), "page_labels": labels if isinstance(labels, dict) else {}}
+
+
 def read_item(vault: Vault, cfg, item: Item, *, readers_ocr=None, model_call=None, embedder,
               again: bool = False) -> Doc:
     """Read one item. A document already read whose original hasn't changed (same size and time) isn't read again
@@ -292,7 +299,7 @@ def read_item(vault: Vault, cfg, item: Item, *, readers_ocr=None, model_call=Non
                 _empty_inbox_of(vault, keep[0])  # Bron already keeps this very file
             return dataclasses.replace(previous, status="unchanged")
         doc = Doc(doc_id, identity, item.kind, source, item.name, path, user_labels=store.user_labels(vault, doc_id),
-                  read_at=time.strftime("%Y-%m-%d"), source_size=size, source_mtime=mtime)
+                  read_at=time.strftime("%Y-%m-%d"), source_size=size, source_mtime=mtime, **_page_record(vault, doc_id))
     except Exception as exc:  # noqa: BLE001
         return _failed(vault, item, exc)
     read_from = item
@@ -368,7 +375,8 @@ def add_export(vault: Vault, cfg, text_file: Path, source: str, name: str, *, em
     doc_id = store.doc_id_for(item.identity)
     previous = store.load(vault, doc_id)
     doc = Doc(doc_id, item.identity, "native", source, item.name, "",
-              user_labels=store.user_labels(vault, doc_id), read_at=time.strftime("%Y-%m-%d"))
+              user_labels=store.user_labels(vault, doc_id), read_at=time.strftime("%Y-%m-%d"),
+              **_page_record(vault, doc_id))
     return _process(vault, cfg, item, doc, previous, lambda work: _export_pages(text), model_call=None, embedder=embedder)
 
 

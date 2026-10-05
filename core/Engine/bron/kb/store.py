@@ -42,6 +42,8 @@ class Doc:
     vectors_pending: bool = False  # read without the meaning model: keyword search only until it downloads
     passages_version: int = PASSAGES_VERSION
     reader_version: int = READER_VERSION
+    page: str = ""  # its wiki page (vault-relative), from page.json; never written into meta.json
+    page_labels: dict = field(default_factory=dict)  # the labels its page's properties give it
 
 
 def kb_dir(vault: Vault) -> Path:
@@ -96,6 +98,38 @@ def save_user_labels(vault: Vault, doc_id: str, labels: dict) -> None:
             pass
 
 
+PAGE_FILE = "page.json"
+_NOT_META = ("page", "page_labels")
+
+
+def _meta_json(doc: Doc) -> str:
+    data = asdict(doc)
+    for key in _NOT_META:
+        data.pop(key, None)
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def page_of(vault: Vault, doc_id: str) -> dict:
+    """{"page": <vault-relative path>, "labels": {...}} for a document that has a wiki page, else {}. Kept in its own
+    file, like the user's labels, so reading the document again never loses it."""
+    try:
+        data = json.loads((_folder(vault, doc_id) / PAGE_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) and isinstance(data.get("page"), str) and data["page"] else {}
+
+
+def set_page(vault: Vault, doc_id: str, page: str, labels: dict) -> None:
+    _write(_folder(vault, doc_id) / PAGE_FILE, json.dumps({"page": page, "labels": labels}, ensure_ascii=False, indent=2))
+
+
+def clear_page(vault: Vault, doc_id: str) -> None:
+    try:
+        (_folder(vault, doc_id) / PAGE_FILE).unlink()
+    except FileNotFoundError:
+        pass
+
+
 def save(vault: Vault, doc: Doc, pages: list[str], passages: list[dict]) -> None:
     folder = _folder(vault, doc.doc_id)
     save_user_labels(vault, doc.doc_id, doc.user_labels)  # first: they survive whatever happens below
@@ -105,13 +139,13 @@ def save(vault: Vault, doc: Doc, pages: list[str], passages: list[dict]) -> None
         pass
     _write(folder / "pages.jsonl", _jsonl({"page": i + 1, "text": t} for i, t in enumerate(pages)))
     _write(folder / "passages.jsonl", _jsonl(passages))
-    _write(folder / "meta.json", json.dumps(asdict(doc), ensure_ascii=False, indent=2))  # last: marks the document complete
+    _write(folder / "meta.json", _meta_json(doc))  # last: marks the document complete
 
 
 def save_meta(vault: Vault, doc: Doc) -> None:
     """Only the description (a document that couldn't be read has no pages)."""
     save_user_labels(vault, doc.doc_id, doc.user_labels)
-    _write(_folder(vault, doc.doc_id) / "meta.json", json.dumps(asdict(doc), ensure_ascii=False, indent=2))
+    _write(_folder(vault, doc.doc_id) / "meta.json", _meta_json(doc))
 
 
 def load(vault: Vault, doc_id: str) -> Doc | None:
@@ -122,6 +156,9 @@ def load(vault: Vault, doc_id: str) -> Doc | None:
         return None
     if (_folder(vault, doc_id) / USER_LABELS).exists():
         doc.user_labels = user_labels(vault, doc_id)
+    linked = page_of(vault, doc_id)
+    doc.page = str(linked.get("page") or "")
+    doc.page_labels = linked["labels"] if isinstance(linked.get("labels"), dict) else {}
     return doc
 
 
@@ -185,10 +222,14 @@ def indexing_ids(vault: Vault) -> list[str]:
 
 
 def effective_labels(doc: Doc) -> dict:
-    """The model's labels with the user's corrections on top."""
-    labels = {**(doc.labels if isinstance(doc.labels, dict) else {}),
-              **{k: v for k, v in (doc.user_labels if isinstance(doc.user_labels, dict) else {}).items() if v}}
-    return fold_fund(labels)
+    """The labels worked out when it was read; once the document has a wiki page, that page's properties on top;
+    before that, the user's 0.7 corrections on top."""
+    base = doc.labels if isinstance(doc.labels, dict) else {}
+    page = doc.page_labels if isinstance(doc.page_labels, dict) else {}
+    if page:
+        return fold_fund({**base, **{k: v for k, v in page.items() if v}})
+    user = doc.user_labels if isinstance(doc.user_labels, dict) else {}
+    return fold_fund({**base, **{k: v for k, v in user.items() if v}})
 
 
 def fold_fund(labels: dict) -> dict:
