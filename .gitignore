@@ -10,3 +10,4 @@ __pycache__/
 
 # The starting vault's Obsidian settings ship with the framework
 !/template/.obsidian/
+.claude/settings.local.json

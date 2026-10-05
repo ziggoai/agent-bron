@@ -12405,7 +12405,7 @@ var require_terminal_presentation = __commonJS({
     var { BackgroundTasks } = require_background_tasks();
     function inspectScreen(provider, lines, cursor) {
       const result = { top: 0, bottom: 0, mode: "", ready: false, busy: false };
-      const rule = (text) => /^\s*(?:[─━-]{8,}|[─━-]+ History \d+\/\d+ [─━-]+)\s*$/.test(text || "");
+      const rule = (text) => /^\s*(?:[─━-]{8,}|[─━-]+ History \d+\/\d+ [─━-]+|[─━-]{8,} [^─━\s][^─━]{0,40} [─━-]+)\s*$/u.test(text || "");
       if (provider === "claude") {
         for (let row = lines.length - 2; row >= 1; row--) {
           if (!rule(lines[row])) continue;

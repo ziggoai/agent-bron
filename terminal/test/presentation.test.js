@@ -13,6 +13,13 @@ test('Claude startup branding stays visible while its input is hidden', () => {
   assert.deepEqual(lines.slice(state.top, -state.bottom), [...banner,...transcript]);
 });
 
+test('the agent name in the prompt border still marks the input area', () => {
+  const named = '──────────────────────────────────────────── bron ─';
+  const lines = [...banner, ...transcript, named, '❯ ', rule, '  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt · ← 6 agents'];
+  const state = inspectScreen('claude', lines, lines.length - 3);
+  assert.deepEqual(state, {top:0, bottom:4, mode:'auto mode on', ready:true, busy:true});
+});
+
 test('mode label follows actual CLI state, including manual mode', () => {
   for (const mode of ['auto mode on', 'manual mode on', 'plan mode on', 'accept edits on', 'bypass permissions on']) {
     const lines = claude(mode);

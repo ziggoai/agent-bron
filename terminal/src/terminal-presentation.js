@@ -5,7 +5,8 @@ const { BackgroundTasks } = require('./background-tasks');
 // Read the rendered screen, so split escape sequences never become UI state.
 function inspectScreen(provider, lines, cursor) {
   const result = { top: 0, bottom: 0, mode: '', ready: false, busy: false };
-  const rule = text => /^\s*(?:[─━-]{8,}|[─━-]+ History \d+\/\d+ [─━-]+)\s*$/.test(text || '');
+  // A session started as an agent shows its name in the border: "──── bron ─".
+  const rule = text => /^\s*(?:[─━-]{8,}|[─━-]+ History \d+\/\d+ [─━-]+|[─━-]{8,} [^─━\s][^─━]{0,40} [─━-]+)\s*$/u.test(text || '');
   if (provider === 'claude') {
     for (let row = lines.length - 2; row >= 1; row--) {
       if (!rule(lines[row])) continue;
