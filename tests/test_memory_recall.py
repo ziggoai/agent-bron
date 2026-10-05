@@ -191,3 +191,41 @@ def test_tidy_apply_lists_what_is_no_longer_kept(run, vault, tmp_path):
     # the preview was used up: applying again needs a new preview
     code, out = run("memory", "tidy", "--as", "Bron", "--file", str(draft))
     assert code == 1
+
+
+def conv_open(vault, stem, *items):
+    folder = vault.agents_dir / "Bron" / "Memory" / "Conversations" / stem[:7]
+    folder.mkdir(parents=True, exist_ok=True)
+    body = "## Asked\n- x\n\n## Decided\n- y\n\n## Open\n" + "".join(f"- {i}\n" for i in items)
+    (folder / f"{stem}.md").write_text("---\nsession_id: x\n---\n" + body)
+
+
+OPEN = "### Open from recent conversations (may be done since)"
+
+
+def test_open_items_of_the_three_newest_conversations_are_in_the_briefing(vault):
+    conv_open(vault, "2026-10-01 09.00 Oldest", "Too old to show")
+    conv_open(vault, "2026-10-02 09.00 Third", "Fund I side letters still needed", "Book the SPV investment")
+    conv_open(vault, "2026-10-03 09.00 Second")
+    conv_open(vault, "2026-10-04 09.00 Newest", "MFN question", "fund i side letters still needed")
+    text = build_briefing(vault, cli="claude")
+    section = text[text.index(OPEN):]
+    assert section.splitlines()[1:4] == ["- MFN question", "- fund i side letters still needed", "- Book the SPV investment"]
+    assert "Too old to show" not in text
+    assert text.index("### Recent conversations") < text.index(OPEN)
+
+
+def test_open_items_are_capped_and_left_out_when_there_are_none(vault):
+    conv_open(vault, "2026-10-01 09.00 Quiet")
+    assert OPEN not in build_briefing(vault, cli="claude")
+    conv_open(vault, "2026-10-02 09.00 Busy", *[f"Item {i}" for i in range(9)])
+    lines = recall.briefing_lines(vault, load(vault), "bron", ticket_run=False)
+    shown = lines[lines.index(OPEN) + 1:]
+    assert shown[:6] == [f"- Item {i}" for i in range(6)] and "- Item 6" not in shown
+
+
+def test_ticket_runs_get_no_open_items(vault, monkeypatch):
+    commands.remember(vault, load(vault), as_agent="Bron", text="Something")
+    conv_open(vault, "2026-10-01 09.00 Busy", "MFN question")
+    monkeypatch.setenv("BRON_TICKET", "T-1")
+    assert "MFN question" not in build_briefing(vault, cli="claude")

@@ -151,9 +151,20 @@ def test_set_summary_has_no_phantom_lines(team):
     with pytest.raises(SetupError, match="Nothing to change for CFO"):
         set_agent(cfg, "CFO", remove_connections=["Gmail"])
     change = set_agent(cfg, "CFO", remove_connections=["Gmail", "Carta"], role="Finance chief")
-    assert change.summary == ["Change CFO:", "- Role: Finance chief.", "- No longer uses: Carta."]
+    assert change.summary == ["Change CFO:", "- Role: Finance chief.", "- No longer uses: Carta.", ROLE_NOTE]
     change = set_agent(cfg, "CFO", remove_connections=["Gmail"], role="Finance chief")
     assert not any("No longer" in line for line in change.summary)
+
+
+ROLE_NOTE = "- Its instructions aren't changed; if they describe the old role, rewrite them too."
+
+
+def test_a_new_role_without_new_instructions_is_flagged(team):
+    add_agent(team, "CFO")
+    assert set_agent(load(team), "CFO", role="Finance chief").summary[-1] == ROLE_NOTE
+    both = set_agent(load(team), "CFO", role="Finance chief", instructions="# Who you are\nThe finance chief.")
+    assert ROLE_NOTE not in both.summary
+    assert ROLE_NOTE not in set_agent(load(team), "CFO", models={"claude": "sonnet"}).summary
 
 
 def test_set_instructions_summary_counts_lines(team):

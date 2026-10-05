@@ -122,6 +122,20 @@ def test_index_md_lists_every_page_by_type_with_its_sources(vault):
     assert wiki.write_index(vault) is False  # unchanged: not written again
 
 
+def test_a_page_s_sources_include_the_documents_it_cites(vault):
+    write_page(vault, LEASE, "Tenant: [[Harbor Bakery]].\n", type="document", summary="Lease of the shop", date="2025-03-01")
+    write_page(vault, "Documents/Rent letter (2026-01-10).md", "Rent goes up.\n", type="document",
+               summary="Rent increase notice", date="2026-01-10")
+    write_page(vault, "Organisations/Harbor Bakery.md", "Rent went up (see [[Rent letter (2026-01-10)]], p. 1).\n",
+               type="organisation", summary="A bakery")
+    write_page(vault, "Topics/Rent.md", "Lease rent (see [[Office lease (2025-03-01)]], p. 2), now higher "
+               "(see [[Rent letter (2026-01-10)]], p. 1); tenant [[Harbor Bakery]].\n", type="topic", summary="Rent history")
+    wiki.write_index(vault)
+    text = (vault.knowledge_dir / "index.md").read_text(encoding="utf-8")
+    assert "- [[Harbor Bakery]] — A bakery (2 sources," in text  # one links to it, one it cites
+    assert "- [[Rent]] — Rent history (2 sources," in text  # cited only; a link to a non-document doesn't count
+
+
 def test_index_md_follows_the_schema_order_and_is_empty_without_pages(vault):
     assert wiki.index_text(vault) == schema.EMPTY_INDEX
     write_page(vault, "Topics/Office move.md", "", type="topic", summary="Moving")

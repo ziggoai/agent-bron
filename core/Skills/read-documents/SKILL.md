@@ -49,7 +49,7 @@ File: `Knowledge/Documents/<Title> (<YYYY-MM-DD>).md`: the title as the user wou
 ---
 type: document
 summary: <one line: what it is, between whom, what it does>
-aliases: []
+aliases: ["<other name>", "<abbreviation>"]
 doc: "<doc id from bron kb add>"
 source: <the link or path `bron kb show` prints under the title>
 organisation: "[[<the organisation it is mainly about>]]"
@@ -72,7 +72,7 @@ date: <YYYY-MM-DD, or leave it empty>
 - <what it adds to, changes in or contradicts in earlier pages, with links; or "Nothing earlier in the wiki.">
 ```
 
-Put links and the doc id in properties in quotes (`"[[Name]]"`, `"3f2a…"`) so they're read correctly. Always keep `doc` in quotes: an all-digit id without quotes is read as a number and loses its leading zeros.
+Put links and the doc id in properties in quotes (`"[[Name]]"`, `"3f2a…"`) so they're read correctly. Put every alias in double quotes too: an alias with a comma ("Acme, Inc.") splits in two without them. With no other names, write `aliases: []`. Always keep `doc` in quotes: an all-digit id without quotes is read as a number and loses its leading zeros.
 
 ### Other pages
 
@@ -82,7 +82,7 @@ Organisation, person and topic pages (and any type `Knowledge/Schema.md` adds) l
 ---
 type: organisation
 summary: <one line>
-aliases: [<other names, abbreviations>]
+aliases: ["<other name>", "<abbreviation>"]
 ---
 
 # <Name>
@@ -98,6 +98,12 @@ Every fact on a page other than the document's own page ends with `(see [[<Docum
 ### Your edits win (the user's)
 
 Keep what the user wrote on a page, word for word, unless they ask you to change it. A correction from the user (on a page, in its properties or in the conversation) counts as the newest source: cite it as "(the user, YYYY-MM-DD)" and keep it over what an older document says.
+
+### Keeping pages current
+
+Whenever a fact on a page changes (a newer document, a correction from the user, an answer):
+- check that the page's `summary` still holds, and fix it if it repeats the old fact: it is what `index.md` and search show;
+- when it answers an open question, put the answer where it belongs on the page, with its source, and delete the question. "Open questions" lists only what is still open.
 
 ## Background runs
 

@@ -51,3 +51,12 @@ def test_agents_md_points_to_the_skill_and_the_drive_rules(vault):
                  "Never poll", "Save this as a page?", "--organisation", "Knowledge/Schema.md", "wiki done"):
         assert must in section, must
     assert "kb label" not in section
+
+
+def test_the_skill_quotes_aliases_and_keeps_pages_current(vault):
+    text = SKILL.read_text(encoding="utf-8")
+    assert "aliases: []\ndoc:" not in text and "aliases: [<other names" not in text  # the page templates quote them
+    assert 'aliases: ["<other name>", "<abbreviation>"]' in text
+    assert "Put every alias in double quotes" in text
+    assert "check that the page's `summary` still holds" in text
+    assert "delete the question" in text

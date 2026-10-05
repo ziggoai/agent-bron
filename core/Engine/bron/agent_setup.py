@@ -344,6 +344,8 @@ def set_agent(cfg: Config, name: str, *, role=None, reports_to=None, models=None
             raise SetupError(f"Bron couldn't update {rel(cfg, agent.path)}: {exc}") from exc
         old_lines = len(fm.read(agent.path).body.strip().splitlines())
         lines.append(f"Replaces all of its instructions (now {len(instructions.strip().splitlines())} lines, was {old_lines} lines)")
+    elif "role" in changes:
+        lines.append("Its instructions aren't changed; if they describe the old role, rewrite them too")
     if not lines:
         raise SetupError(f"Nothing to change for {agent.name}.")
     change = Change(summary=[f"Change {agent.name}:"] + [f"- {line}." for line in lines], done=f"Updated {agent.name}.")

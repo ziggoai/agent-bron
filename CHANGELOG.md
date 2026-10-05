@@ -2,6 +2,15 @@
 
 What changed in each version of Bron, newest first. Bron shows the new sections when you ask it to update itself.
 
+## 0.8.1
+- First-run setup asks which connectors Bron should use and switches the rest off, instead of using every connector it finds. It points out when the same app was found twice (a connector and a plugin's copy of it). Later, "stop using Spotify" changes Bron's connectors rather than saving a note.
+- Giving an agent a new role also rewrites the "Who you are" part of its instructions. When only the role changes, the preview says so.
+- The session briefing lists what was still open at the end of your last three conversations, so loose ends come back without asking.
+- Wiki pages stay current after a correction: the page's one-line summary is checked, and an answered question moves out of "Open questions" into the page.
+- Aliases in wiki pages are always quoted, so a name with a comma ("Acme, Inc.") stays one alias.
+- The wiki index counts a page's sources properly: the documents it cites as well as the documents linking to it. Topic pages no longer show "0 sources".
+- Confirming something Bron saved as "to confirm" replaces the old line instead of adding a second one.
+
 ## 0.8.0
 - Reading a document now builds a wiki in Knowledge/: a page per document, plus pages for the organisations, people and topics in it, linked to each other and citing the document and page. After reading, Bron tells you in a few lines what it learned, what changed or contradicted earlier pages, and which pages it touched.
 - A folder, or more than three documents, is read and written into the wiki in the background while you keep working, ten documents at a time; a Mac notification tells you when it's done and how long it took, and each batch's summary arrives as a ticket update. Up to three documents are read right away, scans and the first-time setup included.

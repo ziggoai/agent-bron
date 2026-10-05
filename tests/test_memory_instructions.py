@@ -116,3 +116,9 @@ def test_apply_pending_drops_blank_lines(vault, blank):
 
     registry = [Migration("quiet", "0.6.0", "Quiet", lambda cfg: Change(done=blank))]
     assert apply_pending(vault, "0.5.0", "0.6.0", registry) == []
+
+
+def test_agents_md_memory_rules_cover_confirmations_and_connectors(vault):
+    text = render_agents_md(load(vault))
+    assert "If it contradicts, corrects or confirms a saved fact, use `--replaces`." in text
+    assert "A connector the user doesn't want used is a setup change (edit-agent), not a memory." in text

@@ -78,7 +78,7 @@ def test_onboarding_uses_the_agents_own_name_and_previews_the_role(vault):
     text = (vault.core_skills / "onboarding" / "SKILL.md").read_text(encoding="utf-8")
     assert "agent rename Bron" not in text and "agent set Bron" not in text
     assert "`.bron/bin/bron agent rename '<your name>' '<NewName>' --preview`" in text
-    assert "`.bron/bin/bron agent set '<your name>' --role '<role>' --preview`, show the summary, wait for a yes" in text
+    assert "`.bron/bin/bron agent set '<your name>' --role '<role>' --instructions-file .bron/tmp/<your name>-instructions.md --preview`, show the summary, wait for a yes" in text
     assert "`.bron/bin/bron agent set '<your name>' --model 'claude=<model>' --preview`" in text
 
 
@@ -87,3 +87,23 @@ def test_who_you_means_in_the_create_skills(vault):
     assert "leave `--reports-to` out and it reports to the main agent; `--reports-to you` means the user" in agent
     routine = (vault.core_skills / "create-routine" / "SKILL.md").read_text(encoding="utf-8")
     assert "owner: your own name, unless the user says otherwise" in routine
+
+
+def test_onboarding_asks_which_connectors_and_sets_the_list(vault):
+    text = (vault.core_skills / "onboarding" / "SKILL.md").read_text(encoding="utf-8")
+    assert "Which of these should I use?" in text
+    assert "--remove-connection all --add-connection '<connection>'" in text
+    assert "the same app twice" in text
+    assert "not a memory" in text
+
+
+def test_a_role_change_rewrites_who_you_are_in_the_same_command(vault):
+    for name in ("onboarding", "edit-agent"):
+        text = (vault.core_skills / name / "SKILL.md").read_text(encoding="utf-8")
+        assert 'rewrite "Who you are" for the new role' in text, name
+        assert "--role '<role>' --instructions-file" in text, name
+
+
+def test_edit_agent_covers_stopping_a_connector(vault):
+    meta = fm.read(vault.core_skills / "edit-agent" / "SKILL.md").meta
+    assert "stop using a connector" in meta["description"]

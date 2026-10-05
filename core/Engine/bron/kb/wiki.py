@@ -185,14 +185,19 @@ def _kinds_in_order(kinds: set[str], order: list[str]) -> list[str]:
 
 
 def _sources(pages: list[Page]) -> dict[str, set[str]]:
-    """Page name → the titles of the document pages that link to it."""
+    """Page name → the titles of the document pages that link to it or that it cites."""
     out: dict[str, set[str]] = {}
+    documents = {name_of(p.title): p.title for p in pages if p.is_document}
     for page in pages:
-        if page.is_document:
-            for target in page.links():
-                name = name_of(target)
-                if name != name_of(page.title):
-                    out.setdefault(name, set()).add(page.title)
+        own = name_of(page.title)
+        for target in page.links():
+            name = name_of(target)
+            if name == own:
+                continue
+            if page.is_document:
+                out.setdefault(name, set()).add(page.title)
+            elif name in documents:
+                out.setdefault(own, set()).add(documents[name])
     return out
 
 
