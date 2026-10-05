@@ -206,17 +206,14 @@ class FakeOcr:
         return self.text, self.confidence
 
 
-class FakeLabels:
-    """Stand-in for the label model: replies by file name (`File name: X` in the prompt), else with `default`."""
+def hook_reads(monkeypatch, before) -> None:
+    """Run before(<document name>) each time Bron starts reading a document (raise in it to stop the reader there)."""
+    from bron.kb import ingest
 
-    def __init__(self, by_name: dict | None = None, default: dict | None = None):
-        self.by_name = by_name or {}
-        self.default = default or {"company": "Acme", "type": "other", "date": "", "title": "A document"}
-        self.calls: list[str] = []
+    real = ingest._read
 
-    def __call__(self, cli, model, prompt):
-        self.calls.append(prompt)
-        name = next((line.split(":", 1)[1].strip() for line in prompt.splitlines() if line.startswith("File name:")), "")
-        found = self.by_name.get(name, self.default)
-        return (f"COMPANY: {found.get('company', '')}\nTYPE: {found.get('type', '')}\nDATE: {found.get('date', '')}\n"
-                f"TITLE: {found.get('title', '')}\nLANGUAGE: {found.get('language', 'en')}")
+    def hooked(item, ocr, work):
+        before(item.name)
+        return real(item, ocr, work)
+
+    monkeypatch.setattr(ingest, "_read", hooked)

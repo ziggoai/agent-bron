@@ -8,15 +8,10 @@ from bron.briefing import build_briefing
 from bron.hooks import main as hook
 from bron.kb import cli as kb_cli, embed, ingest, jobs, models, readers, service, store, tools
 from bron.memory import summaries
-from kbkit import FakeLabels, FakeModel, FakeOcr, fake_drive, fake_embed, make_docx, make_scanned_pdf, make_text_pdf, set_drive_id
+from kbkit import FakeModel, FakeOcr, fake_drive, fake_embed, make_docx, make_scanned_pdf, make_text_pdf, set_drive_id
 
 SPA_TEXT = ("Share Purchase Agreement between Acme Ltda and the Fund. The purchase price is USD 2,000,000.00 "
             "payable at closing on January 21, 2025.")
-LABELS = {
-    "spa.pdf": {"company": "Acme", "type": "contract", "date": "2025-01-21", "title": "Acme share purchase"},
-    "scan.pdf": {"company": "Acme", "type": "letter", "date": "2025-01-10", "title": "Acme term sheet", "language": "pt"},
-    "memo.docx": {"company": "Beta Pagamentos", "type": "meeting minutes", "date": "2024-11-05", "title": "Beta board minutes"},
-}
 
 
 @pytest.fixture
@@ -26,7 +21,7 @@ def env(vault, tmp_path, monkeypatch):
     monkeypatch.setattr(embed, "get", lambda vault: fake_embed)
     monkeypatch.setattr(readers, "ocr_page", FakeOcr())
     monkeypatch.setattr(models, "call_image", FakeModel())
-    monkeypatch.setattr(summaries, "call_model", FakeLabels(LABELS))
+    monkeypatch.setattr(summaries, "call_model", lambda *a, **k: pytest.fail("no text is sent to a model to label documents"))
     spawned = []
     monkeypatch.setattr(jobs, "spawn", lambda vault, job_id, **kw: spawned.append(job_id) or True)
     root = fake_drive(tmp_path)
@@ -72,16 +67,15 @@ def add_all(env, capsys):
 def test_add_a_drive_folder_then_search_with_citations(env, capsys):
     out = add_all(env, capsys)
     assert out.startswith("Read 3 documents (1 scanned page, 0 pages read by the model).")
-    assert "- spa.pdf — Acme · contract · 2025-01-21" in out
-    assert "- memo.docx — Beta Pagamentos · meeting minutes · 2024-11-05" in out
+    assert "- spa.pdf — Acme · other" in out and "- memo.docx — Acme · other" in out
     assert len(env.spawned) == 1
     code, out = run(env, capsys, "search", "purchase price")
-    assert code == 0 and "Acme share purchase · Acme · contract · 2025-01-21 · p. 1" in out
+    assert code == 0 and "spa.pdf · Acme · other · p. 1" in out
     assert "https://drive.google.com/open?id=SPA1" in out
     code, out = run(env, capsys, "search", "1,500,000.00", "--company", "acme")
-    assert "Acme term sheet" in out and "https://drive.google.com/open?id=SCAN1" in out
-    code, out = run(env, capsys, "search", "budget", "--type", "meeting minutes")
-    assert "Beta board minutes" in out and "Acme" not in out
+    assert "scan.pdf" in out and "https://drive.google.com/open?id=SCAN1" in out
+    code, out = run(env, capsys, "search", "budget", "--type", "contract")
+    assert out.strip() == kb_cli.NOTHING
 
 
 def test_more_than_five_documents_read_in_the_background_and_report_in_the_briefing_once(env, capsys, tmp_path):
@@ -198,11 +192,11 @@ def test_add_an_exported_google_doc(env, capsys, tmp_path):
 def test_show_list_forget(env, capsys):
     add_all(env, capsys)
     code, out = run(env, capsys, "list")
-    assert code == 0 and len(out.strip().splitlines()) == 3 and "spa.pdf — Acme · contract · 2025-01-21" in out
+    assert code == 0 and len(out.strip().splitlines()) == 3 and "spa.pdf — Acme · other" in out
     code, out = run(env, capsys, "list", "--company", "beta")
-    assert "memo.docx" in out and "spa.pdf" not in out
-    code, out = run(env, capsys, "list", "--type", "contract")
-    assert out.strip().splitlines()[-1].endswith("spa.pdf — Acme · contract · 2025-01-21")
+    assert out.strip() == "No documents match."
+    code, out = run(env, capsys, "list", "--type", "other")
+    assert len(out.strip().splitlines()) == 3
     code, out = run(env, capsys, "show", "spa.pdf", "--pages", "2")
     assert code == 0 and "Schedule 1" in out and "purchase price" not in out and "https://drive.google.com/open?id=SPA1" in out
     code, out = run(env, capsys, "show", "spa", "--pages", "1-2")
@@ -212,62 +206,26 @@ def test_show_list_forget(env, capsys):
     code, out = run(env, capsys, "forget", "SPA.PDF")
     assert code == 0 and "Forgot spa.pdf" in out
     code, out = run(env, capsys, "search", "purchase price")
-    assert "spa.pdf" not in out and "Acme share purchase" not in out
+    assert "spa.pdf" not in out
     assert len(store.all_docs(env.vault)) == 2
 
 
-def test_label_corrections_are_reindexed(env, capsys):
+def test_a_070_fund_correction_still_counts_as_the_company(env, capsys):
     add_all(env, capsys)
-    code, out = run(env, capsys, "label", "spa.pdf", "--company", "Acme Holdings", "--type", "Invoice", "--date", "2025-02-01")
-    assert code == 0 and "Acme Holdings · invoice · 2025-02-01" in out
-    doc = next(d for d in store.all_docs(env.vault) if d.name == "spa.pdf")
-    assert doc.user_labels == {"company": "Acme Holdings", "doc_type": "invoice", "date": "2025-02-01"}
-    assert store.passages(env.vault, doc.doc_id)[0]["header"].startswith("[Acme Holdings | invoice | 2025-02-01")
-    code, out = run(env, capsys, "search", "purchase price", "--company", "holdings", "--type", "invoice")
-    assert "Acme Holdings" in out and "p. 1" in out
-    code, out = run(env, capsys, "label", "spa.pdf", "--date", "1st of May")
-    assert code == 1 and "YYYY-MM-DD" in out
-    code, out = run(env, capsys, "label", "spa.pdf", "--type", "napkin")
-    assert code == 1 and "contract, invoice" in out and "doc_types" in out
-
-
-def test_your_own_doc_types_are_used_for_corrections(env, capsys):
-    from vaultkit import set_meta
-
-    add_all(env, capsys)
-    set_meta(env.vault.settings_file, knowledge={"doc_types": ["Share purchase", "Term sheet"]})
-    code, out = run(env, capsys, "label", "spa.pdf", "--type", "share PURCHASE")
-    assert code == 0 and "Acme · Share purchase · 2025-01-21" in out
-    code, out = run(env, capsys, "label", "spa.pdf", "--type", "invoice")
-    assert code == 1 and "Share purchase, Term sheet, other." in out
-    code, out = run(env, capsys, "search", "purchase price", "--type", "share purchase")
-    assert "Acme share purchase" in out
-
-
-def test_a_070_fund_correction_becomes_the_company(env, capsys):
-    add_all(env, capsys)
-    spa = next(d for d in store.all_docs(env.vault) if d.name == "spa.pdf")
-    store.save_user_labels(env.vault, spa.doc_id, {"fund": "Fund I"})  # as `bron kb label --fund` saved it in 0.7.0
-    code, out = run(env, capsys, "label", "spa.pdf")
-    assert code == 0 and "Labels for spa.pdf: Acme · contract · 2025-01-21" in out  # the company it has stands
-    code, out = run(env, capsys, "label", "spa.pdf", "--date", "2025-03-01")
-    assert code == 0 and store.load(env.vault, spa.doc_id).user_labels == {"date": "2025-03-01"}
     memo = next(d for d in store.all_docs(env.vault) if d.name == "memo.docx")
     memo.labels = {**memo.labels, "company": ""}
     store.save_meta(env.vault, memo)
-    store.save_user_labels(env.vault, memo.doc_id, {"fund": "Fund II"})
-    code, out = run(env, capsys, "list", "--company", "fund ii")
-    assert "memo.docx — Fund II · meeting minutes" in out
-    code, out = run(env, capsys, "label", "memo.docx", "--title", "Board notes")
-    assert code == 0 and store.load(env.vault, memo.doc_id).user_labels == {"company": "Fund II", "title": "Board notes"}
+    store.save_user_labels(env.vault, memo.doc_id, {"fund": "Group II"})  # as `bron kb label --fund` saved it in 0.7.0
+    code, out = run(env, capsys, "list", "--company", "group ii")
+    assert "memo.docx — Group II · other" in out
     with pytest.raises(SystemExit):
-        bron_cli.build_parser().parse_args(["kb", "search", "x", "--fund", "Fund I"])
+        bron_cli.build_parser().parse_args(["kb", "label", "memo.docx", "--company", "x"])
 
 
 def test_an_ambiguous_document_changes_nothing(env, capsys):
     add_all(env, capsys)
-    code, out = run(env, capsys, "forget", "acme")  # matches two titles
-    assert code == 1 and "Several documents match 'acme'" in out and "spa.pdf" in out and "scan.pdf" in out
+    code, out = run(env, capsys, "forget", "pdf")  # matches two names
+    assert code == 1 and "Several documents match 'pdf'" in out and "spa.pdf" in out and "scan.pdf" in out
     assert len(store.all_docs(env.vault)) == 3
     code, out = run(env, capsys, "forget", " ")
     assert code == 1 and "Name a document" in out and len(store.all_docs(env.vault)) == 3
@@ -320,8 +278,9 @@ def test_internal_commands_are_hidden():
     kb = parser._subparsers._group_actions[0].choices["kb"]
     usage = kb.format_usage()
     assert "serve" not in usage and "run-job" not in usage
-    for name in ("add", "search", "show", "list", "forget", "label", "status"):
+    for name in ("add", "search", "show", "list", "forget", "status"):
         assert name in usage
+    assert "label" not in kb.format_usage().split("{", 1)[1]
 
 
 def test_a_small_request_waits_behind_a_running_job(env, capsys, tmp_path, monkeypatch):

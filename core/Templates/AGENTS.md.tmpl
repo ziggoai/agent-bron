@@ -54,7 +54,7 @@ Bron reads the documents the user points to (Drive links, files, `Knowledge/Inbo
 - To read: `.bron/bin/bron kb add '<link or path>' [...]` (`--inbox` for the inbox). For a Google Doc, Sheet or Slides link, export it through the Google Drive connection to a text file, then `.bron/bin/bron kb add --file <file> --source '<link>' --name '<title>'`. Tell the user the one-line result; big folders, scans and photos read in the background and report when done. Unchanged documents are skipped (`--again` rereads them).
 - The first `bron kb` command in a vault can take a few minutes; use a long command timeout (10 minutes).
 - Before answering a question about your documents, run `.bron/bin/bron kb search '<question>' [--company X] [--type T]`. Cite the document, page and link; when a passage shows `[p. N]`, use that page; copy numbers exactly as written; if the passages don't answer it, say so instead of guessing. For more context: `.bron/bin/bron kb show '<document>' --pages N-M`.
-- Corrections: `.bron/bin/bron kb label '<document>' --company … --type … --date …`; remove: `.bron/bin/bron kb forget '<document>'`; progress: `.bron/bin/bron kb status`; documents that couldn't be read: `.bron/bin/bron kb list --failed`.
+- Remove: `.bron/bin/bron kb forget '<document>'`; progress: `.bron/bin/bron kb status`; documents that couldn't be read: `.bron/bin/bron kb list --failed`.
 
 ## How Bron works
 

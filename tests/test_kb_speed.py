@@ -7,7 +7,7 @@ import pytest
 
 from bron.kb import embed, ingest, search, sources
 from bron.loader import load
-from kbkit import FakeLabels, make_text_pdf
+from kbkit import make_text_pdf
 
 pytestmark = pytest.mark.slow
 
@@ -28,11 +28,10 @@ def test_a_thousand_pages_read_and_a_warm_search_is_fast(vault, tmp_path, monkey
     folder = tmp_path / "docs"
     folder.mkdir()
     files = [make_text_pdf(folder / f"report-{d}.pdf", [page_text(rng, d * 100 + p) for p in range(100)]) for d in range(10)]
-    labels = FakeLabels()
     started = time.time()
     for path in files:
         item = sources.Item("file", f"file:{path}", str(path), path.name, str(path), "")
-        doc = ingest.read_item(vault, cfg, item, embedder=embedder, label_call=labels)
+        doc = ingest.read_item(vault, cfg, item, embedder=embedder)
         assert doc.status == "read", doc.error
     reading = time.time() - started
     query = "reference code Z0742"

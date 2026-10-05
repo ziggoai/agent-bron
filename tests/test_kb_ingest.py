@@ -11,8 +11,7 @@ from bron.kb import index, ingest, jobs, notices, search, sources, store
 from bron.kb.sources import Item
 from bron.kb.store import KbError
 from bron.loader import load
-from kbkit import (FakeLabels, FakeModel, FakeOcr, fake_drive, fake_embed, make_scanned_pdf,
-                   make_text_pdf, set_drive_id)
+from kbkit import (FakeModel, FakeOcr, fake_drive, fake_embed, hook_reads, make_scanned_pdf, make_text_pdf, set_drive_id)
 
 SPA_TEXT = ("Share Purchase Agreement between Acme Ltda and the Fund. The purchase price is USD 2,000,000.00 "
             "payable at closing on January 21, 2025.")
@@ -29,8 +28,7 @@ def kb(vault, tmp_path, monkeypatch):
     env.cfg = load(vault)
     env.ocr = FakeOcr()
     env.model = FakeModel("| Ano | Receita |\n| --- | --- |\n| 2024 | 12.345 |")
-    env.labels = FakeLabels({"spa.pdf": {"company": "Acme", "type": "contract", "date": "2025-01-21", "title": "Acme SPA"}})
-    env.deps = dict(readers_ocr=env.ocr, model_call=env.model, label_call=env.labels, embedder=fake_embed)
+    env.deps = dict(readers_ocr=env.ocr, model_call=env.model, embedder=fake_embed)
     env.root = fake_drive(tmp_path)
     monkeypatch.setenv("BRON_DRIVE_ROOT", str(env.root))
 
@@ -42,7 +40,9 @@ def kb(vault, tmp_path, monkeypatch):
 
 
 def drive_pdf(kb, name="spa.pdf", text=SPA_TEXT, item_id="SPA1"):
-    path = make_text_pdf(kb.root / name, [text])
+    folder = kb.root / "Acme"
+    folder.mkdir(exist_ok=True)
+    path = make_text_pdf(folder / name, [text])
     set_drive_id(path, item_id)
     items, failed = sources.resolve(kb.vault, [f"https://drive.google.com/file/d/{item_id}/view"])
     assert failed == []
@@ -55,17 +55,16 @@ def find(vault, query, **kw):
 
 # ---- reading one item ----
 
-def test_drive_file_is_read_in_place_labelled_and_searchable(kb):
+def test_drive_file_is_read_in_place_labelled_from_names_and_searchable(kb):
     path, item = drive_pdf(kb)
     doc = kb.read(item)
     assert doc.status == "read" and doc.identity == "drive:SPA1" and doc.path == str(path)
     assert doc.source == "https://drive.google.com/open?id=SPA1"
-    assert doc.labels["company"] == "Acme" and doc.labels["doc_type"] == "contract" and doc.labels["date"] == "2025-01-21"
+    assert doc.labels == {"company": "Acme", "doc_type": "other", "date": "", "title": "", "language": "other"}
     assert store.load(kb.vault, doc.doc_id) == doc
     assert not (kb.vault.root / "Knowledge" / "Files").exists() or not any((kb.vault.root / "Knowledge" / "Files").rglob("*.pdf"))
     hits = find(kb.vault, "purchase price")
     assert hits[0].doc_id == doc.doc_id and hits[0].page == 1 and hits[0].source == doc.source
-    assert "spa.pdf" in kb.labels.calls[0]
 
 
 def test_inbox_file_with_a_drive_id_is_kept_as_a_copy_and_removed_from_the_inbox(kb):
@@ -211,7 +210,7 @@ def test_export_is_read_as_that_document(kb, tmp_path):
     text = tmp_path / "export.txt"
     text.write_text("\n\n".join(f"Paragraph {i}: the board discussed the follow-on investment in Acme. " * 4 for i in range(25)))
     doc = ingest.add_export(kb.vault, kb.cfg, text, "https://docs.google.com/document/d/DOC1/edit", "Board memo",
-                            embedder=fake_embed, label_call=kb.labels)
+                            embedder=fake_embed)
     assert doc.doc_id == native.doc_id and doc.status == "read" and doc.identity == "drive:DOC1"
     assert doc.name == "Board memo" and doc.source == "https://docs.google.com/document/d/DOC1/edit"
     pages = store.pages(kb.vault, doc.doc_id)
@@ -232,7 +231,7 @@ def test_summary_lists_labels_and_reasons(kb):
     bad = store.Doc("x", "file:/x.zip", "file", "/x.zip", "x.zip", "/x.zip", status="failed", error="Bron can't read .zip files yet.")
     text = ingest.summary([good, bad], ["Couldn't find https://drive.google.com/file/d/NOPE/view in Google Drive on this Mac."])
     assert text.startswith("Read 1 document (0 scanned pages, 0 pages read by the model).")
-    assert "- spa.pdf — Acme · contract · 2025-01-21" in text
+    assert "- spa.pdf — Acme · other" in text
     assert "Couldn't read: x.zip (Bron can't read .zip files yet)" in text
     assert "Couldn't find https://drive.google.com/file/d/NOPE/view" in text
 
@@ -268,27 +267,25 @@ def test_job_reads_everything_and_reports_once(kb, tmp_path):
     assert notices.take(kb.vault) == []
 
 
-def test_interrupted_job_resumes(kb, tmp_path):
+def test_interrupted_job_resumes(kb, tmp_path, monkeypatch):
     items = items_in(kb, tmp_path, 3)
     job = jobs.create(kb.vault, items)
     calls = []
 
-    class Interrupting(FakeLabels):
-        def __call__(self, cli, model, prompt):
-            calls.append(prompt)
-            if len(calls) == 2:
-                raise KeyboardInterrupt  # the laptop lid closes during the second document
-            return super().__call__(cli, model, prompt)
+    def lid_closes(name):
+        calls.append(name)
+        if len(calls) == 2:
+            raise KeyboardInterrupt  # the laptop lid closes during the second document
 
-    deps = {**kb.deps, "label_call": Interrupting()}
+    hook_reads(monkeypatch, lid_closes)
     with pytest.raises(KeyboardInterrupt):
-        jobs.run(kb.vault, job.job_id, **deps)
+        jobs.run(kb.vault, job.job_id, **kb.deps)
     half = jobs.load(kb.vault, job.job_id)
     assert half.status == "running" and len(half.done) == 1 and notices.take(kb.vault) == []
-    jobs.run(kb.vault, job.job_id, **deps)
+    jobs.run(kb.vault, job.job_id, **kb.deps)
     finished = jobs.load(kb.vault, job.job_id)
     assert finished.status == "done" and len(finished.done) == 3
-    assert sum("doc0.pdf" in c for c in calls) == 1  # the first document wasn't read again
+    assert calls.count("doc0.pdf") == 1  # the first document wasn't read again
     told = notices.take(kb.vault)
     assert len(told) == 1 and told[0].startswith("Read 3 documents")
 
@@ -469,21 +466,19 @@ def test_user_labels_survive_a_crash_while_saving(kb, monkeypatch):
     assert store.effective_labels(store.load(kb.vault, doc.doc_id))["company"] == "Acme Holdings"
 
 
-def test_a_document_that_stops_the_reader_twice_is_skipped(kb, tmp_path):
+def test_a_document_that_stops_the_reader_twice_is_skipped(kb, tmp_path, monkeypatch):
     items = items_in(kb, tmp_path, 2)
     job = jobs.create(kb.vault, items)
 
-    class Crashes(FakeLabels):
-        def __call__(self, cli, model, prompt):
-            if "doc0.pdf" in prompt:
-                raise KeyboardInterrupt  # this file takes the whole process down every time
-            return super().__call__(cli, model, prompt)
+    def crashes(name):
+        if name == "doc0.pdf":
+            raise KeyboardInterrupt  # this file takes the whole process down every time
 
-    deps = {**kb.deps, "label_call": Crashes()}
+    hook_reads(monkeypatch, crashes)
     for _ in range(2):
         with pytest.raises(KeyboardInterrupt):
-            jobs.run(kb.vault, job.job_id, **deps)
-    jobs.run(kb.vault, job.job_id, **deps)
+            jobs.run(kb.vault, job.job_id, **kb.deps)
+    jobs.run(kb.vault, job.job_id, **kb.deps)
     finished = jobs.load(kb.vault, job.job_id)
     assert finished.status == "done" and len(finished.done) == 1
     assert finished.failed[0]["error"] == "Bron stopped while reading this file twice; skipped it."
@@ -500,17 +495,16 @@ def test_cancel_stops_waiting_jobs_and_reports_them(kb, tmp_path):
     assert store.all_docs(kb.vault) == [] and notices.take(kb.vault) == []  # reported by the command, not again
 
 
-def test_cancel_reaches_a_running_job_after_the_current_document(kb, tmp_path):
+def test_cancel_reaches_a_running_job_after_the_current_document(kb, tmp_path, monkeypatch):
     job = jobs.create(kb.vault, items_in(kb, tmp_path, 3))
 
-    class CancelDuringFirst(FakeLabels):
-        def __call__(self, cli, model, prompt):
-            if "doc0.pdf" in prompt:
-                assert jobs.runner_active(kb.vault)
-                jobs.cancel(kb.vault)
-            return super().__call__(cli, model, prompt)
+    def cancel_during_first(name):
+        if name == "doc0.pdf":
+            assert jobs.runner_active(kb.vault)
+            jobs.cancel(kb.vault)
 
-    jobs.run(kb.vault, job.job_id, **{**kb.deps, "label_call": CancelDuringFirst()})
+    hook_reads(monkeypatch, cancel_during_first)
+    jobs.run(kb.vault, job.job_id, **kb.deps)
     finished = jobs.load(kb.vault, job.job_id)
     assert finished.status == "cancelled" and len(finished.done) == 1 and len(finished.cancelled) == 2
     told = notices.take(kb.vault)
@@ -558,14 +552,13 @@ def test_runner_active_never_takes_the_runner_lock(kb, tmp_path, monkeypatch):
     seen = []
     real_flock = fcntl.flock
 
-    class Watch(FakeLabels):
-        def __call__(self, cli, model, prompt):
-            monkeypatch.setattr(jobs.fcntl, "flock", lambda *a: pytest.fail("runner_active touched the lock"))
-            seen.append(jobs.runner_active(kb.vault))
-            monkeypatch.setattr(jobs.fcntl, "flock", real_flock)
-            return super().__call__(cli, model, prompt)
+    def watch(name):
+        monkeypatch.setattr(jobs.fcntl, "flock", lambda *a: pytest.fail("runner_active touched the lock"))
+        seen.append(jobs.runner_active(kb.vault))
+        monkeypatch.setattr(jobs.fcntl, "flock", real_flock)
 
-    jobs.run(kb.vault, job.job_id, **{**kb.deps, "label_call": Watch()})
+    hook_reads(monkeypatch, watch)
+    jobs.run(kb.vault, job.job_id, **kb.deps)
     assert seen == [True] and not jobs.runner_active(kb.vault)
     (store.kb_dir(kb.vault) / "jobs" / "runner.status").write_text(json.dumps({"pid": 999999, "beat": 0}))
     assert not jobs.runner_active(kb.vault)  # a runner that died is not at work
@@ -618,26 +611,25 @@ def test_damaged_vector_files_are_worked_out_again(kb, damage):
     assert isinstance(json.loads((folder / "vectors.json").read_text()), dict)
 
 
-def test_an_unchanged_document_is_not_read_again(kb):
+def test_an_unchanged_document_is_not_read_again(kb, monkeypatch):
     path, item = drive_pdf(kb)
+    reads = []
+    hook_reads(monkeypatch, reads.append)
     first = kb.read(item)
     meta = json.loads((store.kb_dir(kb.vault) / "docs" / first.doc_id / "meta.json").read_text())
     assert meta["source_size"] == path.stat().st_size and meta["source_mtime"] == path.stat().st_mtime
-    assert len(kb.labels.calls) == 1
     again = kb.read(item)
     assert again.status == "unchanged" and again.doc_id == first.doc_id and again.name == "spa.pdf"
-    assert len(kb.labels.calls) == 1  # nothing was sent again
+    assert reads == ["spa.pdf"]  # nothing was read again
     assert store.load(kb.vault, first.doc_id).status == "read"
     forced = ingest.read_item(kb.vault, kb.cfg, item, again=True, **kb.deps)
-    assert forced.status == "read"
-    assert len(kb.labels.calls) == 1  # the same text: the labels were kept, no label call
-    assert forced.labels == first.labels
+    assert forced.status == "read" and reads == ["spa.pdf", "spa.pdf"] and forced.labels == first.labels
     make_text_pdf(path, ["Amended agreement: the purchase price is now USD 2,500,000.00 with an earn-out clause."])
     changed = kb.read(item)
-    assert changed.status == "read" and len(kb.labels.calls) == 2
+    assert changed.status == "read" and len(reads) == 3
 
 
-def test_web_pages_are_always_read_again_but_their_labels_are_reused(kb, monkeypatch):
+def test_web_pages_are_always_read_again(kb, monkeypatch):
     fetched = []
 
     def run(argv, **kw):
@@ -648,7 +640,7 @@ def test_web_pages_are_always_read_again_but_their_labels_are_reused(kb, monkeyp
     monkeypatch.setattr(ingest.subprocess, "run", run)
     item = sources.resolve(kb.vault, ["https://example.com/news"])[0][0]
     assert kb.read(item).status == "read" and kb.read(item).status == "read"
-    assert len(fetched) == 2 and len(kb.labels.calls) == 1
+    assert len(fetched) == 2
 
 
 def test_a_job_reports_unchanged_documents(kb, tmp_path):
@@ -800,17 +792,20 @@ def test_the_folder_hint_never_names_a_drive_account_or_computer(kb, tmp_path, m
     assert account / "Meu Drive" in sources.drive_roots()
 
 
-def test_the_label_prompt_never_carries_the_users_name(kb, tmp_path, monkeypatch):
+def test_labels_come_from_the_folder_name_never_from_a_model(kb, tmp_path, monkeypatch):
     from pathlib import Path as P
 
-    fake_home = tmp_path / "Users" / "carla"
+    from bron.memory import summaries
+
+    monkeypatch.setattr(summaries, "call_model", lambda *a, **k: pytest.fail("no text is sent to a model to label documents"))
+    fake_home = tmp_path / "Users" / "someone"
     folder = fake_home / "Downloads" / "Acme"
     folder.mkdir(parents=True)
     monkeypatch.setattr(P, "home", classmethod(lambda cls: fake_home))
-    pdf = make_text_pdf(folder / "spa.pdf", [SPA_TEXT])
-    kb.read(sources.resolve(kb.vault, [str(pdf)])[0][0])
-    prompt = kb.labels.calls[-1]
-    assert "Folder: Downloads/Acme\n" in prompt and "carla" not in prompt
+    pdf = make_text_pdf(folder / "2025.01.21 spa.pdf", [SPA_TEXT])
+    doc = kb.read(sources.resolve(kb.vault, [str(pdf)])[0][0])
+    assert doc.status == "read" and doc.labels["company"] == "Acme" and doc.labels["date"] == "2025-01-21"
+    assert kb.model.calls == [] and not (store.kb_dir(kb.vault) / "model-log.jsonl").exists()
 
 
 def test_meta_records_the_reader_and_passage_versions(kb):

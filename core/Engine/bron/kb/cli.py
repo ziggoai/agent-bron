@@ -50,11 +50,6 @@ def add_parser(sub) -> None:
     forget = commands.add_parser("forget", help="remove a document from the knowledge base")
     forget.add_argument("doc", help="the document's id, name or part of its name")
 
-    label = commands.add_parser("label", help="correct a document's company, type, date or title")
-    label.add_argument("doc", help="the document's id, name or part of its name")
-    for flag, dest in (("--company", "company"), ("--type", "doc_type"), ("--date", "date"), ("--title", "title")):
-        label.add_argument(flag, dest=dest, default=None, help="empty ('') undoes your correction")
-
     status = commands.add_parser("status", help="reading in progress, and how many documents Bron has")
     status.add_argument("--cancel", action="store_true", help="stop the reading that's waiting or under way")
     commands.add_parser("serve")  # the warm search helper; started automatically, so it has no help line
@@ -86,8 +81,8 @@ def handle(args, vault) -> int:
 
             service.serve(vault)
             return 0
-        command = {"add": _add, "show": _show, "list": _list, "forget": _forget, "label": _label,
-                   "status": _status, "run-job": _run_job}.get(args.kb_command)
+        command = {"add": _add, "show": _show, "list": _list, "forget": _forget, "status": _status,
+                   "run-job": _run_job}.get(args.kb_command)
         if command is not None:
             return command(args, vault)
     except KbError as exc:
@@ -357,7 +352,7 @@ def _list(args, vault) -> int:
     return 0
 
 
-# ---- forget, label ----
+# ---- forget ----
 
 def _tools_ready() -> bool:
     from . import tools
@@ -391,65 +386,6 @@ def _forget(args, vault) -> int:
     store.forget(vault, doc.doc_id)
     kept = " Its copy in Knowledge/Files is still there." if doc.kind == "file" else ""
     print(f"Forgot {doc.name}; searches won't find it any more. The original wasn't touched.{kept}")
-    return 0
-
-
-def _label(args, vault) -> int:
-    from datetime import datetime
-
-    from . import ingest, models, store
-    from .passages import split
-
-    doc = _find(vault, args.doc)
-    if doc is None:
-        return 1
-    given = {k: v for k, v in (("company", args.company), ("doc_type", args.doc_type), ("date", args.date),
-                               ("title", args.title)) if v is not None}
-    if not given:
-        print(f"Labels for {doc.name}: {ingest.label_line(doc) or 'none'}")
-        return 0
-    if doc.status == "failed":
-        print(f"{doc.name} couldn't be read, so there's nothing to label. Read it again first.")
-        return 1
-    if given.get("date"):
-        try:
-            given["date"] = datetime.strptime(given["date"].strip(), "%Y-%m-%d").strftime("%Y-%m-%d")
-        except ValueError:
-            print("Dates should look like YYYY-MM-DD (for example 2025-01-21).")
-            return 1
-    if given.get("doc_type"):
-        from ..loader import load
-
-        types = models.doc_types(load(vault))
-        kind = models.match_type(given["doc_type"], types)
-        if kind is None:
-            print("The type should be one of: " + ", ".join(types) + ". You can set your own list with "
-                  "`knowledge: doc_types:` in System/Settings.md.")
-            return 1
-        given["doc_type"] = kind
-    for key in ("company", "title"):
-        if key in given:
-            given[key] = models.clean(given[key], None, 120)
-    user = dict(doc.user_labels)
-    fund = user.pop("fund", "")  # Bron 0.7.0 had a fund label: it becomes the company when there is none
-    if fund and not user.get("company") and not (isinstance(doc.labels, dict) and doc.labels.get("company")):
-        user["company"] = fund
-    user.update(given)
-    doc.user_labels = {k: v for k, v in user.items() if v}  # an empty value undoes a correction
-    pages = store.pages(vault, doc.doc_id)
-    passages = split([(i + 1, t) for i, t in enumerate(pages)], store.effective_labels(doc))  # headers carry the labels
-    store.save(vault, doc, pages, passages)
-    if _tools_ready():
-        from . import index
-
-        index.put(vault, doc, passages, _embedder(vault))
-        if doc.status == "indexing":  # an interrupted reading: now it's indexed
-            doc.status = "read"
-            store.save_meta(vault, doc)
-            store.clear_indexing(vault, doc.doc_id)
-    else:
-        _drop_index_files(vault)
-    print(f"Labels for {doc.name}: {ingest.label_line(doc) or 'none'}")
     return 0
 
 

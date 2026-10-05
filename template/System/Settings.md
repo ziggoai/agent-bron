@@ -15,7 +15,6 @@ memory:
 knowledge:
   model_pages: true
   max_model_pages: 20
-  labels: true
 action_groups: {}
 ---
 
@@ -28,5 +27,5 @@ Bron fills this in with you during first-run setup. You can edit it yourself or 
 - `runner`: how many tickets may run at once, and for how long.
 - `update_check`: Bron checks once a day whether a new version is out and tells you; set it to false to stop that.
 - `memory`: Bron writes a short summary of each conversation in the background with a small model; set `summaries: false` to stop, or change the model per app.
-- `knowledge`: when a page is a scan or too messy to read directly, Bron may ask a model to read it (`model_pages`), for at most `max_model_pages` pages per document. `labels`: Bron sends the first part of each document's text to your Claude or Codex plan to work out its company, type and date; set `labels: false` to work them out from file and folder names only. `doc_types`: your own list of document types, like `[lease, utility bill]`, in place of the general one (see System/Core/Manual/knowledge.md).
+- `knowledge`: when a page is a scan or too messy to read directly, Bron may ask a model to read it (`model_pages`), for at most `max_model_pages` pages per document. The wiki's rules, including your document types, are in `Knowledge/Schema.md` (see System/Core/Manual/knowledge.md).
 - `action_groups`: your own named groups of actions for `ask_before` (see System/Core/Manual/permissions.md).

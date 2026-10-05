@@ -265,7 +265,7 @@ def _default_embedder(vault: Vault):
     return embed.get(vault)
 
 
-def _work(vault: Vault, cfg, job: Job, *, embedder, readers_ocr, model_call, label_call) -> None:
+def _work(vault: Vault, cfg, job: Job, *, embedder, readers_ocr, model_call) -> None:
     from . import ingest
 
     fresh = load(vault, job.job_id)
@@ -293,7 +293,7 @@ def _work(vault: Vault, cfg, job: Job, *, embedder, readers_ocr, model_call, lab
         job.attempts[identity] = tries + 1
         save(vault, job)  # written down before reading, so a crash on this file counts
         doc = ingest.read_item(vault, cfg, item, readers_ocr=readers_ocr, model_call=model_call,
-                               label_call=label_call, embedder=embedder, again=job.again)
+                               embedder=embedder, again=job.again)
         if doc.status == "read":
             job.done.append(identity)
             job.read.append(doc.doc_id)
@@ -307,7 +307,7 @@ def _work(vault: Vault, cfg, job: Job, *, embedder, readers_ocr, model_call, lab
     _finish(vault, job, "done")
 
 
-def run(vault: Vault, job_id: str, *, embedder=None, readers_ocr=None, model_call=None, label_call=None, cfg=None) -> bool:
+def run(vault: Vault, job_id: str, *, embedder=None, readers_ocr=None, model_call=None, cfg=None) -> bool:
     """Run this job and any others waiting, oldest first. False when another runner is already at work
     (it picks up every waiting job, this one included)."""
     if cfg is None:
@@ -315,7 +315,7 @@ def run(vault: Vault, job_id: str, *, embedder=None, readers_ocr=None, model_cal
 
         cfg = load_cfg(vault)
     embedder = embedder or _default_embedder(vault)
-    deps = dict(embedder=embedder, readers_ocr=readers_ocr, model_call=model_call, label_call=label_call)
+    deps = dict(embedder=embedder, readers_ocr=readers_ocr, model_call=model_call)
     while True:
         with _hold_lock(vault) as got:
             if not got:

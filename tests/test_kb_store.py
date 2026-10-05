@@ -103,28 +103,11 @@ def test_nothing_to_install_is_silent(vault, monkeypatch):
 
 def test_knowledge_settings(vault):
     s = load(vault).settings
-    assert (s.kb_model_pages, s.kb_max_model_pages, s.kb_labels) == (True, 20, True)
-    set_meta(vault.settings_file, knowledge={"model_pages": False, "max_model_pages": 5, "labels": False})
-    s = load(vault).settings
-    assert (s.kb_model_pages, s.kb_max_model_pages, s.kb_labels) == (False, 5, False)
-
-
-def test_doc_types_setting(vault):
-    assert load(vault).settings.kb_doc_types == []  # absent: the general default
-    set_meta(vault.settings_file, knowledge={"doc_types": [" Lease ", "utility  bill", "lease", "Bad [x] | y\x07", "", 2024]})
+    assert (s.kb_model_pages, s.kb_max_model_pages) == (True, 20)
+    set_meta(vault.settings_file, knowledge={"model_pages": False, "max_model_pages": 5, "labels": False, "doc_types": ["x"]})
     cfg = load(vault)
-    assert cfg.settings.kb_doc_types == ["Lease", "utility bill", "Bad x y", "2024"]
-    assert not [i for i in cfg.issues if "doc_types" in i.message]
-    set_meta(vault.settings_file, knowledge={"doc_types": "lease, invoice"})
-    assert load(vault).settings.kb_doc_types == ["lease", "invoice"]
-    for bad in ({"a": 1}, ["lease", {"a": 1}], [True]):
-        set_meta(vault.settings_file, knowledge={"doc_types": bad})
-        cfg = load(vault)
-        assert any("doc_types" in i.message and i.level == "warning" for i in cfg.issues)
-        assert cfg.settings.kb_doc_types in ([], ["lease"])
-    set_meta(vault.settings_file, knowledge={"doc_types": [f"type {i}" for i in range(60)]})
-    cfg = load(vault)
-    assert len(cfg.settings.kb_doc_types) == 50 and any("more than 50" in i.message for i in cfg.issues)
+    assert (cfg.settings.kb_model_pages, cfg.settings.kb_max_model_pages) == (False, 5)
+    assert not [i for i in cfg.issues if "knowledge" in i.message]  # 0.7 keys are ignored until the migration removes them
 
 
 def test_a_stored_fund_label_folds_into_company():

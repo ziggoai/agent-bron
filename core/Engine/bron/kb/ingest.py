@@ -1,4 +1,4 @@
-"""Reading one thing the user pointed to: read it, fix hard pages, label it, cut it into passages, store and index it.
+"""Reading one thing the user pointed to: read it, fix hard pages, label it from its file and folder names, cut it into passages, store and index it.
 
 Files Bron keeps (the inbox, or a path outside Google Drive) are copied to Knowledge/Files/<YYYY-MM>/; Drive files and
 web pages are read where they are. A failure is one plain sentence on that document and never stops a batch.
@@ -23,7 +23,6 @@ from .store import Doc, KbError
 
 CURL = ["curl", "-fsSL", "--max-time", "30", "-A", "Mozilla/5.0 (Bron)"]
 EXPORT_PART_CHARS = 3000
-LABEL_CHARS = 3000
 SUMMARY_LINES = 10
 GUESS_PDF_BYTES_PER_PAGE = 50_000
 SF_DATALESS = 0x40000000  # macOS: an "online only" Drive file whose bytes aren't on this Mac
@@ -172,8 +171,8 @@ _DRIVE_TOPS = ("My Drive", "Shared drives", "Meu Drive", "Drives compartilhados"
 
 
 def _folder_hint(vault: Vault, item: Item) -> str:
-    """Where the file sits, for the label model: at most the last two folder names below the Drive root, the vault
-    or a home folder, so nothing above them (a user name, say) is ever sent."""
+    """Where the file sits, for the labels worked out from folder names: at most the last two folder names below the
+    Drive root, the vault or a home folder, so nothing above them (a user name, say) is ever used."""
     if item.kind == "web":
         return re.sub(r"^https?://([^/]+).*$", r"\1", item.url or item.source)
     if not item.path:
@@ -200,12 +199,8 @@ def _folder_hint(vault: Vault, item: Item) -> str:
     return "/".join(below[-2:])
 
 
-def _text_hash(texts: list[str]) -> str:
-    return hashlib.sha256("\f".join(texts).encode("utf-8")).hexdigest()
-
-
-def _process(vault: Vault, cfg, item: Item, doc: Doc, previous: Doc | None, get_pages, *, model_call, label_call,
-             embedder, keep: tuple[Path, Path] | None = None) -> Doc:
+def _process(vault: Vault, cfg, item: Item, doc: Doc, previous: Doc | None, get_pages, *, model_call, embedder,
+             keep: tuple[Path, Path] | None = None) -> Doc:
     """get_pages(work) -> pages. keep: (original, kept copy) for files Bron keeps.
 
     The document is saved with status "indexing" and only marked "read" once the search index has it, so an
@@ -222,12 +217,7 @@ def _process(vault: Vault, cfg, item: Item, doc: Doc, previous: Doc | None, get_
         if not any(t.strip() for t in texts):
             raise KbError("Bron found no text in this file.")
         doc.pages, doc.scanned, doc.model_pages = len(texts), sum(1 for p in pages if p.ocr), sent
-        if (previous is not None and previous.status in ("read", "indexing") and previous.labels
-                and _text_hash(store.pages(vault, doc.doc_id)) == _text_hash(texts)):
-            doc.labels = dict(previous.labels)  # the same text as last time: its labels stand, nothing is sent
-        else:
-            doc.labels = models.labels(cfg, doc.name, _folder_hint(vault, item), "\n\n".join(texts)[:LABEL_CHARS],
-                                       call=label_call, vault=vault, web=item.kind == "web")
+        doc.labels = models.labels_from_names(doc.name, _folder_hint(vault, item), web=item.kind == "web")
         passages = split(pages, store.effective_labels(doc))
         try:
             matrix = index.vectors(vault, doc, passages, embedder)  # the slow part, before anything changes
@@ -278,12 +268,12 @@ def _failed(vault: Vault, item: Item, exc: BaseException) -> Doc:
                read_at=time.strftime("%Y-%m-%d"), status="failed", error=_reason(exc, item))
 
 
-def read_item(vault: Vault, cfg, item: Item, *, readers_ocr=None, model_call=None, label_call=None, embedder,
+def read_item(vault: Vault, cfg, item: Item, *, readers_ocr=None, model_call=None, embedder,
               again: bool = False) -> Doc:
     """Read one item. A document already read whose original hasn't changed (same size and time) isn't read again
     and comes back with status "unchanged", unless `again`. Web pages are always read again."""
     if item.kind == "export":
-        return _read_export(vault, cfg, item, embedder=embedder, label_call=label_call)
+        return _read_export(vault, cfg, item, embedder=embedder)
     try:  # a file that can't even be looked at (no permission, say) is one failure, never the end of the batch
         keep = None
         identity, source, path = item.identity, item.source, item.path
@@ -309,7 +299,7 @@ def read_item(vault: Vault, cfg, item: Item, *, readers_ocr=None, model_call=Non
     if keep:
         read_from = Item(item.kind, item.identity, item.source, item.name, str(keep[0]), item.url)
     return _process(vault, cfg, item, doc, previous, lambda work: _read(read_from, readers_ocr, work).pages,
-                    model_call=model_call, label_call=label_call, embedder=embedder, keep=keep)
+                    model_call=model_call, embedder=embedder, keep=keep)
 
 
 EXPORT_SOURCE = ("--source should be the Google Drive link of the document you exported "
@@ -345,9 +335,9 @@ def export_item(text_file: Path | str, source: str, name: str) -> Item:
     return Item("export", f"drive:{did}", source, name.strip(), str(Path(text_file).resolve()), source)
 
 
-def _read_export(vault: Vault, cfg, item: Item, *, embedder, label_call=None) -> Doc:
+def _read_export(vault: Vault, cfg, item: Item, *, embedder) -> Doc:
     try:
-        return add_export(vault, cfg, Path(item.path), item.source, item.name, embedder=embedder, label_call=label_call)
+        return add_export(vault, cfg, Path(item.path), item.source, item.name, embedder=embedder)
     except Exception as exc:  # noqa: BLE001 - the text file is gone, say: one failure in the job
         return _failed(vault, item, exc)
 
@@ -367,7 +357,7 @@ def _export_pages(text: str):
     return [Page(p.number, p.text) for p in split_parts(blocks)]
 
 
-def add_export(vault: Vault, cfg, text_file: Path, source: str, name: str, *, embedder, label_call=None) -> Doc:
+def add_export(vault: Vault, cfg, text_file: Path, source: str, name: str, *, embedder) -> Doc:
     """A Google Doc, Sheet or Slides file exported through the Drive connection, read as that document."""
     source = sources.as_link(source.strip())
     did = sources.drive_id(source)
@@ -379,8 +369,7 @@ def add_export(vault: Vault, cfg, text_file: Path, source: str, name: str, *, em
     previous = store.load(vault, doc_id)
     doc = Doc(doc_id, item.identity, "native", source, item.name, "",
               user_labels=store.user_labels(vault, doc_id), read_at=time.strftime("%Y-%m-%d"))
-    return _process(vault, cfg, item, doc, previous, lambda work: _export_pages(text), model_call=None,
-                    label_call=label_call, embedder=embedder)
+    return _process(vault, cfg, item, doc, previous, lambda work: _export_pages(text), model_call=None, embedder=embedder)
 
 
 # ---- sizes, for asking first ----
