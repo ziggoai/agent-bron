@@ -13,7 +13,7 @@ description: Keep the wiki in Knowledge/. Use right after `bron kb add` reads do
 
 ## Read documents (ingest)
 
-Read `Knowledge/Schema.md` first. Then take each document `bron kb add` printed (`Read <name> … — doc <id>`, or `Already read … (no page yet)`), one at a time:
+Read `Knowledge/Schema.md` first. Then take each document `bron kb add` printed (`Read <name> … — doc <id>`, or `Already read … (no page yet)`), one at a time (a `Skipped <name>: same text as …` line is a copy of a document already read: it gets no page; just tell the user it was skipped):
 
 1. **Read it.** `.bron/bin/bron kb show <doc id>` prints the first 20 pages, each starting with `--- p. N ---`; continue with `--pages 21-40` and so on. Read every page of a document up to about 60 pages; for a longer one, read the beginning, the contents and the sections that matter, and use `.bron/bin/bron kb search '<words>'` for the rest.
 2. **See what the wiki already knows.** Note the organisations, people, topics and other documents it mentions. For each name run `.bron/bin/bron kb search '<name>' --pages-only` and open the pages it finds. Read every page you are going to change before you change it.

@@ -71,6 +71,11 @@ def test_helpers_cannot_nest_or_write(vault):
     assert doc.meta["description"].startswith("Reads the files")
 
 
+def test_the_reader_helper_runs_on_sonnet_for_speed(vault):
+    doc = fm.parse(generate(load(vault))[".claude/agents/reader.md"].decode())
+    assert doc.meta["model"] == "sonnet"
+
+
 def test_mcp_json_only_when_connections_exist(vault):
     assert ".mcp.json" not in generate(load(vault))
     add_connection(vault, "Carta", env={"CARTA_TOKEN": "${CARTA_TOKEN}"})

@@ -44,6 +44,8 @@ class Doc:
     reader_version: int = READER_VERSION
     page: str = ""  # its wiki page (vault-relative), from page.json; never written into meta.json
     page_labels: dict = field(default_factory=dict)  # the labels its page's properties give it
+    text_hash: str = ""  # its text, whitespace aside, hashed: a copy of a document already read has the same one
+    duplicate_of: str = ""  # status "duplicate": the document already read with the same text (never saved)
 
 
 def kb_dir(vault: Vault) -> Path:
@@ -99,7 +101,7 @@ def save_user_labels(vault: Vault, doc_id: str, labels: dict) -> None:
 
 
 PAGE_FILE = "page.json"
-_NOT_META = ("page", "page_labels")
+_NOT_META = ("page", "page_labels", "duplicate_of")
 
 
 def _meta_json(doc: Doc) -> str:
@@ -183,6 +185,27 @@ def all_docs(vault: Vault) -> list[Doc]:
         return []
     found = [load(vault, p.name) for p in sorted(root.iterdir()) if p.is_dir()]
     return [d for d in found if d is not None]
+
+
+def text_hash(pages: list[str]) -> str:
+    return hashlib.sha256("\n".join(" ".join(p.split()) for p in pages).encode("utf-8")).hexdigest()[:24]
+
+
+def same_text(vault: Vault, digest: str, *, but: str) -> Doc | None:
+    """A document already read whose text is this one's. Documents read before Bron checked for copies get their
+    hash now, once."""
+    for doc in all_docs(vault):
+        if doc.doc_id == but or doc.status != "read":
+            continue
+        if not doc.text_hash:
+            texts = pages(vault, doc.doc_id)
+            if not texts:
+                continue
+            doc.text_hash = text_hash(texts)
+            save_meta(vault, doc)
+        if doc.text_hash == digest:
+            return doc
+    return None
 
 
 def exists(vault: Vault, doc_id: str) -> bool:

@@ -1,7 +1,7 @@
 ---
 name: reader
 description: Reads the files or documents it is given and extracts the facts asked for, with exact quotes and where each came from. Use it to read many documents in parallel.
-models: {claude: default, codex: default}
+models: {claude: sonnet, codex: default}
 read_only: true
 ---
 

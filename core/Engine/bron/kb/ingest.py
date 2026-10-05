@@ -217,6 +217,11 @@ def _process(vault: Vault, cfg, item: Item, doc: Doc, previous: Doc | None, get_
         if not any(t.strip() for t in texts):
             raise KbError("Bron found no text in this file.")
         doc.pages, doc.scanned, doc.model_pages = len(texts), sum(1 for p in pages if p.ocr), sent
+        doc.text_hash = store.text_hash(texts)
+        if previous is None and (twin := store.same_text(vault, doc.text_hash, but=doc.doc_id)) is not None:
+            # A copy (a "(1)" download, the same file in two folders): never stored, indexed or given a page.
+            doc.status, doc.duplicate_of, doc.error = "duplicate", twin.doc_id, f"same text as {twin.name}"
+            return doc
         doc.labels = models.labels_from_names(doc.name, _folder_hint(vault, item), web=item.kind == "web")
         passages = split(pages, store.effective_labels(doc))
         try:
@@ -462,7 +467,8 @@ def summary(docs: list[Doc], notes: list[str] | tuple = ()) -> str:
     `notes`: sentences about links that weren't found."""
     read = [d for d in docs if d.status == "read"]
     unchanged = [d for d in docs if d.status == "unchanged"]
-    failed = [d for d in docs if d.status not in ("read", "unchanged")]
+    copies = [d for d in docs if d.status == "duplicate"]
+    failed = [d for d in docs if d.status not in ("read", "unchanged", "duplicate")]
     lines: list[str] = []
     if read:
         scanned = sum(d.scanned for d in read)
@@ -483,6 +489,10 @@ def summary(docs: list[Doc], notes: list[str] | tuple = ()) -> str:
         names = ", ".join(d.name for d in unchanged[:SUMMARY_LINES]) + (", …" if len(unchanged) > SUMMARY_LINES else "")
         lines.append(f"Already read, unchanged: {names} ({len(unchanged)} unchanged, skipped; "
                      f"add --again to read {'it' if len(unchanged) == 1 else 'them'} again).")
+    if copies:
+        shown = ", ".join(f"{d.name} ({d.error})" for d in copies[:SUMMARY_LINES]) + (", …" if len(copies) > SUMMARY_LINES else "")
+        what = "1 copy of a document" if len(copies) == 1 else f"{len(copies)} copies of documents"
+        lines.append(f"Skipped {what} already read: {shown}.")
     if failed:
         shown = "; ".join(f"{d.name} ({d.error.rstrip('.')})" for d in failed[:SUMMARY_LINES])
         more = f"; …and {len(failed) - SUMMARY_LINES} more, see `bron kb list`" if len(failed) > SUMMARY_LINES else ""
@@ -501,6 +511,8 @@ def lines(docs: list[Doc], notes: list[str] | tuple = ()) -> str:
         elif d.status == "unchanged":
             page = f"page: [[{Path(d.page).stem}]]" if d.page else "no page yet"
             out.append(f"Already read {d.name} — doc {d.doc_id} ({page})")
+        elif d.status == "duplicate":
+            out.append(f"Skipped {d.name}: {d.error} — doc {d.duplicate_of}")
         else:
             out.append(f"Couldn't read {d.name}: {d.error}")
     out += [str(n) for n in notes]

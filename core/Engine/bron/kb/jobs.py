@@ -49,6 +49,7 @@ class Job:
     cancelled: list[str] = field(default_factory=list)  # names of the items not read because of a cancel
     again: bool = False  # `bron kb add --again`: read documents again even when they haven't changed
     unchanged: list[str] = field(default_factory=list)  # ids of the documents skipped as already read, unchanged
+    copies: list[dict] = field(default_factory=list)  # {"name", "error", "of"}: skipped, same text as a document read
     wiki: bool = False  # write the wiki pages in the background once read
     wiki_status: str = ""  # "" (no wiki run) | waiting | writing | done | failed | cancelled
     wiki_docs: list[str] = field(default_factory=list)  # ids of the documents whose pages the run writes
@@ -312,6 +313,8 @@ def _read_banner(job: Job) -> None:
     parts = [f"read {_plural(len(job.read), 'document')}"]
     if job.unchanged:
         parts.append(f"{len(job.unchanged)} unchanged")
+    if job.copies:
+        parts.append("skipped 1 copy" if len(job.copies) == 1 else f"skipped {len(job.copies)} copies")
     if failed:
         parts.append(f"{failed} couldn't be read")
     seconds = _span(job.started or job.created, job.read_done)
@@ -324,6 +327,8 @@ def report(vault: Vault, job: Job) -> str:
     docs = [d for d in (store.load(vault, i) for i in job.read) if d is not None]
     skipped = (store.load(vault, i) for i in job.unchanged)
     docs += [dataclasses.replace(d, status="unchanged") for d in skipped if d is not None]
+    docs += [store.Doc("", "", "", "", c.get("name", ""), "", status="duplicate", error=c.get("error", ""),
+                       duplicate_of=c.get("of", "")) for c in job.copies]
     docs += [store.Doc("", f.get("identity", ""), "", "", f.get("name", ""), "", status="failed", error=f.get("error", ""))
              for f in job.failed if f.get("name")]
     notes = [f.get("error", "") for f in job.failed if not f.get("name")]
@@ -442,6 +447,9 @@ def _work(vault: Vault, cfg, job: Job, *, embedder, readers_ocr, model_call) -> 
         elif doc.status == "unchanged":
             job.done.append(identity)
             job.unchanged.append(doc.doc_id)
+        elif doc.status == "duplicate":
+            job.done.append(identity)
+            job.copies.append({"name": doc.name, "error": doc.error, "of": doc.duplicate_of})
         else:
             job.failed.append({"identity": identity, "name": doc.name, "error": doc.error})
         save(vault, job)  # committed: an interrupted job never reads this item again

@@ -213,7 +213,7 @@ def _report(vault, docs, notes) -> int:
             print(BEHIND.format(duration=_duration((ahead + len(todo)) * wiki_run.SECONDS_PER_DOC)))
         else:
             print(NEXT)
-    return 0 if any(d.status in ("read", "unchanged") for d in docs) else 1
+    return 0 if any(d.status in ("read", "unchanged", "duplicate") for d in docs) else 1
 
 
 def _add_export(args, vault) -> int:

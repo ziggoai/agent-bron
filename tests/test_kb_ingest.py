@@ -153,7 +153,11 @@ def test_each_document_gets_its_own_work_folder(kb, tmp_path):
     a = make_scanned_pdf(tmp_path / "a.pdf", ["first scan"])
     b = make_scanned_pdf(tmp_path / "b.pdf", ["second scan"])
     items, _ = sources.resolve(kb.vault, [str(a), str(b)])
-    docs = [kb.read(i) for i in items]
+    texts = iter(["Scanned lease of shop one.", "Scanned lease of shop two."])  # two different documents, not copies
+    docs = []
+    for item in items:
+        kb.ocr.text = next(texts)
+        docs.append(kb.read(item))
     assert [d.status for d in docs] == ["read", "read"] and [d.scanned for d in docs] == [1, 1]
     assert [p.name for p in kb.ocr.images] == ["p1.png", "p1.png"]
     assert kb.ocr.images[0].parent != kb.ocr.images[1].parent
@@ -840,3 +844,54 @@ def test_exported_text_is_checked_before_reading(tmp_path):
     assert str(err.value) == ingest.NOT_TEXT
     with pytest.raises(KbError, match="no readable file"):
         ingest.read_text_file(tmp_path / "missing.txt")
+
+
+# ---- copies ----
+
+def test_a_copy_of_a_document_already_read_is_skipped(kb):
+    _, first = drive_pdf(kb, "lease.pdf", item_id="L1")
+    _, copy = drive_pdf(kb, "lease (1).pdf", item_id="L2")
+    original = kb.read(first)
+    skipped = kb.read(copy)
+    assert original.status == "read" and original.text_hash
+    assert skipped.status == "duplicate" and skipped.duplicate_of == original.doc_id
+    assert not store.exists(kb.vault, skipped.doc_id)  # nothing stored, nothing indexed, no page to write
+    assert ingest.lines([skipped]) == f"Skipped lease (1).pdf: same text as lease.pdf — doc {original.doc_id}"
+    assert ingest.summary([original, skipped]).endswith(
+        "Skipped 1 copy of a document already read: lease (1).pdf (same text as lease.pdf).")
+
+
+def test_reading_the_same_document_again_is_never_called_a_copy(kb):
+    _, item = drive_pdf(kb, "lease.pdf", item_id="L1")
+    kb.read(item)
+    assert ingest.read_item(kb.vault, kb.cfg, item, again=True, **kb.deps).status == "read"
+
+
+def test_a_document_read_before_copies_were_checked_still_catches_its_copies(kb):
+    _, first = drive_pdf(kb, "lease.pdf", item_id="L1")
+    original = kb.read(first)
+    meta = store._folder(kb.vault, original.doc_id) / "meta.json"
+    data = json.loads(meta.read_text())
+    del data["text_hash"]
+    meta.write_text(json.dumps(data))  # as 0.8.0 before this check
+    _, copy = drive_pdf(kb, "lease copy.pdf", item_id="L2")
+    assert kb.read(copy).status == "duplicate"
+    assert store.load(kb.vault, original.doc_id).text_hash == original.text_hash  # filled in on the way
+
+
+def test_a_folder_with_copies_reads_each_text_once(kb, tmp_path, desktop_notices):
+    folder = tmp_path / "Agreements"
+    folder.mkdir()
+    for name in ("lpa.pdf", "lpa (1).pdf", "lpa (2).pdf"):
+        make_text_pdf(folder / name, ["Limited partnership agreement of Northwind Properties Ltd, signed in 2024."])
+    make_text_pdf(folder / "side.pdf", ["A different document about Harbor Bakery LLC."])
+    items = sources.resolve(kb.vault, [str(folder)])[0]
+    job = jobs.create(kb.vault, items)
+    jobs.run(kb.vault, job.job_id, **kb.deps)
+    job = jobs.load(kb.vault, job.job_id)
+    assert len(job.read) == 2 and len(job.copies) == 2 and job.failed == []
+    told = notices.take(kb.vault)[0]
+    # read in name order: "lpa (1).pdf" comes first, so it's the one kept
+    assert "Skipped 2 copies of documents already read: lpa (2).pdf (same text as lpa (1).pdf), " \
+           "lpa.pdf (same text as lpa (1).pdf)." in told
+    assert re.fullmatch(r"Bron read 2 documents, skipped 2 copies \(\d+ s\)\.", desktop_notices[0])
