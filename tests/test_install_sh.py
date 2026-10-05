@@ -220,3 +220,15 @@ def test_piping_the_script_into_bash_works(home, tarball, tmp_path):
     done = subprocess.run(["bash", "-s", "--", str(target)], input=INSTALLER.read_text(), cwd=home, env=env, capture_output=True, text=True, timeout=600)
     assert done.returncode == 0, done.stdout + done.stderr
     assert f"Your Bron vault is ready at {target}." in done.stdout
+
+
+def test_no_variable_runs_into_a_non_ascii_character():
+    """In a UTF-8 Terminal, bash 3.2 reads "$VERSION…" as a variable named "VERSION…" and stops ("unbound variable"):
+    a variable followed by a non-ASCII character needs braces, "${VERSION}…"."""
+    import re
+
+    scripts = [INSTALLER, *sorted((REPO / "scripts").glob("*.sh"))]
+    bad = [f"{path.name}:{n}" for path in scripts
+           for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+           if re.search(r"\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7f]", line)]
+    assert bad == []

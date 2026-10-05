@@ -129,7 +129,7 @@ else
   tags="$(curl -fsSL --max-time 30 "https://api.github.com/repos/$REPO/tags?per_page=100")" || fail "GitHub didn't answer; check your internet connection and try again."
   VERSION="$(printf '%s\n' "$tags" | grep -oE '"name": *"v[0-9]+\.[0-9]+\.[0-9]+"' | sed -E 's/.*"v([0-9.]+)"/\1/' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 || true)"
   [ -n "$VERSION" ] || fail "Bron hasn't published a release yet."
-  say "Downloading Bron $VERSION…"
+  say "Downloading Bron ${VERSION}…"
   curl -fsSL --max-time 600 "https://codeload.github.com/$REPO/tar.gz/refs/tags/v$VERSION" -o "$WORK/bron.tar.gz" || fail "the download didn't finish; nothing was changed."
   tar -xzf "$WORK/bron.tar.gz" -C "$WORK" || fail "the download was damaged; nothing was changed."
   SRC="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
