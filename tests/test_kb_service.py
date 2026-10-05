@@ -231,7 +231,7 @@ def test_short_vault_path_uses_socket_in_the_vault(helper, monkeypatch):
         short = Vault(root)
         assert service.socket_path(short) == root / ".bron" / "kb" / "serve.sock"
         t = helper(v=short)
-        assert service.query(short, {"query": "x"}, start=False) == {"hits": [], "keyword_only": False}
+        assert service.query(short, {"query": "x"}, start=False) == {"hits": [], "pages": [], "keyword_only": False}
         t.stop.set()
         t.join(5)
         assert not t.is_alive() and not service.socket_path(short).exists()  # serve removed it itself
@@ -426,3 +426,16 @@ def test_cli_without_tools_prints_a_plain_message(vault, monkeypatch, capsys):
     monkeypatch.setattr(tools, "ensure", refuse)
     code, out = run_cli(vault, capsys, "search", "anything")
     assert code == 1 and "couldn't be installed" in out and "Traceback" not in out
+
+
+def test_the_helper_returns_pages_and_passages(vault, helper):
+    from kbkit import write_page
+
+    add(vault, "a", ["The monthly rent is USD 4,200.00."])
+    write_page(vault, "Organisations/Harbor Bakery.md", "Pays a monthly rent of USD 4,200.00.\n", type="organisation",
+               summary="A bakery")
+    helper()
+    reply = service.query(vault, {"query": "monthly rent", "pages_only": True}, start=False)
+    assert reply["hits"] == [] and reply["pages"][0]["title"] == "Harbor Bakery"
+    reply = service.query(vault, {"query": "monthly rent"}, start=False)
+    assert reply["hits"] and reply["pages"]

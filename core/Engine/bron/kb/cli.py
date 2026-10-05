@@ -32,18 +32,20 @@ def add_parser(sub) -> None:
 
     search = commands.add_parser("search", help="search the knowledge base")
     search.add_argument("query")
-    search.add_argument("--company", default="", help="the company or organisation a document is about")
+    search.add_argument("--organisation", "--company", dest="company", default="",
+                        help="the organisation a document is mainly about (--company works too)")
     search.add_argument("--type", dest="doc_type", default="")
     search.add_argument("--after", default="", help="only documents dated on or after YYYY-MM-DD")
     search.add_argument("--before", default="", help="only documents dated on or before YYYY-MM-DD")
     search.add_argument("--limit", type=int, default=8)
+    search.add_argument("--pages-only", action="store_true", help="only wiki pages, no document passages")
 
     show = commands.add_parser("show", help="the text Bron read from one document")
     show.add_argument("doc", help="the document's id, name or part of its name")
     show.add_argument("--pages", default="", help="a page or a range, like 14 or 14-16")
 
     listing = commands.add_parser("list", help="the documents Bron has read")
-    listing.add_argument("--company", default="")
+    listing.add_argument("--organisation", "--company", dest="company", default="")
     listing.add_argument("--type", dest="doc_type", default="")
     listing.add_argument("--failed", action="store_true", help="only the documents that couldn't be read")
 
@@ -117,25 +119,26 @@ def _embedder(vault):
 
 
 def _search(args, vault) -> int:
-    from . import embed, search, service
+    from . import embed, search, service, wiki_index
 
-    request = {"query": args.query, "company": args.company, "doc_type": args.doc_type,
-               "after": args.after, "before": args.before, "limit": args.limit}
+    request = {"query": args.query, "company": args.company, "doc_type": args.doc_type, "after": args.after,
+               "before": args.before, "limit": args.limit, "pages_only": args.pages_only}
     reply = service.query(vault, request)
     if reply is not None and "error" in reply:
         print(reply["error"])
         return 1
     if reply is not None:
-        hits = [search.Hit(**h) for h in reply.get("hits", [])]
+        found = search.Results([wiki_index.PageHit(**p) for p in reply.get("pages", [])],
+                               [search.Hit(**h) for h in reply.get("hits", [])])
         note = bool(reply.get("keyword_only"))
     else:
         probe = service.Probe(embed.get(vault))
-        hits = search.search(vault, args.query, embedder=probe, company=args.company,
-                             doc_type=args.doc_type, after=args.after, before=args.before, limit=args.limit)
+        found = search.find(vault, args.query, embedder=probe, company=args.company, doc_type=args.doc_type,
+                            after=args.after, before=args.before, limit=args.limit, pages_only=args.pages_only)
         note = probe.failed
     if note:
         print(KEYWORD_NOTE)
-    print(search.render(hits) if hits else NOTHING)
+    print(search.render_all(found) if (found.pages or found.hits) else NOTHING)
     return 0
 
 

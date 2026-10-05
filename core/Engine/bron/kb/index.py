@@ -49,6 +49,18 @@ def _create_schema(con: sqlite3.Connection) -> None:
     con.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, val INTEGER)")
     con.execute("INSERT OR IGNORE INTO meta VALUES ('counter', 0)")
     con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+    _create_page_tables(con)
+    con.commit()
+
+
+def _create_page_tables(con: sqlite3.Connection) -> None:
+    """The wiki pages' tables (0.8.0), beside the documents' tables; an older index gets them when it's opened."""
+    con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS page_fts USING fts5("
+                "path UNINDEXED, w UNINDEXED, excerpt UNINDEXED, body, tokenize='unicode61 remove_diacritics 2')")
+    con.execute("CREATE TABLE IF NOT EXISTS page_vectors (path TEXT, w INTEGER, vec BLOB)")
+    con.execute("CREATE INDEX IF NOT EXISTS page_vectors_path ON page_vectors(path)")
+    con.execute("CREATE TABLE IF NOT EXISTS pages (path TEXT PRIMARY KEY, mtime REAL, size INTEGER, title TEXT, "
+                "kind TEXT, summary TEXT, doc_id TEXT, vectors INTEGER)")
     con.commit()
 
 
@@ -64,6 +76,8 @@ def _connect(path: Path, *, wal: bool = True) -> sqlite3.Connection:
             version = con.execute("PRAGMA user_version").fetchone()[0]
             if version != SCHEMA_VERSION:
                 raise IndexOutdated(f"index version {version}, expected {SCHEMA_VERSION}")
+            if not con.execute("SELECT 1 FROM sqlite_master WHERE name = 'pages'").fetchone():
+                _create_page_tables(con)  # an index from 0.7: no rebuild, just the new tables
         else:
             _create_schema(con)  # user_version is written only here, when the index is created
         return con
@@ -90,6 +104,16 @@ def _bump(con: sqlite3.Connection) -> None:
 
 def counter(con: sqlite3.Connection) -> int:
     return con.execute("SELECT val FROM meta WHERE key = 'counter'").fetchone()[0]
+
+
+def set_labels(con: sqlite3.Connection, doc: Doc) -> None:
+    """A document's search filters after its wiki page changed them (its passages stay as they are)."""
+    labels = store.effective_labels(doc)
+    with con:
+        con.execute("UPDATE docs SET company = ?, fund = '', doc_type = ?, date = ? WHERE doc_id = ?",
+                    (str(labels.get("company", "")), str(labels.get("doc_type", "")), str(labels.get("date", "")),
+                     doc.doc_id))
+        _bump(con)
 
 
 def _is_corrupt(exc: sqlite3.DatabaseError) -> bool:

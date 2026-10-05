@@ -124,13 +124,15 @@ def _answer(vault: Vault, embedder, request: dict) -> dict:
         return {"pong": True}
     probe = Probe(embedder)
     try:
-        hits = search.search(vault, str(request.get("query", "")), embedder=probe,
-                             limit=int(request.get("limit", 8)), **{k: str(request.get(k) or "") for k in FILTERS})
+        found = search.find(vault, str(request.get("query", "")), embedder=probe, limit=int(request.get("limit", 8)),
+                            pages_only=bool(request.get("pages_only")),
+                            **{k: str(request.get(k) or "") for k in FILTERS})
     except KbError as exc:
         return {"error": str(exc)}
     except Exception as exc:  # the helper must stay up whatever one search does
         return {"error": f"The search failed ({type(exc).__name__})."}
-    return {"hits": [dataclasses.asdict(h) for h in hits], "keyword_only": probe.failed}
+    return {"hits": [dataclasses.asdict(h) for h in found.hits], "pages": [dataclasses.asdict(p) for p in found.pages],
+            "keyword_only": probe.failed}
 
 
 def _read_request(conn) -> dict | None:

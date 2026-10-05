@@ -5,6 +5,7 @@ import json
 import re
 import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -35,6 +36,7 @@ class Hit:
     source: str
     text: str
     score: float
+    wiki_page: str = ""  # the title of the document's wiki page, when it has one
 
 
 def _filtered(con, company, doc_type, after, before) -> set[str]:
@@ -141,16 +143,48 @@ def _fuse(*rankings: list[tuple[str, int]]) -> list[tuple[tuple[str, int], float
     return sorted(score.items(), key=lambda kv: (-kv[1], kv[0]))
 
 
-def _search(vault, query, embedder, company, doc_type, after, before, limit) -> list[Hit]:
-    if limit <= 0:
-        return []
+@dataclass
+class Results:
+    pages: list  # wiki_index.PageHit, best first (at most 3)
+    hits: list[Hit]  # document passages, best first
+
+
+class _Once:
+    """Works out the question's meaning once, for both the wiki pages and the passages."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self._seen: dict = {}
+
+    @property
+    def model(self):
+        return getattr(self._inner, "model", "")
+
+    def embed(self, texts):
+        key = tuple(texts)
+        if key not in self._seen:
+            self._seen[key] = self._inner.embed(texts)
+        return self._seen[key]
+
+
+def _find(vault, query, embedder, company, doc_type, after, before, limit, pages_only) -> Results:
+    from . import wiki_index
+
+    embedder = _Once(embedder)
     index.ensure(vault, embedder)
     con = index.open(vault)
     try:
+        try:
+            wiki_index.refresh(vault, con, embedder)
+        except (OSError, UnicodeDecodeError) as exc:  # a page Bron can't open: the rest still works
+            from .ingest import _log
+
+            _log(vault, "refreshing the wiki pages", exc)
         filtering = any((company, doc_type, after, before))
         allowed = _filtered(con, company, doc_type, after, before) if filtering else None
-        if allowed is not None and not allowed:
-            return []
+        pages = wiki_index.search_pages(vault, con, query, embedder, allowed=allowed)
+        if pages_only or limit <= 0 or (allowed is not None and not allowed):
+            return Results(pages, [])
         keyword = _keyword(con, query, allowed)
         meaning = _meaning(vault, con, query, allowed, embedder)
     finally:
@@ -166,17 +200,23 @@ def _search(vault, query, embedder, company, doc_type, after, before, limit) -> 
             continue  # the index is out of step with the store (or the last reading failed); skip
         p = passages[n]
         hits.append(Hit(doc_id, doc.name, store.effective_labels(doc), p.get("page") or 0, str(p.get("section") or ""),
-                        doc.source, str(p.get("text", "")), score))
+                        doc.source, str(p.get("text", "")), score, Path(doc.page).stem if doc.page else ""))
         if len(hits) >= limit:
             break
-    return hits
+    return Results(pages, hits)
+
+
+def find(vault: Vault, query: str, *, embedder, company: str = "", doc_type: str = "", after: str = "",
+         before: str = "", limit: int = 8, pages_only: bool = False) -> Results:
+    """Wiki pages (at most 3), then document passages (at most `limit`)."""
+    return index.with_recovery(
+        vault, embedder, lambda: _find(vault, query, embedder, company, doc_type, after, before, limit, pages_only))
 
 
 def search(vault: Vault, query: str, *, embedder, company: str = "", doc_type: str = "",
            after: str = "", before: str = "", limit: int = 8) -> list[Hit]:
-    return index.with_recovery(
-        vault, embedder, lambda: _search(vault, query, embedder, company, doc_type, after, before, limit)
-    )
+    return find(vault, query, embedder=embedder, company=company, doc_type=doc_type, after=after, before=before,
+                limit=limit).hits
 
 
 def render(hits: list[Hit]) -> str:
@@ -190,5 +230,23 @@ def render(hits: list[Hit]) -> str:
             parts.append(h.section)
         head = " · ".join(str(p) for p in parts if p)
         text = h.text if len(h.text) <= TEXT_LIMIT else h.text[:TEXT_LIMIT].rstrip() + "…"
-        blocks.append(f"{i}. {head}\n{h.source}\n{text}")
+        page_line = f"\nPage: [[{h.wiki_page}]]" if h.wiki_page else ""
+        blocks.append(f"{i}. {head}\n{h.source}{page_line}\n{text}")
     return "\n\n".join(blocks)
+
+
+def render_pages(pages) -> str:
+    blocks = []
+    for i, p in enumerate(pages, start=1):
+        head = f"{i}. [[{p.title}]]" + (f" — {p.summary}" if p.summary else "")
+        blocks.append(f"{head}\n{p.path}\n{p.excerpt}")
+    return "\n\n".join(blocks)
+
+
+def render_all(results: Results) -> str:
+    """Wiki pages first, then the document passages; only passages look exactly as before."""
+    if results.pages and results.hits:
+        return "Wiki pages:\n" + render_pages(results.pages) + "\n\nDocument passages:\n" + render(results.hits)
+    if results.pages:
+        return "Wiki pages:\n" + render_pages(results.pages)
+    return render(results.hits)

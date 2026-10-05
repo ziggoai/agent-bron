@@ -253,7 +253,7 @@ def test_other_operational_errors_are_plain_and_keep_the_index(vault, monkeypatc
     def boom(v, embedder, *a, **k):
         raise sqlite3.OperationalError("disk I/O error")
 
-    monkeypatch.setattr(search, "_search", boom)
+    monkeypatch.setattr(search, "_find", boom)
     with pytest.raises(KbError) as err:
         search.search(vault, "text", embedder=fake_embed)
     assert "disk I/O error" in str(err.value) and index.db_path(vault).exists()
