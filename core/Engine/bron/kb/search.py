@@ -150,21 +150,32 @@ class Results:
 
 
 class _Once:
-    """Works out the question's meaning once, for both the wiki pages and the passages."""
+    """Works out the question's meaning once for the whole search, and gives up after the first failure: when the model
+    isn't available, nothing else in this search tries it again (each try may be a slow download)."""
 
     def __init__(self, inner):
         self._inner = inner
         self._seen: dict = {}
+        self._error: KbError | None = None
 
     @property
     def model(self):
-        return getattr(self._inner, "model", "")
+        return index._model_name(self._inner)
 
     def embed(self, texts):
+        if self._error is not None:
+            raise self._error
         key = tuple(texts)
-        if key not in self._seen:
-            self._seen[key] = self._inner.embed(texts)
-        return self._seen[key]
+        if key in self._seen:
+            return self._seen[key]
+        try:
+            result = self._inner.embed(texts)
+        except KbError as exc:
+            self._error = exc
+            raise
+        if len(texts) == 1:  # the question; bigger batches (an index rebuild) aren't kept
+            self._seen[key] = result
+        return result
 
 
 def _find(vault, query, embedder, company, doc_type, after, before, limit, pages_only) -> Results:

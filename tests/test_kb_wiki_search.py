@@ -4,6 +4,7 @@ import pytest
 from bron import cli as bron_cli
 from bron.kb import cli as kb_cli
 from bron.kb import embed, index, search, service, store, tools, wiki_index
+from bron.kb.store import KbError
 from kbkit import fake_embed, later, stored_doc, write_page
 
 LEASE_PAGE = "Documents/Office lease (2025-03-01).md"
@@ -125,6 +126,80 @@ def test_vectors_missing_after_words_only_indexing_are_added_by_the_next_search(
         assert con.execute("SELECT MIN(vectors) FROM pages").fetchone()[0] == 1
     finally:
         con.close()
+
+
+class NoModel:
+    """A meaning model that isn't available: every call fails, and is counted."""
+
+    model = "fake-embedder"
+
+    def __init__(self):
+        self.calls = 0
+
+    def embed(self, texts):
+        self.calls += 1
+        raise KbError("The meaning model isn't available.")
+
+
+class OtherModel:
+    """Like the fake model, but another model by name."""
+
+    model = "another-model"
+
+    def embed(self, texts):
+        return fake_embed.embed(texts)
+
+
+def test_without_the_model_one_search_tries_it_once_and_still_finds_by_words(vault):
+    lease(vault)
+    broken = NoModel()
+    found = search.find(vault, "monthly rent", embedder=broken)
+    assert broken.calls == 1
+    assert "Harbor Bakery" in titles(found) and found.hits
+
+
+def test_page_vectors_from_another_model_are_made_again(vault):
+    lease(vault)
+    find(vault, "rent")
+    other = OtherModel()
+    search.find(vault, "rent", embedder=other)
+    con = index.open(vault)
+    try:
+        assert {r[0] for r in con.execute("SELECT model FROM pages WHERE kind != ''")} == {"another-model"}
+        assert con.execute("SELECT COUNT(*) FROM page_vectors").fetchone()[0] > 0
+    finally:
+        con.close()
+    assert titles(search.find(vault, "monthly rent", embedder=other, pages_only=True))
+
+
+def test_page_vectors_of_the_wrong_size_are_ignored_not_fatal(vault):
+    lease(vault)
+    find(vault, "rent")
+    con = index.open(vault)
+    try:
+        with con:
+            con.execute("UPDATE page_vectors SET vec = x'0000'")
+            con.execute("UPDATE meta SET val = val + 1 WHERE key = 'pages_counter'")
+    finally:
+        con.close()
+    assert "Harbor Bakery" in titles(find(vault, "monthly rent", pages_only=True))
+
+
+def cached(vault):
+    return wiki_index._MATRIX[str(index.db_path(vault))][1][0]
+
+
+def test_the_page_matrix_is_kept_until_the_pages_change(vault):
+    lease(vault)
+    find(vault, "rent")
+    first = cached(vault)
+    find(vault, "rent")
+    assert cached(vault) is first
+    page = vault.knowledge_dir / "Organisations" / "Harbor Bakery.md"
+    page.write_text(page.read_text(encoding="utf-8") + "- Opens at six\n", encoding="utf-8")
+    later(page)
+    find(vault, "rent")
+    assert cached(vault) is not first
 
 
 @pytest.fixture

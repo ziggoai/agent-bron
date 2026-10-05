@@ -16,6 +16,7 @@ from .store import KbError
 
 PAGES = 3  # wiki pages a search shows
 TOP = 50
+_MATRIX: dict = {}  # one page-vector matrix per process, reloaded when the pages in the index change
 EXCERPT = 400
 
 
@@ -47,6 +48,10 @@ def _pieces(page: wiki.Page) -> list[tuple[str, str]]:
     return [(w, f"{head} {w}".strip()) for w in (windows(body) or [""])]
 
 
+def _bump(con: sqlite3.Connection) -> None:
+    con.execute("UPDATE meta SET val = val + 1 WHERE key = 'pages_counter'")
+
+
 def _delete(con: sqlite3.Connection, rel: str) -> None:
     for table in ("pages", "page_fts", "page_vectors"):
         con.execute(f"DELETE FROM {table} WHERE path = ?", (rel,))
@@ -61,12 +66,16 @@ def _put(con: sqlite3.Connection, page: wiki.Page, embedder, *, only_with_vector
             matrix = np.asarray(embedder.embed([t for _, t in pieces]), dtype=np.float32)
         except KbError:
             matrix = None
+    if matrix is not None and matrix.shape != (len(pieces), DIM):
+        matrix = None  # not the size Bron works with: treated as missing
     if only_with_vectors and matrix is None:
         return
     with con:
         _delete(con, page.rel)
-        con.execute("INSERT INTO pages VALUES (?,?,?,?,?,?,?,?)", (page.rel, page.mtime, page.size, page.title, page.kind,
-                                                                   page.summary, page.doc_id, int(matrix is not None)))
+        con.execute("INSERT INTO pages VALUES (?,?,?,?,?,?,?,?,?)",
+                    (page.rel, page.mtime, page.size, page.title, page.kind, page.summary, page.doc_id,
+                     int(matrix is not None), index._model_name(embedder) if matrix is not None else ""))
+        _bump(con)
         con.executemany("INSERT INTO page_fts(path, w, excerpt, body) VALUES (?,?,?,?)",
                         [(page.rel, w, excerpt, f"{text} {' '.join(normal_tokens(text))}")
                          for w, (excerpt, text) in enumerate(pieces)])
@@ -79,7 +88,9 @@ def _put_broken(con: sqlite3.Connection, page: wiki.Page) -> None:
     """A page whose properties can't be read: remembered (so it isn't read on every search) but never found."""
     with con:
         _delete(con, page.rel)
-        con.execute("INSERT INTO pages VALUES (?,?,?,?,?,?,?,?)", (page.rel, page.mtime, page.size, page.title, "", "", "", 1))
+        con.execute("INSERT INTO pages VALUES (?,?,?,?,?,?,?,?,?)",
+                    (page.rel, page.mtime, page.size, page.title, "", "", "", 1, ""))
+        _bump(con)
 
 
 def refresh(vault: Vault, con: sqlite3.Connection, embedder) -> bool:
@@ -87,17 +98,21 @@ def refresh(vault: Vault, con: sqlite3.Connection, embedder) -> bool:
     pages are recorded as their documents' pages and their labels go into the search filters; index.md is rewritten
     when pages changed. True when anything changed."""
     current = _stats(vault)
-    known = {r[0]: (r[1], r[2], r[3]) for r in con.execute("SELECT path, mtime, size, vectors FROM pages")}
+    known = {r[0]: (r[1], r[2], r[3], r[4] or "") for r in con.execute("SELECT path, mtime, size, vectors, model FROM pages")}
+    model = index._model_name(embedder) if embedder is not None else ""
     removed = sorted(set(known) - set(current))
     changed = [rel for rel, (mtime, size, _) in current.items() if rel not in known or known[rel][:2] != (mtime, size)]
-    waiting = [rel for rel, row in known.items() if rel in current and rel not in changed and not row[2]]
+    # vectors still missing, or made by another model (a page with unreadable properties has none and needs none)
+    waiting = [rel for rel, row in known.items()
+               if rel in current and rel not in changed and (not row[2] or (row[3] and row[3] != model))]
     if not removed and not changed and not (waiting and embedder is not None):
         return False
     embedder = index._FailFast(embedder) if embedder is not None else None
     for rel in removed:
         with con:
             _delete(con, rel)
-    pages = [wiki.read_page(vault, current[rel][2]) for rel in changed]
+            _bump(con)
+    pages =[wiki.read_page(vault, current[rel][2]) for rel in changed]
     for page in pages:
         if page.error:
             _put_broken(con, page)
@@ -128,19 +143,37 @@ def _keyword(con: sqlite3.Connection, query: str) -> list[tuple[str, int]]:
     return [(path, int(w)) for path, w in con.execute(sql, [" OR ".join(terms)])]
 
 
-def _meaning(con: sqlite3.Connection, query: str, embedder) -> list[tuple[str, int]]:
+def _load_matrix(vault: Vault, con: sqlite3.Connection, model: str):
+    """The vectors of the pages made by this model, as one matrix (kept until the pages in the index change)."""
+    path = index.db_path(vault)
+    counter = con.execute("SELECT val FROM meta WHERE key = 'pages_counter'").fetchone()
+    key = (counter[0] if counter else 0, path.stat().st_ino, model)
+    cached = _MATRIX.get(str(path))
+    if cached and cached[0] == key:
+        return cached[1]
+    rows = [r for r in con.execute("SELECT v.path, v.w, v.vec FROM page_vectors v JOIN pages p ON p.path = v.path "
+                                   "WHERE p.model = ?", (model,)) if len(r[2]) == DIM * 4]
+    if rows:
+        matrix = np.frombuffer(b"".join(r[2] for r in rows), dtype=np.float32).reshape(len(rows), DIM)
+    else:
+        matrix = np.zeros((0, DIM), dtype=np.float32)
+    data = (matrix, [(r[0], int(r[1])) for r in rows])
+    _MATRIX[str(path)] = (key, data)
+    return data
+
+
+def _meaning(vault: Vault, con: sqlite3.Connection, query: str, embedder) -> list[tuple[str, int]]:
     if embedder is None:
         return []
-    rows = con.execute("SELECT path, w, vec FROM page_vectors").fetchall()
-    if not rows:
+    matrix, keys = _load_matrix(vault, con, index._model_name(embedder))
+    if not len(matrix):
         return []
     try:
         q = embedder.embed([query])[0]
     except KbError:
         return []  # the model isn't available: keyword matches still work
-    matrix = np.frombuffer(b"".join(r[2] for r in rows), dtype=np.float32).reshape(len(rows), DIM)
     scores = matrix @ q
-    return [(rows[i][0], int(rows[i][1])) for i in np.argsort(-scores)[:TOP] if scores[i] > 0]
+    return [keys[i] for i in np.argsort(-scores)[:TOP] if scores[i] > 0]
 
 
 def search_pages(vault: Vault, con: sqlite3.Connection, query: str, embedder, *, allowed: set[str] | None = None,
@@ -157,7 +190,7 @@ def search_pages(vault: Vault, con: sqlite3.Connection, query: str, embedder, *,
     if not rows:
         return []
     best: dict[str, tuple[int, float]] = {}
-    for (path, w), score in _fuse(_keyword(con, query), _meaning(con, query, embedder)):
+    for (path, w), score in _fuse(_keyword(con, query), _meaning(vault, con, query, embedder)):
         if path in rows and path not in best:
             best[path] = (w, score)
             if len(best) >= limit:

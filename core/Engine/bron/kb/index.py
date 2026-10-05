@@ -60,7 +60,8 @@ def _create_page_tables(con: sqlite3.Connection) -> None:
     con.execute("CREATE TABLE IF NOT EXISTS page_vectors (path TEXT, w INTEGER, vec BLOB)")
     con.execute("CREATE INDEX IF NOT EXISTS page_vectors_path ON page_vectors(path)")
     con.execute("CREATE TABLE IF NOT EXISTS pages (path TEXT PRIMARY KEY, mtime REAL, size INTEGER, title TEXT, "
-                "kind TEXT, summary TEXT, doc_id TEXT, vectors INTEGER)")
+                "kind TEXT, summary TEXT, doc_id TEXT, vectors INTEGER, model TEXT)")
+    con.execute("INSERT OR IGNORE INTO meta VALUES ('pages_counter', 0)")  # changes whenever the pages' rows do
     con.commit()
 
 
