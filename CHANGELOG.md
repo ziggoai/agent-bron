@@ -11,6 +11,7 @@ What changed in each version of Bron, newest first. Bron shows the new sections 
 - `bron wiki check` and the health check find broken links, pages nothing links to, documents without a page and probable duplicates. Say "check the wiki" for a full checkup.
 - No document text is sent to a model just to label it any more: a document's organisation, type and date come from its wiki page. `bron kb label` and the `knowledge: labels` setting are gone; edit the page's properties instead.
 - Fixes: folders shared with you in Google Drive are found; `bron kb add --file` takes only exported text; `bron kb status` says "Nothing is being read." when nothing is.
+- Measured on a Mac: a 2-page PDF is read in about 1–2 s; reading it into the wiki in a conversation takes about 40 s in Claude Code and about 65 s in Codex at high reasoning effort (most of it the model writing the pages).
 - Your knowledge base becomes a wiki: Knowledge/ gets Schema.md (its rules, with your document types), index.md, log.md and folders for documents, organisations, people and topics.
 
 ## 0.7.1
