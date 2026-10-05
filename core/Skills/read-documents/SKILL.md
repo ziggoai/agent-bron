@@ -127,6 +127,7 @@ After an answer that combined several documents, offer: "Save this as a page?" O
 ## A document read again, or forgotten
 
 - **Read again** (`bron kb add` printed `Read …` for a document that already has a page): read it, update its page and the pages it touches, and mark what changed with "previously". Then `.bron/bin/bron wiki done`.
+  `--again` rereads a document that hasn't changed (`kb add` otherwise says it's already read and unchanged).
 - **Forgotten** (`bron kb forget` said its page is still there): ask the user whether to delete the page. If they keep it, remove its `doc` property so the check stops flagging it, and say in its summary that the document was removed.
 
 ## Never
