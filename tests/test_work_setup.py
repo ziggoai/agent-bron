@@ -140,7 +140,7 @@ def test_settings_have_length_limits_and_agents_md_stays_small(vault):
     with pytest.raises(SetupError, match="Keep Your name under 100 characters"):
         set_settings(load(vault), user_name="n" * 101)
     apply(vault, set_settings(load(vault), user_name="n" * 100, user_role="r" * 100, company="c" * 100, tone="t" * 400, preferences="p" * 400))
-    assert len(render_agents_md(load(vault)).encode()) < 8 * 1024
+    assert len(render_agents_md(load(vault)).encode()) < 9 * 1024
 
 
 @pytest.mark.parametrize("kwargs", [

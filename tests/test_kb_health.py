@@ -88,12 +88,8 @@ def test_agents_md_has_the_knowledge_section_and_its_commands_parse(vault):
         for keep in (False, True):
             norm = cmd.replace(".bron/bin/bron", "").strip()
             norm = re.sub(r"\[(.*?)\]", r"\1", norm) if keep else re.sub(r"\s*\[.*?\]\s*", " ", norm)
-            norm = norm.replace("…", "x").replace("<link or path>", "x").replace("<file>", "x").replace("<link>", "https://x.example")
-            norm = norm.replace("<title>", "x").replace("<question>", "x").replace("<document>", "x").replace("N-M", "1-2")
-            norm = norm.replace("--company X", "--company X").replace("--type T", "--type T")
-            norm = norm.replace("--company x --type x --date x", "--company x --type x --date 2025-01-01")
-            argv = shlex.split(" ".join(norm.split()).replace(" ...", ""))
-            parser.parse_args(argv)
+            norm = re.sub(r"<[^>]*>", "x", norm).replace("N-M", "1-2").replace("...", "")
+            parser.parse_args(shlex.split(" ".join(norm.split())))
 
 
 def test_agents_md_asks_for_a_long_timeout_on_the_first_knowledge_command(vault):

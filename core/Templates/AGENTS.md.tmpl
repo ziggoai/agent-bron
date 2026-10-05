@@ -50,11 +50,12 @@ Facts you remember are in `System/Memory/Facts.md` (shared) and `System/Agents/<
 
 ## Knowledge base
 
-Bron reads the documents the user points to (Drive links, files, `Knowledge/Inbox/`, web links) and every agent can search them.
-- To read: `.bron/bin/bron kb add '<link or path>' [...]` (`--inbox` for the inbox). For a Google Doc, Sheet or Slides link, export it through the Google Drive connection to a text file, then `.bron/bin/bron kb add --file <file> --source '<link>' --name '<title>'`. Tell the user the one-line result; big folders, scans and photos read in the background and report when done. Unchanged documents are skipped (`--again` rereads them).
-- The first `bron kb` command in a vault can take a few minutes; use a long command timeout (10 minutes).
-- Before answering a question about your documents, run `.bron/bin/bron kb search '<question>' [--company X] [--type T]`. Cite the document, page and link; when a passage shows `[p. N]`, use that page; copy numbers exactly as written; if the passages don't answer it, say so instead of guessing. For more context: `.bron/bin/bron kb show '<document>' --pages N-M`.
-- Remove: `.bron/bin/bron kb forget '<document>'`; progress: `.bron/bin/bron kb status`; documents that couldn't be read: `.bron/bin/bron kb list --failed`.
+`Knowledge/` is a wiki you keep: a page per document, plus organisation, person and topic pages (rules: `Knowledge/Schema.md`). The documents themselves stay where they are.
+- Read: `.bron/bin/bron kb add '<link or path>' [...]` (`--inbox` for the inbox). A Drive link always goes to `kb add` first. Only a Google Doc, Sheet or Slides file is exported through the Drive connection, then `.bron/bin/bron kb add --file <file> --source '<link>' --name '<title>'`. Never download or copy a Drive file; if Bron can't find one, ask the user to check that Google Drive for desktop shows it. The first `bron kb` command in a vault can take a few minutes; use a long command timeout (10 minutes). Never poll `kb status`.
+- Then load the read-documents skill, write the pages, and run `.bron/bin/bron wiki done`. A folder is read and written in the background and reported when done.
+- Answer: `.bron/bin/bron kb search '<question>' [--organisation X] [--type T]` (wiki pages, then passages). Open a page if the excerpt isn't enough, check numbers against the passages, cite the document page, page number and link, and say so when nothing answers it. More text: `.bron/bin/bron kb show '<document>' --pages N-M`.
+- After an answer that combined several documents, ask "Save this as a page?"; on yes, follow the read-documents skill.
+- Remove: `.bron/bin/bron kb forget '<document>'`; problems: `.bron/bin/bron wiki check`.
 
 ## How Bron works
 

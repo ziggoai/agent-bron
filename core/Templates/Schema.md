@@ -22,7 +22,7 @@ To add a type, add its folder to `page_types` above and a row to this table: for
 
 Every page has `type` (from the table), `summary` (one line; it shows in `index.md` and in search) and, when it has other names, `aliases`.
 
-Document pages also have `doc` (Bron's document id), `source` (the Drive link, web link or kept-copy path), `organisation` (the organisation the document is mainly about, as a link), `doc_type` (one of `doc_types` above) and `date` (YYYY-MM-DD, or empty). Search uses `organisation`, `doc_type` and `date` as its filters, so correcting them on the page corrects the search.
+Document pages also have `doc` (in quotes; Bron's document id), `source` (the Drive link, web link or kept-copy path), `organisation` (the organisation the document is mainly about, as a link), `doc_type` (one of `doc_types` above) and `date` (YYYY-MM-DD, or empty). Search uses `organisation`, `doc_type` and `date` as its filters, so correcting them on the page corrects the search.
 
 ## Names
 

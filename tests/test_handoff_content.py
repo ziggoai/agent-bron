@@ -113,6 +113,7 @@ def test_quoted_commands_parse(vault):
         "<tone>": "x",
         "<preferences>": "x",
         "<company>": "x",
+        "<doc id>": "x",
         "<user name>": "x",
         "<user role>": "x",
         "<cli>": "claude",
@@ -138,7 +139,8 @@ def test_quoted_commands_parse(vault):
             normalized = re.sub(r"\s*\[.*?\]\s*", " ", normalized)
 
         # Remove pipe alternatives
-        normalized = re.sub(r"\s+\|.*$", "", normalized)
+        if "--log '" not in normalized:  # a quoted log line may hold a pipe
+            normalized = re.sub(r"\s+\|.*$", "", normalized)
 
         # Replace quoted ellipsis and placeholders
         normalized = normalized.replace('"…"', '"x"')
