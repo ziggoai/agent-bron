@@ -35,9 +35,22 @@ def _memory_saves(cfg: Config) -> Change:
     return build(cfg)
 
 
+def _knowledge_wiki(cfg: Config) -> Change:
+    from .knowledge_wiki import build
+
+    return build(cfg)
+
+
+def _knowledge_wiki_summary() -> str:
+    from .knowledge_wiki import SUMMARY
+
+    return SUMMARY
+
+
 MIGRATIONS: list[Migration] = [  # oldest first
     Migration(id="memory-saves-without-asking", version="0.6.0",
               summary="Agents save what you tell them to remember without asking first.", build=_memory_saves),
+    Migration(id="knowledge-wiki", version="0.8.0", summary=_knowledge_wiki_summary(), build=_knowledge_wiki),
 ]
 
 

@@ -128,9 +128,12 @@ def test_a_070_meta_with_fund_loads(vault):
     assert store.effective_labels(loaded) == {"company": "Fund II", "doc_type": "LPA"}
 
 
-def test_template_has_inbox_and_files():
+def test_template_has_inbox_files_and_the_wiki_folders():
     root = Path(__file__).resolve().parents[1] / "template" / "Knowledge"
-    assert (root / "Inbox").is_dir() and (root / "Files").is_dir()
+    for name in ("Inbox", "Files", "Documents", "Organisations", "People", "Topics"):
+        assert (root / name).is_dir(), name
+    for name in ("Schema.md", "index.md", "log.md"):
+        assert (root / name).is_file(), name
 
 
 def test_requirements_list_is_complete():

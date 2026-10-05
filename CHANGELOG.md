@@ -2,6 +2,9 @@
 
 What changed in each version of Bron, newest first. Bron shows the new sections when you ask it to update itself.
 
+## 0.8.0
+- Your knowledge base becomes a wiki: Knowledge/ gets Schema.md (its rules, with your document types), index.md, log.md and folders for documents, organisations, people and topics.
+
 ## 0.7.1
 - Bron starts general: the knowledge base sorts documents into everyday types (contract, invoice, report…), and you can give it your own list with `knowledge: doc_types:` in System/Settings.md.
 - The company label now covers any company or organisation a document is about (0.7.0's separate fund label is folded into it).
