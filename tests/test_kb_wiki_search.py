@@ -223,3 +223,18 @@ def test_organisation_and_company_are_the_same_filter(vault, offline, capsys):
     assert code == 0 and out.startswith("Wiki pages:") and "Document passages:" not in out
     code, out = run_cli(vault, capsys, "list", "--organisation", "harbor")
     assert "lease.pdf — Harbor Bakery · contract · 2025-03-01" in out
+
+
+def test_an_edited_document_page_keeps_the_passage_vectors_cached(vault, monkeypatch):
+    doc = lease(vault)
+    loads = []
+    real = search._read_vectors
+    monkeypatch.setattr(search, "_read_vectors", lambda con: loads.append(1) or real(con))
+    assert [h.doc_id for h in search.search(vault, "rent", embedder=fake_embed, doc_type="contract")][:1] == [doc.doc_id]
+    assert len(loads) == 1
+    page = vault.knowledge_dir / LEASE_PAGE
+    page.write_text(page.read_text(encoding="utf-8").replace("doc_type: contract", "doc_type: invoice"), encoding="utf-8")
+    later(page)
+    assert [h.doc_id for h in search.search(vault, "rent", embedder=fake_embed, doc_type="invoice")][:1] == [doc.doc_id]
+    assert search.search(vault, "rent", embedder=fake_embed, doc_type="contract") == []  # the new filter applies
+    assert len(loads) == 1  # only the labels changed: the passage vectors weren't read again

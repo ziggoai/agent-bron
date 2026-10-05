@@ -108,13 +108,13 @@ def counter(con: sqlite3.Connection) -> int:
 
 
 def set_labels(con: sqlite3.Connection, doc: Doc) -> None:
-    """A document's search filters after its wiki page changed them (its passages stay as they are)."""
+    """A document's search filters after its wiki page changed them (its passages stay as they are). The counter isn't
+    bumped: it tells searches to reload the passage vectors, and filters are read from `docs` on every search."""
     labels = store.effective_labels(doc)
     with con:
         con.execute("UPDATE docs SET company = ?, fund = '', doc_type = ?, date = ? WHERE doc_id = ?",
                     (str(labels.get("company", "")), str(labels.get("doc_type", "")), str(labels.get("date", "")),
                      doc.doc_id))
-        _bump(con)
 
 
 def _is_corrupt(exc: sqlite3.DatabaseError) -> bool:
