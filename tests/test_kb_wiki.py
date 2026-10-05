@@ -189,3 +189,19 @@ def test_a_hand_edited_page_type_outside_knowledge_is_ignored(vault):
                                                              "[../x, a/b, Topics, Documents]"), encoding="utf-8")
     assert wiki.type_folders(vault) == ["Topics", "Documents"]
 
+
+
+def test_a_page_that_is_not_utf8_cannot_be_opened(vault):
+    path = vault.knowledge_dir / "Topics" / "Latin.md"
+    path.write_bytes(b"---\ntype: topic\n---\ncaf\xe9\n")
+    assert wiki.read_page(vault, path).error == "it can't be opened (UnicodeDecodeError)"
+
+
+def test_an_unreadable_log_is_left_alone(vault):
+    import pytest
+
+    log = vault.knowledge_dir / "log.md"
+    log.write_bytes(b"# Log\ncaf\xe9\n")
+    with pytest.raises(store.KbError, match="log.md can't be read"):
+        wiki.append_log(vault, [("update", "x")])
+    assert log.read_bytes() == b"# Log\ncaf\xe9\n"

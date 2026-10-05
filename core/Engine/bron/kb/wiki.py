@@ -118,10 +118,10 @@ def read_page(vault: Vault, path: Path) -> Page:
         page.meta, page.body = parsed.meta, parsed.body
     except fm.FrontmatterError as exc:
         page.error = str(exc).replace("the settings block at the top", "the properties block")
-    except ValueError:  # YAML reads an impossible date (2025-02-30) as a plain ValueError
-        page.error = "the properties block is not valid YAML (a date that doesn't exist, say)"
     except (OSError, UnicodeDecodeError) as exc:
         page.error = f"it can't be opened ({exc.__class__.__name__})"
+    except ValueError:  # YAML reads an impossible date (2025-02-30) as a plain ValueError
+        page.error = "the properties block is not valid YAML (a date that doesn't exist, say)"
     return page
 
 
@@ -250,8 +250,10 @@ def append_log(vault: Vault, entries: list[tuple[str, str]], *, now: str | None 
     with statefile.locked(store.kb_dir(vault) / "wiki-log"):  # the lock file lives in .bron/kb, not in the vault
         try:
             text = path.read_text(encoding="utf-8")
-        except (FileNotFoundError, UnicodeDecodeError):
+        except FileNotFoundError:
             text = schema.LOG_HEADER
+        except (OSError, UnicodeDecodeError) as exc:
+            raise store.KbError("log.md can't be read (it isn't plain text), so Bron left it as it is.") from exc
         if not text.endswith("\n"):
             text += "\n"
         text += "".join(f"\n## [{stamp}] {kind} | {line}\n" for kind, line in entries)
