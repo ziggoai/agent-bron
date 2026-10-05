@@ -108,3 +108,31 @@ def test_a_broken_link_in_the_body_and_a_property_counts_once(vault):
     org(vault, "Acme Ltda", "See [[Nobody Inc]].\n", partner="[[Nobody Inc]]")
     broken = [p for p in wiki_check.run(vault) if p.code == "broken-link"]
     assert [p.text for p in broken] == ["Acme Ltda: links to [[Nobody Inc]], which doesn't exist."]
+
+
+def test_a_partial_path_link_resolves_like_obsidian_does(vault):
+    org(vault, "Acme Ltda", "Part of [[Knowledge/Organisations/Acme Ltda]].\n")
+    org(vault, "Beta Ltda", "Sister of [[Organisations/Acme Ltda]] and [[organisations/acme ltda.md]].\n")
+    assert [p for p in wiki_check.run(vault) if p.code == "broken-link"] == []
+
+
+def test_a_partial_path_link_keeps_the_page_from_being_an_orphan(vault):
+    org(vault, "Acme Ltda", "See [[Organisations/Beta Ltda]].\n")
+    org(vault, "Beta Ltda", "See [[Organisations/Acme Ltda]].\n")
+    assert [p for p in wiki_check.run(vault) if p.code == "orphan"] == []
+
+
+def test_a_wrong_partial_path_is_still_broken(vault):
+    org(vault, "Acme Ltda", "See [[Wrongfolder/Acme Ltda]].\n")
+    broken = [p.text for p in wiki_check.run(vault) if p.code == "broken-link"]
+    assert broken == ["Acme Ltda: links to [[Wrongfolder/Acme Ltda]], which doesn't exist."]
+
+
+def test_a_wiki_that_cannot_be_checked_is_one_health_warning(vault, monkeypatch):
+    def boom(*a, **kw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(wiki_check, "run", boom)
+    found = [i for i in run_checks(load(vault)) if i.code.startswith("wiki.")]
+    assert [(i.level, i.code, i.message) for i in found] == [
+        ("warning", "wiki.unchecked", "The wiki couldn't be checked; run `bron wiki check` for details.")]

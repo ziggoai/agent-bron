@@ -40,8 +40,9 @@ def issues(cfg: Config) -> list[Issue]:
         from . import wiki_check
 
         problems = wiki_check.run(vault)
-    except Exception:  # noqa: BLE001 - the wiki never breaks the health check
-        problems = []
+    except Exception:  # noqa: BLE001 - the wiki never breaks the health check, but a crash is said out loud
+        out.append(Issue("warning", "wiki.unchecked", "The wiki couldn't be checked; run `bron wiki check` for details."))
+        return out
     for code in (wiki_check.ORDER if problems else ()):
         found = [p for p in problems if p.code == code]
         if found:

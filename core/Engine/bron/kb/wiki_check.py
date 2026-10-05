@@ -36,7 +36,8 @@ class Problem:
 
 
 def _targets(vault: Vault) -> set[str]:
-    """Every name a link can point to: each file's name and vault-relative path, with and without .md, folded."""
+    """Every name a link can point to: a file's name or any trailing part of its vault-relative path (Obsidian resolves
+    "Organisations/Acme" to Knowledge/Organisations/Acme.md), with and without .md, folded."""
     names: set[str] = set()
     for dirpath, dirnames, filenames in os.walk(vault.root):
         dirnames[:] = [d for d in dirnames if not d.startswith(".")]
@@ -45,9 +46,12 @@ def _targets(vault: Vault) -> set[str]:
             if name.startswith("."):
                 continue
             rel = (here / name).as_posix()
-            names |= {name.casefold(), rel.casefold()}
-            if name.endswith(".md"):
-                names |= {name[:-3].casefold(), rel[:-3].casefold()}
+            parts = rel.split("/")
+            for i in range(len(parts)):
+                tail = "/".join(parts[i:]).casefold()
+                names.add(tail)
+                if tail.endswith(".md"):
+                    names.add(tail[:-3])
     return names
 
 
