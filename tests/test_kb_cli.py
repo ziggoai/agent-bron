@@ -240,7 +240,7 @@ def test_status_shows_documents_and_jobs(env, capsys, monkeypatch):
     add_all(env, capsys)
     monkeypatch.setattr(tools, "missing", lambda: [])
     code, out = run(env, capsys, "status")
-    assert code == 0 and "The knowledge base has 3 documents." in out and "No documents are being read right now." in out
+    assert code == 0 and "The knowledge base has 3 documents." in out and "Nothing is being read." in out
 
 
 def test_status_resumes_an_interrupted_job(env, capsys, tmp_path):
@@ -300,7 +300,7 @@ def test_status_cancel(env, capsys, tmp_path):
     code, out = run(env, capsys, "status", "--cancel")
     assert code == 0 and "Cancelled: 7 documents weren't read" in out
     code, out = run(env, capsys, "status")
-    assert "No documents are being read right now." in out and env.spawned and len(env.spawned) == 1
+    assert "Nothing is being read." in out and env.spawned and len(env.spawned) == 1
     code, out = run(env, capsys, "status", "--cancel")
     assert out.strip() == "Nothing is being read, so there's nothing to cancel."
 

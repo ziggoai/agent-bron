@@ -307,13 +307,13 @@ def test_a_second_job_waits_and_runs_after_the_first(kb, tmp_path):
 
 
 def test_status_lines(kb, tmp_path):
-    assert jobs.status_lines(kb.vault) == ["No documents are being read right now."]
+    assert jobs.status_lines(kb.vault) == ["Nothing is being read."]
     job = jobs.create(kb.vault, items_in(kb, tmp_path, 2))
     assert jobs.status_lines(kb.vault)[0].startswith("Waiting to read 2 documents")
     jobs.run(kb.vault, job.job_id, **kb.deps)
     lines = jobs.status_lines(kb.vault)
-    assert lines[0] == "No documents are being read right now."
-    assert lines[1].startswith("Last reading finished") and "read 2 documents" in lines[1]
+    assert lines[0] == "Nothing is being read."
+    assert lines[1].startswith("Last batch finished ") and lines[1].endswith(": 2 documents read, 0 couldn't be read.")
 
 
 def test_spawn_starts_a_detached_run_job(kb):

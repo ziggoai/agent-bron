@@ -3,6 +3,10 @@
 One job reads at a time; the others wait. Every document is written down as soon as it's done, so a job that was
 interrupted (a crash, the laptop closed) picks up where it stopped and never reads a finished document again.
 A file that stopped the reader twice is skipped, and `bron kb status --cancel` stops what's waiting.
+
+Once a job is read, its documents' wiki pages are written by one background agent run (kb/wiki_run.py). One wiki run
+at a time: others wait. The reader and the wiki writer have their own locks, so documents can be read while a folder
+is being written.
 """
 from __future__ import annotations
 
@@ -26,6 +30,7 @@ from .sources import Item
 KEEP_FINISHED = 20
 STALE_QUEUED_SECONDS = 60
 MAX_ATTEMPTS = 2
+IDLE = "Nothing is being read."
 TWICE = "Bron stopped while reading this file twice; skipped it."
 
 
@@ -43,6 +48,14 @@ class Job:
     cancelled: list[str] = field(default_factory=list)  # names of the items not read because of a cancel
     again: bool = False  # `bron kb add --again`: read documents again even when they haven't changed
     unchanged: list[str] = field(default_factory=list)  # ids of the documents skipped as already read, unchanged
+    wiki: bool = False  # write the wiki pages in the background once read
+    wiki_status: str = ""  # "" (no wiki run) | waiting | writing | done | failed | cancelled
+    wiki_docs: list[str] = field(default_factory=list)  # ids of the documents whose pages the run writes
+    wiki_since: str = ""  # when it began waiting to be written
+    wiki_attempts: int = 0  # wiki runs started (a third is never tried)
+    ticket: str = ""  # the wiki run's ticket
+    label: str = ""  # "the Leases folder" (empty: "N documents"), for the ticket's title
+    report: str = ""  # the reading report: handed to the wiki run, and told to the user if the run fails
 
 
 def _dir(vault: Vault) -> Path:
@@ -59,6 +72,14 @@ def _lock_path(vault: Vault) -> Path:
 
 def _runner_path(vault: Vault) -> Path:
     return _dir(vault) / "runner.status"
+
+
+def _wiki_lock_path(vault: Vault) -> Path:
+    return _dir(vault) / "wiki.lock"
+
+
+def _writer_path(vault: Vault) -> Path:
+    return _dir(vault) / "wiki.status"
 
 
 def _cancel_path(vault: Vault, job_id: str) -> Path:
@@ -89,8 +110,13 @@ def pending(vault: Vault) -> list[Job]:
     return [j for j in all_jobs(vault) if j.status in ("queued", "running")]
 
 
+def wiki_pending(vault: Vault) -> list[Job]:
+    """Jobs whose wiki pages are waiting to be written, or being written."""
+    return [j for j in all_jobs(vault) if j.wiki_status in ("waiting", "writing")]
+
+
 def _prune(vault: Vault) -> None:
-    finished = [j for j in all_jobs(vault) if j.status in ("done", "cancelled")]
+    finished = [j for j in all_jobs(vault) if j.status in ("done", "cancelled") and j.wiki_status not in ("waiting", "writing")]
     for job in finished[:-KEEP_FINISHED]:
         for path in (_path(vault, job.job_id), _cancel_path(vault, job.job_id)):
             try:
@@ -99,9 +125,11 @@ def _prune(vault: Vault) -> None:
                 pass
 
 
-def create(vault: Vault, items: list, *, failed: list[str] | tuple = (), again: bool = False) -> Job:
+def create(vault: Vault, items: list, *, failed: list[str] | tuple = (), again: bool = False, wiki: bool = False,
+           label: str = "") -> Job:
     """A queued job. `failed`: sentences about links that couldn't be found, reported with the job's result.
-    `again`: read every item even if it was read before and hasn't changed."""
+    `again`: read every item even if it was read before and hasn't changed. `wiki`: write their wiki pages in the
+    background once read; `label`: "the Leases folder", for the run's title."""
     _prune(vault)
     job = Job(
         job_id=time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2),
@@ -110,7 +138,20 @@ def create(vault: Vault, items: list, *, failed: list[str] | tuple = (), again: 
         done=[],
         failed=[{"identity": "", "name": "", "error": str(f)} for f in failed],
         again=again,
+        wiki=wiki,
+        label=label,
     )
+    save(vault, job)
+    return job
+
+
+def create_wiki(vault: Vault, doc_ids: list[str], *, label: str = "") -> Job:
+    """Documents read in a conversation while a background wiki run is writing: their pages are written after it."""
+    _prune(vault)
+    stamp = datetime.now().isoformat(timespec="microseconds")
+    job = Job(job_id=time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2), created=stamp, items=[], done=[],
+              failed=[], status="done", finished=time.strftime("%Y-%m-%d %H:%M"), wiki=True, wiki_status="waiting",
+              wiki_docs=list(doc_ids), wiki_since=stamp, label=label)
     save(vault, job)
     return job
 
@@ -118,8 +159,8 @@ def create(vault: Vault, items: list, *, failed: list[str] | tuple = (), again: 
 # ---- the one runner ----
 
 @contextlib.contextmanager
-def _hold_lock(vault: Vault):
-    path = _lock_path(vault)
+def _hold_lock(vault: Vault, *, wiki: bool = False):
+    path = _wiki_lock_path(vault) if wiki else _lock_path(vault)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a+") as handle:
         try:
@@ -128,19 +169,19 @@ def _hold_lock(vault: Vault):
             yield False
             return
         try:
-            _beat(vault)
+            _beat(vault, wiki=wiki)
             yield True
         finally:
             try:
-                _runner_path(vault).unlink()
+                (_writer_path(vault) if wiki else _runner_path(vault)).unlink()
             except OSError:
                 pass
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def _beat(vault: Vault) -> None:
-    """Who is reading, for `runner_active` (which must never touch the runner's lock)."""
-    statefile.write_json(_runner_path(vault), {"pid": os.getpid(), "beat": time.time()})
+def _beat(vault: Vault, *, wiki: bool = False) -> None:
+    """Who is reading (or writing the wiki), for `runner_active` (which must never touch the locks)."""
+    statefile.write_json(_writer_path(vault) if wiki else _runner_path(vault), {"pid": os.getpid(), "beat": time.time()})
 
 
 def _alive(pid: int) -> bool:
@@ -169,11 +210,12 @@ def _command_of(pid: int) -> str:
     return done.stdout.strip() if done.returncode == 0 else ""
 
 
-def runner_active(vault: Vault) -> bool:
+def runner_active(vault: Vault, *, wiki: bool = False) -> bool:
     """A runner is at work: the process in runner.status is alive and really is `bron kb run-job`
-    (after a crash and a restart, its old process number may belong to something else)."""
+    (after a crash and a restart, its old process number may belong to something else).
+    `wiki`: the wiki writer instead of the reader."""
     try:
-        data = json.loads(_runner_path(vault).read_text(encoding="utf-8"))
+        data = json.loads((_writer_path(vault) if wiki else _runner_path(vault)).read_text(encoding="utf-8"))
         pid = int(data.get("pid", 0))
     except (OSError, ValueError, TypeError, AttributeError):
         return False
@@ -182,19 +224,29 @@ def runner_active(vault: Vault) -> bool:
     return pid == os.getpid() or RUNNER_COMMAND in _command_of(pid)
 
 
+def wiki_active(vault: Vault) -> bool:
+    """A background wiki run is writing pages right now."""
+    return runner_active(vault, wiki=True)
+
+
+def _age(stamp: str, now: datetime) -> float:
+    try:
+        return (now - datetime.fromisoformat(stamp)).total_seconds()
+    except ValueError:
+        return STALE_QUEUED_SECONDS
+
+
 def stalled(vault: Vault) -> list[Job]:
-    """Jobs nobody is working on: interrupted ones, and queued ones whose runner never started."""
-    if runner_active(vault):
-        return []
+    """Jobs nobody is working on: interrupted ones, queued ones whose runner never started, and wiki runs nobody is
+    writing (a reader at work writes them once it's done)."""
+    reading = runner_active(vault)
     now = datetime.now()
-    out = []
-    for job in pending(vault):
-        try:
-            age = (now - datetime.fromisoformat(job.created)).total_seconds()
-        except ValueError:
-            age = STALE_QUEUED_SECONDS
-        if job.status == "running" or age >= STALE_QUEUED_SECONDS:
-            out.append(job)
+    out: list[Job] = []
+    if not reading:
+        out += [j for j in pending(vault) if j.status == "running" or _age(j.created, now) >= STALE_QUEUED_SECONDS]
+        if not runner_active(vault, wiki=True):
+            out += [j for j in wiki_pending(vault)
+                    if j.wiki_status == "writing" or _age(j.wiki_since, now) >= STALE_QUEUED_SECONDS]
     return out
 
 
@@ -233,12 +285,29 @@ def _remaining(job: Job) -> list[dict]:
     return [raw for raw in job.items if not (isinstance(raw, dict) and raw.get("identity") in handled)]
 
 
+def _needs_pages(vault: Vault, job: Job) -> list[str]:
+    """The documents a wiki run writes pages for: those just read (a page is updated when its document is read again)
+    and those skipped as unchanged that have no page yet."""
+    out: list[str] = []
+    for doc_id in [*job.read, *job.unchanged]:
+        doc = store.load(vault, doc_id)
+        if doc is not None and doc.status == "read" and (doc_id in job.read or not doc.page) and doc_id not in out:
+            out.append(doc_id)
+    return out
+
+
 def _finish(vault: Vault, job: Job, status: str, *, shown: bool = False) -> str:
-    """Report first, then mark the job finished: an interruption in between gives the report once, never zero times."""
+    """Report first, then mark the job finished: an interruption in between gives the report once, never zero times.
+    A wiki job keeps its report for its wiki run, whose ticket update becomes what the user is told."""
     if status == "cancelled":
         job.cancelled = [str(raw.get("name", "")) if isinstance(raw, dict) else str(raw) for raw in _remaining(job)]
     text = report(vault, job)
-    notices.add(vault, text, job_id=job.job_id, shown=shown)
+    pages = _needs_pages(vault, job) if job.wiki and status == "done" else []
+    if pages:
+        job.report, job.wiki_docs, job.wiki_status = text, pages, "waiting"
+        job.wiki_since = datetime.now().isoformat(timespec="microseconds")
+    else:
+        notices.add(vault, text, job_id=job.job_id, shown=shown)
     job.status = status
     job.finished = time.strftime("%Y-%m-%d %H:%M")
     save(vault, job)  # the cancel flag stays until the job is pruned: a runner that already picked it up stops too
@@ -246,14 +315,22 @@ def _finish(vault: Vault, job: Job, status: str, *, shown: bool = False) -> str:
 
 
 def cancel(vault: Vault) -> list[str]:
-    """Stop every waiting or running job. Jobs nobody is working on stop now (their reports are returned, for the
-    caller to print); the one being read stops after its current document and reports as usual."""
+    """Stop every waiting or running job, and every wiki run that is waiting. Jobs nobody is working on stop now (their
+    reports are returned, for the caller to print); the one being read stops after its current document and reports as
+    usual; a wiki run already writing finishes."""
     texts: list[str] = []
     active = runner_active(vault)
     for job in pending(vault):
         _cancel_path(vault, job.job_id).touch()
         if job.status == "queued" or not active:
             texts.append(_finish(vault, job, "cancelled", shown=True))
+    for job in wiki_pending(vault):
+        if job.wiki_status == "waiting":
+            job.wiki_status, job.finished = "cancelled", time.strftime("%Y-%m-%d %H:%M")
+            save(vault, job)
+            note = (f"Cancelled: the wiki pages for {_plural(len(job.wiki_docs), 'document')} weren't written; "
+                    "say \"finish the wiki pages\" when you want them.")
+            texts.append(f"{job.report}\n{note}" if job.report else note)
     return texts
 
 
@@ -307,9 +384,9 @@ def _work(vault: Vault, cfg, job: Job, *, embedder, readers_ocr, model_call) -> 
     _finish(vault, job, "done")
 
 
-def run(vault: Vault, job_id: str, *, embedder=None, readers_ocr=None, model_call=None, cfg=None) -> bool:
-    """Run this job and any others waiting, oldest first. False when another runner is already at work
-    (it picks up every waiting job, this one included)."""
+def run(vault: Vault, job_id: str, *, embedder=None, readers_ocr=None, model_call=None, cfg=None, run_ticket=None) -> bool:
+    """Run this job and any others waiting, oldest first; then let go of the reader and write the wiki pages of what was
+    read. False when another runner is already reading (it picks up every waiting job, this one included)."""
     if cfg is None:
         from ..loader import load as load_cfg
 
@@ -328,7 +405,72 @@ def run(vault: Vault, job_id: str, *, embedder=None, readers_ocr=None, model_cal
                 _work(vault, cfg, waiting[0], **deps)
         # A job queued while this runner was finishing found the lock taken: look once more after letting go.
         if not pending(vault):
-            return True
+            break
+    _write_wiki(vault, cfg, run_ticket=run_ticket)
+    return True
+
+
+def _write_wiki(vault: Vault, cfg, *, run_ticket=None) -> None:
+    """Write every waiting wiki run, oldest first: one writer at a time (another one already at work writes them)."""
+    while True:
+        with _hold_lock(vault, wiki=True) as got:
+            if not got:
+                return
+            while True:
+                waiting = wiki_pending(vault)
+                if not waiting:
+                    break
+                _write_one(vault, cfg, waiting[0], run_ticket=run_ticket)
+        # One queued while this writer was finishing found the lock taken: look once more after letting go.
+        if not wiki_pending(vault):
+            return
+
+
+def _wiki_failed(vault: Vault, job: Job, why: str) -> None:
+    note = f"Bron read the documents but couldn't write all their wiki pages ({why.rstrip('.')})."
+    names = {d: (doc.name if (doc := store.load(vault, d)) is not None else d) for d in job.wiki_docs}
+    missing = _needs_pages(vault, dataclasses.replace(job, read=[], unchanged=job.wiki_docs))
+    written = [n for d, n in names.items() if d not in missing]
+    unwritten = [n for d, n in names.items() if d in missing]
+    if written:
+        note += f"\nPages written for: {', '.join(written)}."
+    if unwritten:
+        note += f"\nNo page yet: {', '.join(unwritten)}."
+    note += "\nSay \"finish the wiki pages\" to write the rest."
+    notices.add(vault, f"{job.report}\n{note}" if job.report else note, job_id=f"{job.job_id}-wiki")
+    job.wiki_status, job.finished = "failed", time.strftime("%Y-%m-%d %H:%M")
+    save(vault, job)
+
+
+def _write_one(vault: Vault, cfg, job: Job, *, run_ticket=None) -> None:
+    from . import wiki_run
+
+    fresh = load(vault, job.job_id)
+    if fresh is None or fresh.wiki_status not in ("waiting", "writing"):
+        return  # cancelled or written since it was picked
+    job = fresh
+    if job.wiki_attempts >= MAX_ATTEMPTS:  # it stopped the writer twice: never a third time
+        _wiki_failed(vault, job, "it stopped twice before finishing")
+        return
+    job.wiki_status, job.wiki_attempts = "writing", job.wiki_attempts + 1
+    save(vault, job)  # written down first, so an interruption counts
+    _beat(vault, wiki=True)
+    try:
+        if not job.ticket:
+            job.ticket = wiki_run.start_ticket(vault, cfg, job)
+            save(vault, job)
+        if run_ticket is None:
+            from ..runner import run_ticket
+        outcome = run_ticket(vault, job.ticket)
+        ok = outcome.status == "in-review"  # a ticket already in review (finished before a crash) counts as written
+        why = "" if ok else (outcome.message or f"its ticket is {outcome.status or 'not finished'}")
+    except Exception as exc:  # noqa: BLE001 - one failed run never stops the queue (Ctrl-C still stops it)
+        ok, why = False, str(exc) if isinstance(exc, store.KbError) else f"{exc.__class__.__name__}: {exc}"
+    if ok:
+        job.wiki_status, job.finished = "done", time.strftime("%Y-%m-%d %H:%M")
+        save(vault, job)
+    else:
+        _wiki_failed(vault, job, why)
 
 
 def give_up(vault: Vault, reason: str) -> None:
@@ -369,6 +511,7 @@ def _when(stamp: str) -> str:
 
 
 def status_lines(vault: Vault) -> list[str]:
+    """What `bron kb status` says. Idle, nothing in it contains "reading" (an agent once waited for that word)."""
     lines: list[str] = []
     active = runner_active(vault)
     for job in pending(vault):
@@ -382,13 +525,22 @@ def status_lines(vault: Vault) -> list[str]:
             lines.append(f"Reading {_plural(total, 'document')} stopped part-way: {len(job.done)} read, {left} to go.")
         else:
             lines.append(f"Waiting to read {_plural(total, 'document')} (since {_when(job.created)}).")
+    writer = runner_active(vault, wiki=True)
+    for job in wiki_pending(vault):
+        what = job.label or _plural(len(job.wiki_docs), "document")
+        if job.wiki_status == "writing" and writer:
+            lines.append(f"Writing {what} into the wiki ({job.ticket or 'starting'}, since {_when(job.wiki_since)}).")
+        elif job.wiki_status == "writing":
+            lines.append(f"Writing {what} into the wiki stopped part-way; Bron picks it up again.")
+        else:
+            lines.append(f"Waiting to write {what} into the wiki (since {_when(job.wiki_since)}).")
     if not lines:
-        lines.append("No documents are being read right now.")
-    finished = [j for j in all_jobs(vault) if j.status in ("done", "cancelled")]
+        lines.append(IDLE)
+    finished = [j for j in all_jobs(vault) if j.status in ("done", "cancelled") and j.items]
     if finished:
         last = finished[-1]
         failed = sum(1 for f in last.failed if f.get("name"))
         how = "was cancelled" if last.status == "cancelled" else "finished"
-        lines.append(f"Last reading {how} {last.finished}: read {_plural(len(last.read), 'document')}, "
+        lines.append(f"Last batch {how} {last.finished}: {_plural(len(last.read), 'document')} read, "
                      f"{failed} couldn't be read.")
     return lines

@@ -86,7 +86,7 @@ def wait_for_reading(vault: Path, started: float, limit: float = 1800) -> str:
     """Wait for the background reading to finish (the first one installs the tools and downloads the model)."""
     while True:
         status = bron(vault, "kb", "status")
-        if "No documents are being read right now." in status and "Last reading" in status:
+        if "Nothing is being read." in status and "Last batch" in status:
             return status
         assert time.time() - started < limit, status
         time.sleep(5)

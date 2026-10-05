@@ -248,3 +248,26 @@ def stored_doc(vault, name: str, pages: list[str], *, folder: str = "", index_it
     if index_it:
         index.put(vault, doc, passages, fake_embed)
     return store.load(vault, doc.doc_id)
+
+
+class FakeTicketRunner:
+    """Stand-in for runner.run_ticket: records the tickets it runs, calls write(vault, ticket) first (to write pages,
+    say), then settles the ticket like a real run: in-review with a summary, or `status` with `message`."""
+
+    def __init__(self, status: str = "in-review", message: str = "", write=None):
+        self.status, self.message, self.write = status, message, write
+        self.calls: list[str] = []
+
+    def __call__(self, vault, ticket_id, **kw):
+        from bron.runner import RunOutcome
+        from bron.tickets import editing, find_ticket, load_ticket, set_result, set_status
+
+        self.calls.append(ticket_id)
+        if self.write is not None:
+            self.write(vault, load_ticket(find_ticket(vault, ticket_id)))
+        with editing(vault, ticket_id) as ticket:
+            if self.status == "in-review":
+                set_result(ticket, "Learned: three leases. Pages: 3 documents, 1 organisation.", ticket.assignee)
+            else:
+                set_status(ticket, self.status, "runner", self.message or "stand-in")
+        return RunOutcome(ticket_id, self.status, "claude", self.message or f"{ticket_id} is now {self.status}")
