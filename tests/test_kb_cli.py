@@ -452,6 +452,7 @@ def test_a_long_read_goes_to_the_background(env, capsys, tmp_path, monkeypatch):
     code, out = run(env, capsys, "add", str(one))
     assert out.strip() == ("Reading 1 document into the wiki in the background (about 2 minutes); "
                            "I'll report when it's done.")
+    jobs.cancel(env.vault)  # the first one is out of the way
     monkeypatch.setattr(ingest, "page_count", lambda item: 300)  # 300 scanned pages: about 5 minutes, still here
     code, out = run(env, capsys, "add", str(one))
     assert out.startswith("Read one.pdf (") and len(env.spawned) == 1

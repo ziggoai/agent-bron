@@ -18,7 +18,7 @@ BACKGROUND = "Reading {count} into the wiki in the background ({duration}); I'll
 BEHIND = "A folder is being written into the wiki; I'll add these after it ({duration})."
 NEXT = "Next: load the read-documents skill, write their wiki pages, then run `.bron/bin/bron wiki done`."
 SHOW_PAGES = 20
-NEEDS_TOOLS = {"search", "serve", "run-job"}  # `add` never installs in the foreground: its background job does
+NEEDS_TOOLS = {"search", "serve", "run-job"}  # `add` sets the tools up itself, in the conversation
 CRASHED = "Something went wrong in the knowledge base ({}). Details are in .bron/logs/kb-errors.log."
 
 
@@ -172,12 +172,22 @@ def _ask_first(vault, documents: int, pages: int) -> str:
     return text + ". Run the same command with --yes to go ahead."
 
 
+def _ahead(vault) -> tuple[int, bool]:
+    """Documents whose wiki pages are due before new ones (jobs still reading count: they write the wiki after), and
+    whether a wiki writer is, or will be, at work (one at a time)."""
+    from . import jobs
+
+    waiting = sum(len(j.wiki_docs) for j in jobs.wiki_pending(vault))
+    reading = [j for j in jobs.pending(vault) if j.wiki]
+    count = waiting + sum(len(j.items) for j in reading)
+    return count, bool(count) or bool(reading) or jobs.wiki_active(vault)
+
+
 def _queue(vault, items, failed, *, again: bool, label: str, pages: int) -> int:
     """Read in the background, then write the wiki pages in the same background job."""
     from . import jobs, wiki_run
 
-    ahead = sum(len(j.wiki_docs) for j in jobs.wiki_pending(vault))
-    behind = bool(ahead) or jobs.wiki_active(vault)
+    ahead, behind = _ahead(vault)
     job = jobs.create(vault, items, failed=failed, again=again, wiki=True, label=label)
     if not jobs.spawn(vault, job.job_id):
         print("Bron couldn't start reading in the background (.bron/bin/bron is missing). Run `.bron/bin/bron check`.")
@@ -196,12 +206,11 @@ def _report(vault, docs, notes) -> int:
     print(ingest.lines(docs, notes))
     todo = [d.doc_id for d in docs if d.status == "read" or (d.status == "unchanged" and not d.page)]
     if todo:
-        ahead = jobs.wiki_pending(vault)
-        if ahead or jobs.wiki_active(vault):
+        ahead, behind = _ahead(vault)
+        if behind:
             job = jobs.create_wiki(vault, todo)
             jobs.spawn(vault, job.job_id)  # if it can't start now, the next session or `bron kb status` starts it
-            count = sum(len(j.wiki_docs) for j in ahead) + len(todo)
-            print(BEHIND.format(duration=_duration(count * wiki_run.SECONDS_PER_DOC)))
+            print(BEHIND.format(duration=_duration((ahead + len(todo)) * wiki_run.SECONDS_PER_DOC)))
         else:
             print(NEXT)
     return 0 if any(d.status in ("read", "unchanged") for d in docs) else 1

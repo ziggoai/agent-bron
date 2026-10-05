@@ -33,6 +33,7 @@ def test_four_documents_or_a_folder_go_to_the_background_with_a_wiki_run(env, ca
     assert out.strip() == ("Reading 4 documents into the wiki in the background (about 4 minutes); "
                            "I'll report when it's done.")
     assert jobs.load(env.vault, env.spawned[0]).wiki is True and env.ensured == []
+    jobs.cancel(env.vault)  # the first one is out of the way
     folder = tmp_path / "Receipts"
     folder.mkdir()
     make_text_pdf(folder / "r.pdf", [SPA_TEXT])
@@ -107,3 +108,30 @@ def test_status_shows_a_waiting_wiki_run_and_cancel_stops_it(env, capsys):
     assert "Waiting to write the Leases folder into the wiki (since " in out
     code, out = run(env, capsys, "status", "--cancel")
     assert "weren't written" in out and jobs.load(env.vault, job.job_id).wiki_status == "cancelled"
+
+
+def test_a_file_added_while_a_folder_is_being_read_waits_behind_it(env, capsys, tmp_path):
+    folder = tmp_path / "F"
+    folder.mkdir()
+    make_text_pdf(folder / "a.pdf", [SPA_TEXT])
+    run(env, capsys, "add", str(folder))  # queued, still reading: its wiki_status is still empty
+    text = tmp_path / "memo.txt"
+    text.write_text("The committee approved a budget of BRL 750.000,00 for the office move.")
+    code, out = run(env, capsys, "add", "--file", str(text), "--source", "https://docs.google.com/document/d/GDOC1/edit",
+                    "--name", "IC memo")
+    lines = out.strip().splitlines()
+    assert code == 0 and lines[0].startswith("Read IC memo (") and kb_cli.NEXT not in out
+    assert lines[-1] == "A folder is being written into the wiki; I'll add these after it (about 2 minutes)."
+    assert jobs.load(env.vault, env.spawned[1]).wiki_status == "waiting"
+
+
+def test_a_second_background_add_waits_behind_the_first_folder(env, capsys, tmp_path):
+    first = tmp_path / "First"
+    first.mkdir()
+    make_text_pdf(first / "a.pdf", [SPA_TEXT])
+    run(env, capsys, "add", str(first))
+    second = tmp_path / "Second"
+    second.mkdir()
+    make_text_pdf(second / "b.pdf", [SPA_TEXT + " Other."])
+    code, out = run(env, capsys, "add", str(second))
+    assert out.strip() == "A folder is being written into the wiki; I'll add these after it (about 2 minutes)."
