@@ -11,7 +11,7 @@ How the Bron framework works, one page per topic. Read the page you need before 
 | [routines.md](routines.md) | Routines: repeating work per period, checklists and due dates |
 | [setup.md](setup.md) | Setup commands: agents, projects, routines, skills, connectors and settings, each previewed first |
 | [memory.md](memory.md) | What Bron remembers, where it's kept, searching past conversations, and turning summaries off |
-| [knowledge.md](knowledge.md) | Reading the documents you point to (Drive, files, inbox), searching them with citations, and privacy |
+| [knowledge.md](knowledge.md) | The knowledge wiki: reading documents into it (Drive, files, inbox), asking questions with citations, checkups and privacy |
 | [updates.md](updates.md) | Installing Bron, updating it, undoing an update, and the daily new-version check |
 
 ## The basics

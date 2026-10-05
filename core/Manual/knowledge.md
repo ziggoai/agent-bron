@@ -1,66 +1,99 @@
 # Knowledge base
 
-Bron reads the documents you point it to, and every agent can search them and quote them back with the document, page and link.
+Bron reads the documents you point it to and keeps what they say in a wiki in `Knowledge/`: a page per document, plus pages for the organisations, people and topics in them, linked to each other. Every fact on a page says which document and page it comes from. Agents answer your questions from the wiki and check the details against the documents themselves.
+
+## How it works
+
+- **The documents** are the sources and stay where they are. Files in Google Drive stay in Drive: Bron reads them through Google Drive for desktop and never copies them into your vault. Web pages stay on the web. Only files from your Mac (the inbox, or a path you give) are kept in `Knowledge/Files/`.
+- **The wiki** is written by your agents, following the `read-documents` skill: they read a document, write its page, update the pages it touches, note what changed or contradicts earlier pages, and link everything together.
+- **`Knowledge/Schema.md`** holds the wiki's rules: the page types, the document types, how pages are named. It's yours to change.
+- **Bron's code** does the bookkeeping: finding files, reading their text (scans included), the search database, `index.md` (the catalogue of pages), `log.md` (the record of what happened) and the checks.
+
+This follows Andrej Karpathy's "LLM wiki" idea: knowledge is compiled once and kept current, not worked out again for every question.
+
+## Reading documents
+
+- Say "read this: <Google Drive link>", give a file or folder path or a web link, or say "read the inbox". Several at once is fine.
+- **Up to three documents** are read right away, in the conversation. The agent writes their pages and then tells you in a few lines what it learned, what changed or contradicted earlier pages, and which pages it created or updated. A short document takes under a minute.
+- **A folder, or more than three documents,** is read and written into the wiki in the background; you keep working. One agent works through the documents one after another and checks the pages it touched; its summary reaches you like any ticket update, in your next message or briefing. One folder is written at a time: anything you add meanwhile, even in the conversation, waits its turn ("A folder is being written into the wiki; I'll add these after it").
+- The very first reading sets up the reading and search tools (about 300 MB, a few minutes).
+- A document Bron already read is skipped when it hasn't changed; `--again` reads it again anyway. Reading a document again replaces its text, and the agent updates its page.
+- More than 300 documents or 3,000 pages: Bron asks first (`--yes` goes ahead).
+- Command: `.bron/bin/bron kb add '<link or path>'` (`--inbox` for the inbox). It prints one line per document, like `Read Office lease.pdf (2 pages, 0 scanned) — doc 3f2a…`.
 
 ## What can be read
 
 - PDFs (text or scanned), Word, Excel and CSV, PowerPoint, text and Markdown files, images (PNG, JPG, HEIC and similar), and web pages.
-- Google Docs, Sheets and Slides, through your Google Drive connection (see below).
+- Google Docs, Sheets and Slides, through your Google Drive connection (below).
 - Portuguese and English, including Brazilian number and date formats.
 - A file that is password-protected, damaged or empty is reported by name and the rest carry on.
 
-## Pointing Bron to things
+## Google Drive
 
-- Say "read this: <Google Drive link>", or give a file or folder path, or a web link. Several at once is fine.
-- Bron finds Drive links through Google Drive for desktop on your Mac, so the app must be running. Online-only files are downloaded as they're read; you don't need to make them available offline. If a file isn't there, Bron says which link it couldn't find. A link without `https://` works too.
-- A few files are read right away. A big folder, more than 50 pages, or a scan or photo is read in the background and Bron tells you when it is done. The very first reading also sets up the tools in the background. More than 300 documents or 3,000 pages, Bron asks first. The first reading of a large folder can take a while.
-- A document Bron already read is skipped if it hasn't changed since, so nothing is read or sent twice. Add `--again` to read it anyway; if its text is the same, its labels are kept without asking the model.
-- Command: `.bron/bin/bron kb add '<link or path>'`. Add `--yes` to go ahead with a big folder without being asked.
-
-## Google Docs, Sheets and Slides
-
-Those exist only online, so Bron exports one to a text file through the Google Drive connection and reads that: `.bron/bin/bron kb add --file <file> --source '<link>' --name '<title>'`. Ask the agent to do it; you only paste the link.
+- Bron finds Drive links through Google Drive for desktop on your Mac, so the app must be running. Folders shared with you are found too. Online-only files are downloaded as they're read by Google Drive for desktop; you don't need to make them available offline.
+- If a link can't be found, Bron says so: make sure Google Drive for desktop shows the file. Agents never download a Drive file or copy it into the vault themselves.
+- Google Docs, Sheets and Slides exist only online, so the agent exports one to a text file through your Google Drive connection and reads that: `.bron/bin/bron kb add --file <file> --source '<link>' --name '<title>'`. `--file` takes only exported text; a PDF or any other file is always given by its Drive link.
 
 ## Inbox and files
 
-- Drop files into `Knowledge/Inbox/` and say "read the inbox" (`.bron/bin/bron kb add --inbox`). Bron keeps a copy in `Knowledge/Files/<year-month>/` and the inbox is emptied. A file you point to on your Mac outside Google Drive is copied there too; its original is never changed.
-- Files in Google Drive stay in Drive; Bron only reads them.
-- Reading the same file again replaces its text. Corrections you made to labels are kept.
+- Drop files into `Knowledge/Inbox/` and say "read the inbox". Bron keeps a copy in `Knowledge/Files/<year-month>/` and empties the inbox. A file you point to on your Mac outside Google Drive is copied there too; its original is never changed.
 
-## Privacy
+## The wiki
 
-- Everything is kept in your vault, in `.bron/kb/`. Scanned pages are read on your Mac. Search runs on your Mac too.
-- Two things are sent to your Claude or Codex plan (the same login you use to talk to Bron, so they count towards that plan's usage):
-  - **Labels:** the first part of each document's text (about 3,000 characters), so a small model can work out its company, type, date and title. Turn it off with `knowledge: labels: false` in `System/Settings.md`; labels then come from file and folder names only (the company from the parent folder, a date written like 2025.01.21 or 2025-01-21 in the file name, type "other"). You can always correct them with `bron kb label`.
-  - **Hard pages:** when a page is too messy for Mac text recognition (a bad scan, a photo), that one page is sent as an image. Turn it off with `knowledge: model_pages: false`; those pages are then left as read. `max_model_pages` (default 20) limits the pages per document.
-- Every such call is written to `.bron/kb/model-log.jsonl` (document, app, time, and the page for hard pages or `"kind": "labels"`).
-- The one-time setup downloads about 300 MB of reading and search tools the first time you add or search.
+```
+Knowledge/
+  Schema.md      the rules (yours to edit)
+  index.md       every page, by type (written by Bron)
+  log.md         what happened, newest last (written by Bron)
+  Documents/     one page per document
+  Organisations/
+  People/
+  Topics/
+  Inbox/  Files/
+```
 
-## Searching
+- Every page has `type` and a one-line `summary` (and `aliases` for other names). A document page also has `doc` (Bron's id for the document), `source` (its link or path), `organisation` (the organisation it is mainly about), `doc_type` and `date`.
+- Facts cite their source: "(see [[Office lease (2025-03-01)]], p. 2)". When a newer document changes a fact, the page keeps the old value as a "previously" note; when it isn't clear which is right, both stay, marked as a conflict, and the agent asks you.
+- An organisation, person or topic gets its own page when a document is mainly about it, when it appears in two or more documents, or when you ask. A folder of 10–15 documents usually gives 10–15 document pages plus about 5–15 others.
+- Your edits win: agents keep what you wrote and treat your corrections as the newest source. To correct a document's organisation, type or date, edit its page's properties; search uses them from then on.
+- `Knowledge/Schema.md` lists the page types and document types at the top. Add your own, for example:
+  ```yaml
+  page_types: [Documents, Properties, Organisations, People, Topics]
+  doc_types: [lease, utility bill, insurance policy, invoice, other]
+  ```
+  Each page type is a folder under `Knowledge/`. Ask Bron to change the schema for you if you prefer.
 
-- Just ask: "what are the payment terms in the Acme contract?" The agent searches, then answers with the document, page and link. If the documents don't say, it tells you instead of guessing.
-- Search works in English and Portuguese, with or without accents, and finds numbers in either format (`1.500.000,00` and `1,500,000.00`).
-- Narrow it down: `.bron/bin/bron kb search '<question>' --company Acme --type contract --after 2025-01-01`.
-- See more around a hit: `.bron/bin/bron kb show '<document>' --pages 14-16`.
+## Asking questions
+
+- Just ask: "what is the rent for shop 4 now?" The agent searches, reads the pages it needs, checks the numbers against the documents, and answers with the document page, page number and link. If nothing answers it, it says so instead of guessing.
+- Search finds wiki pages first, then the exact passages in the documents, in English and Portuguese, with or without accents, and numbers in either format (`1.500.000,00` and `1,500,000.00`).
+- Narrow it down: `.bron/bin/bron kb search '<question>' --organisation 'Harbor Bakery' --type contract --after 2025-01-01` (`--company` works too); `--pages-only` shows only wiki pages.
+- See the text around a passage: `.bron/bin/bron kb show '<document>' --pages 14-16`.
+- After an answer that combined several documents, the agent offers "Save this as a page?"; on a yes it becomes a topic page with its citations.
+
+## Checking the wiki
+
+- The health check counts wiki problems (if the check itself fails, it says "The wiki couldn't be checked; run `bron wiki check` for details."): links to pages that don't exist (a link like `[[Organisations/Acme Ltda]]` counts when that path exists, as in Obsidian), pages nothing links to, pages missing `type` or `summary`, documents read without a page, pages whose document was forgotten, probable duplicates (Acme, Acme Ltda.) and pages over 30,000 characters. `.bron/bin/bron wiki check` shows them; `--all` lists every one.
+- After each folder, the agent rereads the pages it touched: it settles changes a newer document clearly makes, flags real conflicts to you, creates pages for names that now appear in two or more documents, and lists gaps (a document that's referred to but wasn't read) as suggestions.
+- Say "check the wiki" for a full checkup, or "finish the wiki pages" to write the pages of documents that were read without one (an interrupted run, or documents read before the wiki existed).
 
 ## Looking after it
 
-- `.bron/bin/bron kb list` shows what was read (`--failed` shows only what couldn't be, `--company` and `--type` narrow it).
-- `.bron/bin/bron kb label '<document>' --company … --type … --date … --title …` fixes a wrong label; an empty value undoes your correction. The company is the company or organisation the document is about.
-- Types: contract, invoice, receipt, statement, report, financial statements, budget, presentation, meeting minutes, policy, letter, form, spreadsheet, other. To use your own, list them in `System/Settings.md`:
-  ```yaml
-  knowledge:
-    doc_types: [lease, utility bill, insurance policy]
-  ```
-  Your list replaces the default for documents read from then on and for corrections ("other" is always there). Documents already read keep their type; change one with `bron kb label`.
-- `.bron/bin/bron kb forget '<document>'` removes it from the knowledge base. The original is never touched.
-- `.bron/bin/bron kb status` shows progress; `--cancel` stops a reading.
-- The health check warns when documents couldn't be read.
+- `.bron/bin/bron kb list` shows what was read (`--failed` only what couldn't be, `--organisation` and `--type` narrow it).
+- `.bron/bin/bron kb forget '<document>'` removes a document from the knowledge base; the original is never touched. Its wiki page stays until you delete it or keep it (the check reminds you).
+- `.bron/bin/bron kb status` shows what's being read or written; `--cancel` stops what is waiting; a run already writing pages finishes, so no page is left half-written. When nothing is happening it says "Nothing is being read."
+
+## Privacy
+
+- Everything stays in your vault: the text and search database in `.bron/kb/`, the wiki in `Knowledge/`. Scanned pages are read on your Mac; search runs on your Mac.
+- Your agents read the documents' text and write the pages with your Claude or Codex plan (the same login you use to talk to Bron). A folder in the background is one agent run.
+- A page too messy for Mac text recognition (a bad scan, a photo) is sent as an image to your plan's model. Turn it off with `knowledge: model_pages: false` in `System/Settings.md`; `max_model_pages` (default 20) limits the pages per document. Each one is logged in `.bron/kb/model-log.jsonl`.
+- No document text is sent to a model just to label it: a document's organisation, type and date come from its wiki page (before it has one, from its file and folder names).
 
 ## Limits
 
-- A short page (under 50 words, like a cover or signature page) is joined to the next page in the search results; the text then shows `[p. N]` where each page starts, and Bron cites that page.
-- Bron quotes what the text says. A badly scanned page can still contain misread characters, so check the numbers that matter against the original.
+- A short page (under 50 words, like a cover or signature page) is joined to the next page in search results; the text then shows `[p. N]` where each page starts, and the agent cites that page.
+- A badly scanned page can still contain misread characters, so check the numbers that matter against the original.
 - Charts and pictures inside documents are not described.
-- Only one reading runs at a time; files that change after being read are read again only when you add them again.
-- If the meaning-search model can't be downloaded (no internet, say), documents are still read and found by their words; meaning search for them starts once the model downloads.
+- A background run stops after the time limit in `System/Settings.md` (`runner: max_minutes`, 30 by default); a very large folder may not finish. What was read stays searchable, the documents without a page show up in the check, and "finish the wiki pages" picks them up.
+- If the meaning-search model can't be downloaded (no internet, say), documents are still read and found by their words; meaning search starts once the model downloads.
