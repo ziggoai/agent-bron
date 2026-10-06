@@ -64,8 +64,11 @@ def _safe_title(title: str) -> str:
     # Replace control characters and newlines with space
     title = re.sub(r'[\x00-\x1f\x7f\n\r]', ' ', title)
     # Replace unsafe filename chars with dash
-    title = _UNSAFE.sub("-", title).strip().strip(".")[:60].rstrip(" .") or "Untitled"
-    return title
+    title = _UNSAFE.sub("-", title).strip().strip(".")
+    tail = re.search(r"\s*(\([^()]{1,20}\))$", title)  # "(part 2 of 3)" survives the cut, or batches look alike
+    if len(title) > 60 and tail:
+        return f"{title[:tail.start()][:59 - len(tail.group(1))].rstrip(' .')} {tail.group(1)}"
+    return title[:60].rstrip(" .") or "Untitled"
 
 
 def _highest_existing(vault: Vault) -> int:

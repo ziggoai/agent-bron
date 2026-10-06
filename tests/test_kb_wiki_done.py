@@ -50,8 +50,8 @@ def test_done_records_indexes_logs_and_rewrites_the_index(vault):
 
 def test_nothing_changed_and_log_lines(vault):
     assert done(vault) == "Nothing changed in the wiki."
-    assert done(vault, log_text="save | Rent history") == "Nothing changed in the wiki."
-    assert done(vault, log_text="checked everything") == "Nothing changed in the wiki."
+    assert done(vault, log_text="save | Rent history") == "Nothing changed in the wiki; the log line is recorded."
+    assert done(vault, log_text="checked everything") == "Nothing changed in the wiki; the log line is recorded."
     text = log(vault)
     assert "] save | Rent history\n" in text and "] update | checked everything\n" in text
 

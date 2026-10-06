@@ -101,7 +101,7 @@ def _done(vault: Vault, log_text: str) -> str:
             if not p.error and p.doc_id and store.exists(vault, p.doc_id)}
     statefile.write_json(_state_path(vault), {"pages": now, "docs": docs})
     if not changed and not removed:
-        head = "Nothing changed in the wiki."
+        head = "Nothing changed in the wiki" + ("; the log line is recorded." if log_text.strip() and not notes else ".")
     else:
         head = f"Wiki updated: {_plural(len(changed), 'page')} ({len(new)} new)."
     if not problems:

@@ -2,6 +2,13 @@
 
 What changed in each version of Bron, newest first. Bron shows the new sections when you ask it to update itself.
 
+## 0.8.4
+- In Claude Code, Bron tells you as soon as a folder is read into the wiki, without you asking: it waits for the background work with the new `bron kb wait` and reports when it ends. Codex can't wake a conversation, so there the Mac notification and your next message still bring the news.
+- Showing a document's text stops before the output gets too long to be shown in full, and says where to go on; a very long page (a big spreadsheet) comes in parts. Bron no longer saves document text in files outside the vault to read it, which left copies on the computer and stopped background runs for your OK.
+- A background run that finished its work no longer stops as "blocked" because one file read was refused, so the batch isn't run a second time.
+- People and organisations that appear in many documents keep their roles and changes on their page, not a line per document; long pages are tidied as they grow, so background runs don't slow down as the wiki gets bigger.
+- "Nothing changed in the wiki" now says when the check's log line was still recorded. Cutting `bron kb show` short (`| head`) is no longer logged as an error. Long ticket titles keep their "(part 2 of 3)" in the file name.
+
 ## 0.8.3
 - A zip of files that are read on their own (in the same folder, or before) is skipped as a copy instead of counting as a document Bron couldn't read. Any other zip says to unzip it and add the folder.
 - System files such as desktop.ini and Thumbs.db are skipped when a folder is read. Updating clears the ones earlier versions listed as "couldn't be read", so the health check stops warning about them.

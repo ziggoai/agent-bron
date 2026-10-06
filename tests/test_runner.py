@@ -101,6 +101,19 @@ def test_refused_action_blocks_with_needs_your_ok(team):
     assert "status → blocked: Needs your OK: Bash: rm Projects/keep.txt" in loaded.thread[-1]
 
 
+def test_a_refused_read_in_a_finished_run_keeps_the_answer(team):
+    ticket = ticket_for(team)
+    denials = [{"tool_name": "Read", "tool_input": {"file_path": "/tmp/notes.txt"}}]
+    run_ticket(team, ticket.id, caller_cli="claude", run=FakeCLI(team, Execution(0, claude_json(denials=denials), "")), which=found)
+    loaded = load_ticket(ticket.path)
+    assert loaded.status == "in-review" and loaded.result == "Done."
+    assert any('Some reads were refused while working: Read: {"file_path": "/tmp/notes.txt"}' in e for e in loaded.thread)
+    mixed = ticket_for(team)
+    denials.append({"tool_name": "Bash", "tool_input": {"command": "rm Projects/keep.txt"}})
+    run_ticket(team, mixed.id, caller_cli="claude", run=FakeCLI(team, Execution(0, claude_json(denials=denials), "")), which=found)
+    assert load_ticket(mixed.path).status == "blocked"  # anything more than a read still needs the user's OK
+
+
 def test_codex_approval_signal_blocks(team):
     ticket = ticket_for(team, "pinned")
     run_ticket(team, ticket.id, run=FakeCLI(team, Execution(0, codex_jsonl(text=""), f"... {APPROVAL_SIGNAL} ...")), which=found)

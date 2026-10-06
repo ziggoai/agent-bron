@@ -171,6 +171,11 @@ def _kb_reports(cli: str) -> str:
     return "Knowledge base reading finished:\n" + "\n".join(reports) + "\nTell the user briefly what was read and what couldn't be.\n"
 
 
+def updates_text(cli: str) -> str:
+    """Ticket updates and reading reports not told yet (`bron kb wait` prints them when the work is done)."""
+    return _ticket_updates() + _kb_reports(cli)
+
+
 def _route(cli: str, payload: dict) -> str:
     """@-mentions: start the tagged agents now and tell the session's agent to wait for them."""
     if os.environ.get("BRON_TICKET"):

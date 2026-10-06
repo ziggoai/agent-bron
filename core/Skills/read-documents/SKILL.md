@@ -15,10 +15,11 @@ description: Keep the wiki in Knowledge/. Use right after `bron kb add` reads do
 
 Read `Knowledge/Schema.md` first. Then take each document `bron kb add` printed (`Read <name> … — doc <id>`, or `Already read … (no page yet)`), one at a time (a `Skipped <name>: same text as …` line is a copy of a document already read: it gets no page; just tell the user it was skipped):
 
-1. **Read it.** `.bron/bin/bron kb show <doc id>` prints the first 20 pages, each starting with `--- p. N ---`; continue with `--pages 21-40` and so on. Read every page of a document up to about 60 pages; for a longer one, read the beginning, the contents and the sections that matter, and use `.bron/bin/bron kb search '<words>'` for the rest.
+1. **Read it.** `.bron/bin/bron kb show <doc id>` prints the first pages, each starting with `--- p. N ---`, as many as fit in one output it can show in full, and ends with the command for the next ones (`--pages 9-28`, or `--pages 4 --part 2` inside one very long page). Read the text where the command prints it; don't save it to files. Read every page of a document up to about 60 pages; for a longer one, read the beginning, the contents and the sections that matter, and use `.bron/bin/bron kb search '<words>'` for the rest.
 2. **See what the wiki already knows.** Note the organisations, people, topics and other documents it mentions. For each name run `.bron/bin/bron kb search '<name>' --pages-only` and open the pages it finds. Read every page you are going to change before you change it.
 3. **Write the document page** in `Knowledge/Documents/` (format below): what the document is, its key facts each with its page number, the parties, and what it changes or contradicts in the wiki.
 4. **Update the pages it touches.** A rich document often touches 10–15 pages. For each organisation, person or topic that has a page, or now needs one (see "When a page is created"), add what this document says under the right heading, each fact with its citation. Add what's new; don't repeat what's there.
+   Put each fact on the page it is most about. A person or organisation that appears in many documents (someone who signs most of them, a law firm, the user's own company) gets their roles, relationships and changes, not a line per document: who signed what stays under the document page's Parties, and a role they already have gets the new document as one more citation on its line. A page that lists many things of one kind (contracts, projects, holdings) keeps one short line each, linking to the thing's own page, where the detail goes.
 5. **Handle contradictions.** When this document says something different from a page:
    - if it clearly supersedes the earlier one (newer, an amendment, a correction), update the fact and keep the old one as a short note: "now USD 4,450.00 (see [[Rent increase (2026-01-10)]], p. 1); previously USD 4,200.00 (see [[Office lease (2025-03-01)]], p. 2)";
    - otherwise it's a real conflict: keep both with their citations, mark it **Conflict:** and tell the user. Never decide it yourself.
@@ -103,7 +104,8 @@ Keep what the user wrote on a page, word for word, unless they ask you to change
 
 Whenever a fact on a page changes (a newer document, a correction from the user, an answer):
 - check that the page's `summary` still holds, and fix it if it repeats the old fact: it is what `index.md` and search show;
-- when it answers an open question, put the answer where it belongs on the page, with its source, and delete the question. "Open questions" lists only what is still open.
+- when it answers an open question, put the answer where it belongs on the page, with its source, and delete the question. "Open questions" lists only what is still open;
+- when a page grows past about 20,000 characters, tidy it as you go: merge lines that say the same thing (one line, several citations) and move detail to the pages it is about. Every later run reads the page again, so a long page slows every one of them.
 
 ## Background runs
 
@@ -139,6 +141,7 @@ After an answer that combined several documents, offer: "Save this as a page?" O
 ## Never
 
 - download or copy a Drive file, or put a document into `Knowledge/` yourself (only `bron kb add` keeps copies, in `Knowledge/Files/`);
+- save document text in a file outside the vault (`/tmp` and the like): it is left there for anyone on the computer to read, and reading it back needs the user's OK. If you really need a scratch file, use `.bron/tmp/` (`mkdir -p .bron/tmp` first) and delete it when you're done;
 - edit `index.md` or `log.md`;
 - poll `bron kb status`;
 - invent a fact, a number or a citation;

@@ -54,6 +54,7 @@ def vault(tmp_path, monkeypatch) -> Vault:
     monkeypatch.delenv("BRON_VAULT", raising=False)
     monkeypatch.delenv("BRON_AGENT", raising=False)
     monkeypatch.delenv("BRON_TICKET", raising=False)
+    monkeypatch.delenv("CLAUDECODE", raising=False)  # tests run from Claude Code see the plain output
     return Vault(root)
 
 

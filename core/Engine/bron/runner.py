@@ -240,6 +240,10 @@ def _settle(ticket, agent, result: Execution, text: str, denials: list[str], log
     if ticket.status == "in-progress":
         if result.timed_out:
             set_status(ticket, "blocked", "runner", f"{agent.name} took longer than the time limit and was stopped; see {log}")
+        elif denials and _only_reads(denials) and text.strip() and not failure and result.returncode == 0:
+            # A file it wasn't allowed to read (outside the vault, say), and it finished anyway: the answer stands.
+            add_message(ticket, "runner", "Some reads were refused while working: " + "; ".join(denials))
+            _settle(ticket, agent, result, text, [], log)
         elif denials:
             set_status(ticket, "blocked", "runner", needs_ok)
         elif failure or result.returncode != 0:
@@ -265,6 +269,14 @@ def _settle(ticket, agent, result: Execution, text: str, denials: list[str], log
         set_status(ticket, "blocked", "runner", needs_ok)
     else:
         add_message(ticket, "runner", "Some actions were refused while working: " + "; ".join(denials))
+
+
+READ_TOOLS = ("Read", "Glob", "Grep", "LS", "NotebookRead")
+
+
+def _only_reads(denials: list[str]) -> bool:
+    """Every refused action only reads (Claude names the tool first: "Read: {…}")."""
+    return all(d.split(":", 1)[0].strip() in READ_TOOLS for d in denials)
 
 
 def refusal(ticket, resume: bool) -> str | None:

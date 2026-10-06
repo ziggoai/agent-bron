@@ -55,6 +55,12 @@ def test_titles_are_made_safe_for_file_names(vault):
     assert load_ticket(ticket.path).title == 'Fund I/II: "capital call" #3?'
 
 
+def test_a_long_title_keeps_its_part_number_in_the_file_name(vault):
+    ticket = make(vault, title="Read the Quarterly Reports (Archive) folder into the wiki (part 2 of 3)")
+    assert ticket.path.name == "T-0001 Read the Quarterly Reports (Archive) folder in (part 2 of 3).md"
+    assert len(ticket.path.stem) == len("T-0001 ") + 60
+
+
 def test_find_accepts_short_ids_and_explains_missing(vault):
     make(vault)
     assert find_ticket(vault, "1").name.startswith("T-0001 ")

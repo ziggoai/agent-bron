@@ -18,6 +18,10 @@ BACKGROUND = "Reading {count} into the wiki in the background ({duration}); I'll
 BEHIND = "A folder is being written into the wiki; I'll add these after it ({duration})."
 NEXT = "Next: load the read-documents skill, write their wiki pages, then run `.bron/bin/bron wiki done`."
 SHOW_PAGES = 20
+SHOW_CHARS = 24_000  # one `show` stays under what Claude Code and Codex print of a command in full (about 30,000)
+WAIT_HINT = ("To tell the user as soon as it's done, run `.bron/bin/bron kb wait` now as a background command "
+             "(run_in_background); when it finishes, tell them what it printed.")
+WAIT_HOURS = 8
 NEEDS_TOOLS = {"search", "serve", "run-job"}  # `add` sets the tools up itself, in the conversation
 CRASHED = "Something went wrong in the knowledge base ({}). Details are in .bron/logs/kb-errors.log."
 
@@ -48,6 +52,7 @@ def add_parser(sub) -> None:
     show = commands.add_parser("show", help="the text Bron read from one document")
     show.add_argument("doc", help="the document's id, name or part of its name")
     show.add_argument("--pages", default="", help="a page or a range, like 14 or 14-16")
+    show.add_argument("--part", type=int, default=1, help="with one long page: which part of it")
 
     listing = commands.add_parser("list", help="the documents Bron has read")
     listing.add_argument("--organisation", "--company", dest="company", default="")
@@ -56,6 +61,8 @@ def add_parser(sub) -> None:
 
     forget = commands.add_parser("forget", help="remove a document from the knowledge base")
     forget.add_argument("doc", help="the document's id, name or part of its name")
+
+    commands.add_parser("wait", help="wait until background reading and wiki writing are done, then report")
 
     status = commands.add_parser("status", help="reading in progress, and how many documents Bron has")
     status.add_argument("--cancel", action="store_true", help="stop the reading that's waiting or under way")
@@ -89,9 +96,12 @@ def handle(args, vault) -> int:
             service.serve(vault)
             return 0
         command = {"add": _add, "show": _show, "list": _list, "forget": _forget, "status": _status,
-                   "run-job": _run_job}.get(args.kb_command)
+                   "wait": _wait, "run-job": _run_job}.get(args.kb_command)
         if command is not None:
             return command(args, vault)
+    except BrokenPipeError:  # the output was cut short on purpose (`| head`): not an error
+        _quiet_stdout()
+        return 0
     except KbError as exc:
         print(exc)
         return 1
@@ -101,6 +111,17 @@ def handle(args, vault) -> int:
         return 1
     print("Not available yet.")
     return 1
+
+
+def _quiet_stdout() -> None:
+    """After a closed pipe, Python's last flush of stdout would fail again: point it at nothing."""
+    import os
+    import sys
+
+    try:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+    except (OSError, ValueError):
+        pass
 
 
 def _log_crash(vault, args, exc: BaseException) -> None:
@@ -195,7 +216,17 @@ def _queue(vault, items, failed, *, again: bool, label: str, pages: int) -> int:
     duration = _duration(pages * SECONDS_PER_PAGE + (ahead + len(items)) * wiki_run.SECONDS_PER_DOC)
     print(BEHIND.format(duration=duration) if behind
           else BACKGROUND.format(count=_plural(len(items), "document"), duration=duration))
+    _wait_hint()
     return 0
+
+
+def _wait_hint() -> None:
+    """In a Claude Code conversation a background command wakes the agent when it ends, so `kb wait` lets it tell the
+    user unasked. Codex has no such command: the Mac notification and the next message's notice tell them."""
+    import os
+
+    if os.environ.get("CLAUDECODE") and not os.environ.get("BRON_TICKET"):
+        print(WAIT_HINT)
 
 
 def _report(vault, docs, notes) -> int:
@@ -211,6 +242,7 @@ def _report(vault, docs, notes) -> int:
             job = jobs.create_wiki(vault, todo)
             jobs.spawn(vault, job.job_id)  # if it can't start now, the next session or `bron kb status` starts it
             print(BEHIND.format(duration=_duration((ahead + len(todo)) * wiki_run.SECONDS_PER_DOC)))
+            _wait_hint()
         else:
             print(NEXT)
     return 0 if any(d.status in ("read", "unchanged", "duplicate") for d in docs) else 1
@@ -342,6 +374,10 @@ def _page_range(text: str, total: int):
     return (first, min(last, total)) if first <= last else (last, min(first, total))
 
 
+def _clean(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _show(args, vault) -> int:
     from . import ingest, store
 
@@ -359,7 +395,7 @@ def _show(args, vault) -> int:
     if doc.status == "failed":
         print(f"It couldn't be read: {doc.error}")
         return 0
-    pages = store.pages(vault, doc.doc_id)
+    pages = [_clean(p) for p in store.pages(vault, doc.doc_id)]
     print(f"{_plural(len(pages), 'page')}, read {doc.read_at}.")
     span = _page_range(args.pages, len(pages))
     if span is None:
@@ -369,10 +405,33 @@ def _show(args, vault) -> int:
     if first < 1 or first > len(pages):
         print(f"{doc.name} has {_plural(len(pages), 'page')}.")
         return 1
-    for n in range(first, last + 1):
+    if len(pages[first - 1]) > SHOW_CHARS:  # one page longer than a whole `show` (a big sheet): in parts
+        return _show_part(doc, pages, first, args.part)
+    used, n = 0, first
+    while n <= last and (n == first or used + len(pages[n - 1]) <= SHOW_CHARS):
         print(f"\n--- p. {n} ---\n{pages[n - 1]}")
-    if not args.pages and len(pages) > last:
-        print(f"\n…{_plural(len(pages) - last, 'more page')}; use --pages, like --pages {last + 1}-{min(len(pages), last + SHOW_PAGES)}.")
+        used += len(pages[n - 1])
+        n += 1
+    if args.pages:  # the range asked for: what's left of it
+        left, end = last - n + 1, last
+    else:
+        left, end = len(pages) - n + 1, min(len(pages), n - 1 + SHOW_PAGES)
+    if left > 0:
+        print(f"\n…{_plural(left, 'more page')}; continue with --pages {n}" + (f"-{end}" if end > n else "") + ".")
+    return 0
+
+
+def _show_part(doc, pages: list[str], n: int, part: int) -> int:
+    text = pages[n - 1]
+    parts = -(-len(text) // SHOW_CHARS)
+    if not 1 <= part <= parts:
+        print(f"p. {n} of {doc.name} has {_plural(parts, 'part')}.")
+        return 1
+    print(f"\n--- p. {n} (part {part} of {parts}) ---\n{text[(part - 1) * SHOW_CHARS:part * SHOW_CHARS]}")
+    if part < parts:
+        print(f"\n…p. {n} goes on; continue with --pages {n} --part {part + 1}.")
+    elif n < len(pages):
+        print(f"\n…{_plural(len(pages) - n, 'more page')}; continue with --pages {n + 1}.")
     return 0
 
 
@@ -456,6 +515,33 @@ def _forget(args, vault) -> int:
 
 
 # ---- status ----
+
+def _wait(args, vault, *, sleep=None, clock=None) -> int:
+    """Wait until nothing is being read or written into the wiki, then print what the user is to be told (the same
+    reports and ticket updates their next message would bring, which are then not told again)."""
+    import time
+
+    from .. import hooks
+    from . import jobs
+
+    sleep, clock = sleep or time.sleep, clock or time.monotonic
+    start, idle = clock(), 0
+    while jobs.pending(vault) or jobs.wiki_pending(vault):
+        if jobs.stalled(vault):
+            idle += 1
+            if idle >= 3:  # nobody has been at work for three checks in a row
+                print("Reading stopped before it finished. Run `.bron/bin/bron kb status` to start it again.")
+                return 1
+        else:
+            idle = 0
+        if clock() - start > WAIT_HOURS * 3600:
+            print(f"Still reading after {WAIT_HOURS} hours; `.bron/bin/bron kb status` shows where it is.")
+            return 1
+        sleep(10)
+    text = hooks.updates_text("kb-wait")
+    print(text.rstrip() if text.strip() else "Everything is read and written; it was already reported.")
+    return 0
+
 
 def _status(args, vault) -> int:
     from . import jobs, store, tools

@@ -4,12 +4,13 @@ import json
 import pytest
 
 from bron import cli as bron_cli
-from bron import runner
+from bron import notifications, runner
 from bron.briefing import build_briefing
 from bron.hooks import main as hook
 from bron.kb import cli as kb_cli, embed, ingest, jobs, models, readers, service, store, tools
 from bron.memory import summaries
-from kbkit import FakeModel, FakeOcr, FakeTicketRunner, fake_drive, fake_embed, make_docx, make_scanned_pdf, make_text_pdf, set_drive_id
+from bron.tickets import find_ticket, load_ticket
+from kbkit import FakeModel, FakeOcr, FakeTicketRunner, fake_drive, fake_embed, make_docx, make_scanned_pdf, make_text_pdf, set_drive_id, stored_doc
 
 SPA_TEXT = ("Share Purchase Agreement between Acme Ltda and the Fund. The purchase price is USD 2,000,000.00 "
             "payable at closing on January 21, 2025.")
@@ -215,6 +216,72 @@ def test_show_list_forget(env, capsys):
     code, out = run(env, capsys, "search", "purchase price")
     assert "spa.pdf" not in out
     assert len(store.all_docs(env.vault)) == 2
+
+
+def test_show_stops_before_the_output_gets_too_long(env, capsys, monkeypatch):
+    monkeypatch.setattr(kb_cli, "SHOW_CHARS", 100)
+    stored_doc(env.vault, "long.pdf", ["a" * 40 + "\r\nline two", "b" * 40, "c" * 40, "d" * 250, "e" * 10])
+    code, out = run(env, capsys, "show", "long.pdf")
+    assert code == 0 and "--- p. 2 ---" in out and "--- p. 3 ---" not in out
+    assert "\r" not in out and "a" * 40 + "\nline two" in out
+    assert out.rstrip().endswith("…3 more pages; continue with --pages 3-5.")
+    code, out = run(env, capsys, "show", "long.pdf", "--pages", "3-5")
+    assert "--- p. 3 ---" in out and "--- p. 4" not in out and out.rstrip().endswith("…2 more pages; continue with --pages 4-5.")
+    code, out = run(env, capsys, "show", "long.pdf", "--pages", "1-2")
+    assert "--- p. 2 ---" in out and "more page" not in out  # the whole range fit
+    code, out = run(env, capsys, "show", "long.pdf", "--pages", "4")  # one page longer than a whole show: in parts
+    assert "--- p. 4 (part 1 of 3) ---\n" + "d" * 100 + "\n" in out
+    assert out.rstrip().endswith("…p. 4 goes on; continue with --pages 4 --part 2.")
+    code, out = run(env, capsys, "show", "long.pdf", "--pages", "4", "--part", "3")
+    assert "d" * 50 in out and "d" * 51 not in out and out.rstrip().endswith("…1 more page; continue with --pages 5.")
+    code, out = run(env, capsys, "show", "long.pdf", "--pages", "4", "--part", "4")
+    assert code == 1 and "p. 4 of long.pdf has 3 parts." in out
+
+
+def test_show_cut_short_by_a_closed_pipe_is_not_an_error(env, capsys, monkeypatch):
+    stored_doc(env.vault, "long.pdf", ["text"])
+    monkeypatch.setattr(kb_cli, "_show", lambda args, vault: (_ for _ in ()).throw(BrokenPipeError()))
+    monkeypatch.setattr(kb_cli, "_quiet_stdout", lambda: None)
+    code, _ = run(env, capsys, "show", "long.pdf")
+    assert code == 0 and not (env.vault.bron_dir / "logs" / "kb-errors.log").exists()
+
+
+def test_in_claude_code_a_background_read_says_to_wait_for_it(env, capsys, monkeypatch):
+    monkeypatch.setenv("CLAUDECODE", "1")
+    code, out = run(env, capsys, "add", acme_folder(env))
+    assert code == 0 and out.strip().splitlines()[-1] == kb_cli.WAIT_HINT
+    monkeypatch.setenv("BRON_TICKET", "T-0001")  # a background ticket run has nobody to tell
+    kb_cli._wait_hint()
+    monkeypatch.delenv("BRON_TICKET")
+    monkeypatch.delenv("CLAUDECODE")  # Codex: the Mac notification and the next message's notice tell the user
+    kb_cli._wait_hint()
+    assert capsys.readouterr().out == ""
+
+
+def test_wait_reports_once_the_reading_and_the_wiki_are_done(env, capsys):
+    run(env, capsys, "add", acme_folder(env))
+    checks = []
+
+    def sleep(seconds):
+        checks.append(seconds)
+        jobs.run(env.vault, env.spawned[-1], embedder=fake_embed)  # the background job finishes meanwhile
+        ticket = load_ticket(find_ticket(env.vault, jobs.load(env.vault, env.spawned[-1]).ticket))
+        notifications.record(env.vault, ticket)  # as the real runner does when the run ends
+
+    args = bron_cli.build_parser().parse_args(["kb", "wait"])
+    assert kb_cli._wait(args, env.vault, sleep=sleep) == 0
+    out = capsys.readouterr().out
+    assert checks == [10] and "Ticket updates since your last message:" in out and "is now in-review" in out
+    assert kb_cli._wait(args, env.vault, sleep=sleep) == 0  # told once: the next message won't repeat it
+    assert capsys.readouterr().out.strip() == "Everything is read and written; it was already reported."
+
+
+def test_wait_stops_when_nobody_is_reading(env, capsys, monkeypatch):
+    run(env, capsys, "add", acme_folder(env))
+    monkeypatch.setattr(jobs, "stalled", lambda vault: jobs.pending(vault))
+    args = bron_cli.build_parser().parse_args(["kb", "wait"])
+    assert kb_cli._wait(args, env.vault, sleep=lambda s: None) == 1
+    assert "Reading stopped before it finished" in capsys.readouterr().out
 
 
 def test_forget_with_an_unreadable_log_still_forgets(env, capsys):
