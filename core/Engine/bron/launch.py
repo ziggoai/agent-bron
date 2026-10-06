@@ -25,6 +25,9 @@ CODEX_EXEC = ["--json", "--skip-git-repo-check"]
 # --sandbox flag, so a resume sets the same mode through -c.
 CODEX_SANDBOX = ["--sandbox", "workspace-write"]
 CODEX_RESUME_SANDBOX = ["-c", 'sandbox_mode="workspace-write"']
+# A pending reminder keeps `claude -p` open after its final reply, holding the ticket queue until it fires.
+# Background runs end when they reply, so they can't set one; chats keep them.
+CLAUDE_RUN_BLOCKED = ("ScheduleWakeup", "CronCreate")
 
 
 @dataclass
@@ -51,12 +54,12 @@ def toml_string(text: str) -> str:
     return tomli_w.dumps({"v": text}).split("=", 1)[1].strip()
 
 
-def claude_flags(cfg: "Config", agent: Agent) -> list[str]:
+def claude_flags(cfg: "Config", agent: Agent, *, also_blocked: tuple[str, ...] = ()) -> list[str]:
     flags = ["--agent", agent.key, "--settings", str(agent_settings_path(cfg.vault, agent.key))]
     model = cfg.catalog.resolve_model("claude", agent.models.get("claude"))
     if model:
         flags += ["--model", model]
-    blocked = blocked_claude_servers(cfg, agent.connections)
+    blocked = [*blocked_claude_servers(cfg, agent.connections), *also_blocked]
     if blocked:
         flags += ["--disallowedTools", ",".join(blocked)]
     return flags
@@ -132,7 +135,7 @@ def run_spec(cfg: "Config", agent: Agent, cli: str, prompt: str, *, session: str
         argv = ["claude", "-p", prompt]
         if session:
             argv += ["--resume", session]
-        argv += claude_flags(cfg, agent)
+        argv += claude_flags(cfg, agent, also_blocked=CLAUDE_RUN_BLOCKED)
         # -p refuses any tool not allowed up front, so the agent's own connections are allowed here;
         # ask-before rules still win over this list (verification V2, C4).
         allowed = ",".join(["Bash", *allowed_claude_servers(cfg, agent.connections)])

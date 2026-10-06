@@ -2,6 +2,9 @@
 
 What changed in each version of Bron, newest first. Bron shows the new sections when you ask it to update itself.
 
+## 0.8.5
+- In Claude Code, a background run closes as soon as it replies. It can no longer set itself a reminder: a reminder kept a finished run open until it went off, and the next documents waited up to 20 minutes behind it. Your conversations with Bron can still set reminders.
+
 ## 0.8.4
 - In Claude Code, Bron tells you as soon as a folder is read into the wiki, without you asking: it waits for the background work with the new `bron kb wait` and reports when it ends. Codex can't wake a conversation, so there the Mac notification and your next message still bring the news.
 - Showing a document's text stops before the output gets too long to be shown in full, and says where to go on; a very long page (a big spreadsheet) comes in parts. Bron no longer saves document text in files outside the vault to read it, which left copies on the computer and stopped background runs for your OK.

@@ -53,12 +53,22 @@ def test_claude_run_command(vault):
     assert argv[argv.index("--agent") + 1] == "cfo"
     assert argv[argv.index("--model") + 1] == "claude-opus-5-5"
     assert argv[argv.index("--settings") + 1] == str(agent_settings_path(vault, "cfo"))
-    assert argv[argv.index("--disallowedTools") + 1] == "mcp__claude_ai_Gmail,mcp__time"
+    assert argv[argv.index("--disallowedTools") + 1] == "mcp__claude_ai_Gmail,mcp__time,ScheduleWakeup,CronCreate"
     assert argv[argv.index("--output-format") + 1] == "json"
     assert argv[argv.index("--permission-mode") + 1] == "acceptEdits"
     assert argv[argv.index("--allowedTools") + 1] == "Bash,mcp__claude_ai_Carta"
     assert "--resume" not in argv
     assert spec.env == {"BRON_AGENT": "CFO", "BRON_TICKET": "T-0001"}
+
+
+def test_claude_runs_cant_set_reminders_but_chats_can(vault):
+    """A pending reminder keeps `claude -p` open after its reply, holding the ticket queue (T-0031 sat idle 15 minutes)."""
+    add_agent(vault, "Solo")
+    cfg = load(vault)
+    run = run_spec(cfg, cfg.agents["solo"], "claude", "Go").argv
+    assert run[run.index("--disallowedTools") + 1] == "ScheduleWakeup,CronCreate"
+    assert run.count("--disallowedTools") == 1
+    assert "ScheduleWakeup" not in ",".join(chat_spec(cfg, cfg.agents["solo"], "claude").argv)
 
 
 def test_claude_resume_passes_the_session(vault):
