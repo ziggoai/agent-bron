@@ -137,6 +137,15 @@ def _hidden(name: str) -> bool:
     return name.startswith(".") and name != SHORTCUTS  # folders shared with the user live in .shortcut-targets-by-id
 
 
+SYSTEM_FILES = {"desktop.ini", "thumbs.db", "icon\r"}  # made by Windows and macOS, never a document
+
+
+def system_file(name: str) -> bool:
+    """A file the computer made rather than a person: skipped when a folder is read. `~$` files are Office's
+    owner files, left next to a document someone has open."""
+    return name.lower() in SYSTEM_FILES or name.startswith("~$")
+
+
 def _save_cache(vault: Vault, cache: dict) -> None:
     live = {k: v for k, v in cache.items() if os.path.exists(v)}
     statefile.write_json(_cache_path(vault), live)
@@ -216,7 +225,7 @@ def _files_under(folder: Path) -> list[Path]:
     out: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(folder):
         dirnames[:] = [d for d in dirnames if not _hidden(d)]
-        out += [Path(dirpath) / f for f in filenames if not _hidden(f)]
+        out += [Path(dirpath) / f for f in filenames if not _hidden(f) and not system_file(f)]
     return sorted(out)
 
 

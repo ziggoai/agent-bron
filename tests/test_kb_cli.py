@@ -71,7 +71,7 @@ def add_all(env, capsys):
 def test_add_a_drive_folder_then_search_with_citations(env, capsys):
     out = add_all(env, capsys)
     assert out.startswith("Read 3 documents (1 scanned page, 0 pages read by the model).")
-    assert "- spa.pdf — Acme · other" in out and "- memo.docx — Acme · other" in out
+    assert out.splitlines()[1:4] == ["- memo.docx", "- scan.pdf", "- spa.pdf"]  # no labels guessed from folder names
     assert len(env.spawned) == 1
     code, out = run(env, capsys, "search", "purchase price")
     assert code == 0 and "spa.pdf · Acme · other · p. 1" in out

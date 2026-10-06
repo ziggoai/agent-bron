@@ -2,6 +2,13 @@
 
 What changed in each version of Bron, newest first. Bron shows the new sections when you ask it to update itself.
 
+## 0.8.3
+- A zip of files that are read on their own (in the same folder, or before) is skipped as a copy instead of counting as a document Bron couldn't read. Any other zip says to unzip it and add the folder.
+- System files such as desktop.ini and Thumbs.db are skipped when a folder is read. Updating clears the ones earlier versions listed as "couldn't be read", so the health check stops warning about them.
+- The reading report no longer labels each document with its folder's name (such as "Finals · other") before its wiki page exists; it shows the date in the file name, and the page's labels once there is one.
+- A fact the user gives about one thing that has a wiki page goes on that page, not into shared memory, so memory stays short.
+- No more empty .lock files next to tickets in Tickets/; updating removes the old ones. index.md and log.md are saved readable like every other page.
+
 ## 0.8.2
 - Fix: the briefing's list of open items no longer shows "Nothing" from a conversation that left nothing open.
 

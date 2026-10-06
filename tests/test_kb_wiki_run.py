@@ -62,7 +62,7 @@ def test_what_could_not_be_read_goes_into_the_request(vault, tmp_path):
     (folder_of(tmp_path, 2) / "broken.zip").write_bytes(b"x")
     job, _ = read_folder(vault, tmp_path, n=0)
     request = load_ticket(find_ticket(vault, job.ticket)).request
-    assert "From the reading: Couldn't read: broken.zip (Bron can't read .zip files yet)." in request
+    assert "From the reading: Couldn't read: broken.zip (Bron can't read .zip files yet: unzip it" in request
 
 
 def test_one_wiki_writer_at_a_time(vault, tmp_path):

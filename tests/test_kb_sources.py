@@ -164,6 +164,18 @@ def test_hidden_items_skipped_in_folder_link(vault, tmp_path, monkeypatch):
     assert [i.name for i in items] == ["ok.pdf"]
 
 
+def test_system_files_are_skipped_in_a_folder(vault, tmp_path, monkeypatch):
+    root = fake_drive(tmp_path)
+    folder = root / "F"
+    folder.mkdir()
+    for name in ("desktop.ini", "Thumbs.db", "Icon\r", "~$memo.docx", "ok.pdf"):
+        (folder / name).write_bytes(b"x")
+    set_drive_id(folder, "F1")
+    monkeypatch.setenv("BRON_DRIVE_ROOT", str(root))
+    items, _ = sources.resolve(vault, ["https://drive.google.com/drive/folders/F1"])
+    assert [i.name for i in items] == ["ok.pdf"]
+
+
 def test_cached_path_with_a_different_id_is_refound(vault, tmp_path, monkeypatch):
     root, (a, b) = _drive_with(tmp_path, monkeypatch, ["a.pdf", "b.pdf"])
     assert sources.find_drive_item(vault, "ID0") == a

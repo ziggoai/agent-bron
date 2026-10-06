@@ -95,7 +95,7 @@ def test_agents_md_has_the_knowledge_section_and_its_commands_parse(vault):
 def test_agents_md_asks_for_a_long_timeout_on_the_first_knowledge_command(vault):
     text = render_agents_md(load(vault))
     section = text.split("## Knowledge base", 1)[1].split("\n## ", 1)[0]
-    assert ("The first `bron kb` command in a vault can take a few minutes; use a long command timeout (10 minutes)."
+    assert ("The first `bron kb` command can take a few minutes; use a long command timeout (10 minutes)."
             in section)
     assert len(section) <= 1600
 

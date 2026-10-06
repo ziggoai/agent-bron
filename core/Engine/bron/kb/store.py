@@ -66,6 +66,9 @@ def _write(path: Path, text: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(text)
+        # mkstemp makes the file owner-only: give it the usual read permissions (keeping any the file had)
+        mode = path.stat().st_mode & 0o777 if path.exists() else 0
+        os.chmod(tmp, mode | 0o644)
         os.replace(tmp, path)
     finally:
         if os.path.exists(tmp):

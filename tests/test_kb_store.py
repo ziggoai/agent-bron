@@ -207,3 +207,13 @@ def test_a_meta_from_a_newer_bron_still_loads(vault):
     assert store.load(vault, doc.doc_id) == doc
     meta.write_text("[1, 2]")
     assert store.load(vault, doc.doc_id) is None
+
+
+def test_written_files_are_readable_like_any_vault_file(vault):
+    """mkstemp makes owner-only files; index.md and log.md must stay 0644 like every other page."""
+    page = vault.root / "Knowledge" / "index.md"
+    store._write(page, "new")
+    assert page.stat().st_mode & 0o777 == 0o644
+    page.chmod(0o600)  # what 0.8.2 and earlier left behind
+    store._write(page, "again")
+    assert page.stat().st_mode & 0o777 == 0o644

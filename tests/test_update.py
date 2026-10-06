@@ -179,6 +179,25 @@ def test_finish_restores_missing_starting_files(vault, tmp_path, capsys):
     assert "Bron health check" in capsys.readouterr().out
 
 
+def test_finish_removes_the_lock_files_old_versions_left_in_tickets(vault, tmp_path, capsys):
+    stray = vault.root / "Tickets" / "T-0001 Read the folder.md.lock"
+    stray.write_text("")
+    tree = ProjectFolder(REPO).fetch(CURRENT, tmp_path / "work")
+    assert update.finish(vault, CURRENT, tree) == 0
+    assert not stray.exists()
+
+
+def test_finish_forgets_system_files_old_versions_couldnt_read(vault, tmp_path, capsys):
+    from bron.kb import store
+
+    path = tmp_path / "desktop.ini"
+    store.save_meta(vault, store.Doc("abc123", f"file:{path}", "file", str(path), "desktop.ini", str(path),
+                                     status="failed", error="Bron can't read .ini files yet."))
+    tree = ProjectFolder(REPO).fetch(CURRENT, tmp_path / "work")
+    assert update.finish(vault, CURRENT, tree) == 0
+    assert store.all_docs(vault) == []
+
+
 def test_a_project_folder_that_cant_be_read_changes_nothing(run, vault, tmp_path, engine, monkeypatch):
     monkeypatch.delenv("BRON_RELEASE_SOURCE")
     folder = tmp_path / "half"

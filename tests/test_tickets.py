@@ -300,3 +300,24 @@ def test_concurrent_updates(vault):
     assert len(loaded.thread) == 11
     for i in range(10):
         assert any(f"w{i}: hi" in entry for entry in loaded.thread)
+
+
+def test_editing_leaves_no_lock_file_next_to_the_ticket(vault):
+    from bron.tickets import editing
+
+    ticket = make(vault)
+    with editing(vault, "1") as t:
+        add_message(t, "cfo", "on it")
+    assert [p.name for p in ticket.path.parent.iterdir() if p.name.endswith(".lock")] == []
+
+
+def test_clear_old_locks_removes_only_empty_ticket_locks(vault):
+    from bron.tickets import clear_old_locks
+
+    ticket = make(vault)
+    old = ticket.path.with_name(ticket.path.name + ".lock")
+    old.write_text("")
+    kept = ticket.path.with_name("notes.md.lock")
+    kept.write_text("the user's own text")
+    assert clear_old_locks(vault) == 1
+    assert not old.exists() and kept.exists()

@@ -99,7 +99,7 @@ def test_inbox_file_that_cannot_be_read_stays_in_the_inbox(kb):
     bad.write_bytes(b"PK")
     items, _ = sources.resolve(kb.vault, [], inbox=True)
     doc = kb.read(items[0])
-    assert doc.status == "failed" and doc.error == "Bron can't read .zip files yet."
+    assert doc.status == "failed" and doc.error == ingest.UNZIP
     assert bad.exists()
     assert not any((kb.vault.root / "Knowledge" / "Files").rglob("archive*"))
     assert store.load(kb.vault, doc.doc_id).status == "failed"
@@ -236,9 +236,18 @@ def test_summary_lists_labels_and_reasons(kb):
     bad = store.Doc("x", "file:/x.zip", "file", "/x.zip", "x.zip", "/x.zip", status="failed", error="Bron can't read .zip files yet.")
     text = ingest.summary([good, bad], ["Couldn't find https://drive.google.com/file/d/NOPE/view in Google Drive on this Mac."])
     assert text.startswith("Read 1 document (0 scanned pages, 0 pages read by the model).")
-    assert "- spa.pdf — Acme · other" in text
+    assert "\n- spa.pdf\n" in text  # no labels guessed from the folder's name: "Acme" could as well be "Finals"
     assert "Couldn't read: x.zip (Bron can't read .zip files yet)" in text
     assert "Couldn't find https://drive.google.com/file/d/NOPE/view" in text
+
+
+def test_summary_shows_the_date_from_the_name_and_the_labels_of_a_page(kb):
+    guessed = store.Doc("a", "file:/a", "file", "", "2021.09.09 - SPA.pdf", "",
+                        labels={"company": "Finals", "doc_type": "other", "date": "2021-09-09"})
+    paged = store.Doc("b", "file:/b", "file", "", "lpa.pdf", "", labels={"company": "Finals", "doc_type": "other"},
+                      page_labels={"company": "Northwind Ltd", "doc_type": "contract"})
+    text = ingest.summary([guessed, paged], [])
+    assert "- 2021.09.09 - SPA.pdf — 2021-09-09\n" in text and "- lpa.pdf — Northwind Ltd · contract" in text
 
 
 def test_summary_caps_the_label_lines(kb):
@@ -268,7 +277,7 @@ def test_job_reads_everything_and_reports_once(kb, tmp_path):
     assert done.status == "done" and len(done.done) == 3 and len(done.failed) == 2
     told = notices.take(kb.vault)
     assert len(told) == 1 and told[0].startswith("Read 3 documents")
-    assert "Couldn't read: broken.zip (Bron can't read .zip files yet)" in told[0] and "NOPE" in told[0]
+    assert "Couldn't read: broken.zip (Bron can't read .zip files yet: unzip it" in told[0] and "NOPE" in told[0]
     assert notices.take(kb.vault) == []
 
 
@@ -895,3 +904,60 @@ def test_a_folder_with_copies_reads_each_text_once(kb, tmp_path, desktop_notices
     assert "Skipped 2 copies of documents already read: lpa (2).pdf (same text as lpa (1).pdf), " \
            "lpa.pdf (same text as lpa (1).pdf)." in told
     assert re.fullmatch(r"Bron read 2 documents, skipped 2 copies \(\d+ s\)\.", desktop_notices[0])
+
+
+# ---- archives ----
+
+def _zip(path, members):
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as z:
+        for name in members:
+            z.writestr(name, b"x")
+    return path
+
+
+def test_a_zip_of_files_in_the_same_folder_is_skipped_as_a_copy(kb, tmp_path):
+    folder = tmp_path / "Finals"
+    folder.mkdir()
+    make_text_pdf(folder / "spa.pdf", ["Share purchase agreement of Northwind Properties Ltd."])
+    make_text_pdf(folder / "side.pdf", ["A side letter of Harbor Bakery LLC."])
+    # "Bundle.zip" sorts before the PDFs, so it is looked at before they are read
+    _zip(folder / "Bundle.zip", ["Bundle/spa.pdf", "Bundle/side.pdf", "Bundle/", "__MACOSX/Bundle/._spa.pdf"])
+    items = sources.resolve(kb.vault, [str(folder)])[0]
+    job = jobs.create(kb.vault, items)
+    jobs.run(kb.vault, job.job_id, **kb.deps)
+    job = jobs.load(kb.vault, job.job_id)
+    assert len(job.read) == 2 and job.failed == []
+    assert job.copies == [{"name": "Bundle.zip", "error": "an archive of 2 files read on their own", "of": ""}]
+    assert not any(d.name == "Bundle.zip" for d in store.all_docs(kb.vault))
+
+
+def test_a_zip_with_files_bron_hasnt_read_says_to_unzip_it(kb, tmp_path):
+    folder = tmp_path / "Finals"
+    folder.mkdir()
+    path = _zip(folder / "Bundle.zip", ["Bundle/unknown.pdf"])
+    items = sources.resolve(kb.vault, [str(path)])[0]
+    doc = kb.read(items[0])
+    assert doc.status == "failed" and "unzip it" in doc.error
+
+
+def test_a_zip_already_read_elsewhere_is_skipped_when_added_on_its_own(kb, tmp_path):
+    _, item = drive_pdf(kb, "lease.pdf", item_id="L1")
+    kb.read(item)
+    path = _zip(tmp_path / "lease.zip", ["lease.pdf"])
+    doc = kb.read(sources.resolve(kb.vault, [str(path)])[0][0])
+    assert doc.status == "duplicate" and doc.duplicate_of == ""
+    assert ingest.lines([doc]) == "Skipped lease.zip: an archive of 1 file read on its own"
+
+
+def test_tidy_failed_forgets_system_files_and_archives_already_read(kb, tmp_path):
+    _, item = drive_pdf(kb, "lease.pdf", item_id="L1")
+    kb.read(item)
+    zipped = _zip(tmp_path / "lease.zip", ["lease.pdf"])
+    unknown = _zip(tmp_path / "other.zip", ["other.pdf"])
+    for name, path in (("desktop.ini", tmp_path / "desktop.ini"), ("lease.zip", zipped), ("other.zip", unknown)):
+        store.save_meta(kb.vault, store.Doc(store.doc_id_for(f"file:{path}"), f"file:{path}", "file", str(path), name,
+                                            str(path), status="failed", error="Bron can't read these files yet."))
+    assert ingest.tidy_failed(kb.vault) == 2
+    assert sorted(d.name for d in store.all_docs(kb.vault) if d.status == "failed") == ["other.zip"]

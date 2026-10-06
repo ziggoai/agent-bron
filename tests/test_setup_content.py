@@ -107,3 +107,8 @@ def test_a_role_change_rewrites_who_you_are_in_the_same_command(vault):
 def test_edit_agent_covers_stopping_a_connector(vault):
     meta = fm.read(vault.core_skills / "edit-agent" / "SKILL.md").meta
     assert "stop using a connector" in meta["description"]
+
+
+def test_a_fact_about_one_wiki_thing_goes_on_its_page_not_in_memory(vault):
+    text = (vault.core_templates / "AGENTS.md.tmpl").read_text(encoding="utf-8")
+    assert "with a `Knowledge/` page goes there as \"(the user, <date>)\", not in memory" in text

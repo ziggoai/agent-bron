@@ -280,10 +280,74 @@ def _page_record(vault: Vault, doc_id: str) -> dict:
     return {"page": linked.get("page", ""), "page_labels": labels if isinstance(labels, dict) else {}}
 
 
+# ---- archives ----
+
+ARCHIVE_EXT = {".zip"}
+UNZIP = "Bron can't read .zip files yet: unzip it in Google Drive (or on this Mac) and add the folder."
+
+
+def archive_files(path: Path) -> list[str]:
+    """The names of the files in a zip, without its folders, hidden files and system files."""
+    import zipfile
+
+    with zipfile.ZipFile(path) as archive:
+        names = [n for n in archive.namelist() if not n.endswith("/") and not n.startswith("__MACOSX/")]
+    files = [n.rsplit("/", 1)[-1] for n in names]
+    return [f for f in files if f and not f.startswith(".") and not sources.system_file(f)]
+
+
+def _read_names(vault: Vault) -> set[str]:
+    return {d.name.casefold() for d in store.all_docs(vault) if d.status in ("read", "indexing")}
+
+
+def _archive(vault: Vault, doc: Doc, previous: Doc | None, path: str, siblings) -> Doc:
+    """A zip whose files are all read on their own (in the same folder, or before) is a copy: skipped, nothing kept.
+    Any other zip can't be read yet."""
+    try:
+        files = archive_files(Path(path))
+    except Exception as exc:  # noqa: BLE001 - a damaged or missing zip is one failure, never the end of the batch
+        _log(vault, doc.name, exc)
+        files = []
+    known = {n.casefold() for n in siblings} | _read_names(vault)
+    if files and all(f.casefold() in known for f in files):
+        if previous is not None:
+            store.forget(vault, doc.doc_id)  # an earlier version recorded it as a file it couldn't read
+        doc.status, doc.error = "duplicate", (f"an archive of {plural(len(files), 'file')} read on "
+                                              f"{'its' if len(files) == 1 else 'their'} own")
+        return doc
+    doc.status, doc.error = "failed", UNZIP
+    store.save_meta(vault, doc)
+    return doc
+
+
+def tidy_failed(vault: Vault) -> int:
+    """Forget what earlier versions recorded as documents they couldn't read but that aren't documents to read:
+    system files, and zips whose files are all read on their own. Returns how many were forgotten."""
+    forgotten = 0
+    names = None
+    for doc in store.all_docs(vault):
+        if doc.status != "failed":
+            continue
+        if sources.system_file(doc.name):
+            store.forget(vault, doc.doc_id)
+            forgotten += 1
+        elif Path(doc.name).suffix.lower() in ARCHIVE_EXT and doc.path:
+            names = _read_names(vault) if names is None else names
+            try:
+                files = archive_files(Path(doc.path))
+            except Exception:  # noqa: BLE001 - a zip that can't be opened stays as it is
+                continue
+            if files and all(f.casefold() in names for f in files):
+                store.forget(vault, doc.doc_id)
+                forgotten += 1
+    return forgotten
+
+
 def read_item(vault: Vault, cfg, item: Item, *, readers_ocr=None, model_call=None, embedder,
-              again: bool = False) -> Doc:
+              again: bool = False, siblings=()) -> Doc:
     """Read one item. A document already read whose original hasn't changed (same size and time) isn't read again
-    and comes back with status "unchanged", unless `again`. Web pages are always read again."""
+    and comes back with status "unchanged", unless `again`. Web pages are always read again.
+    `siblings`: the names of the other files read with it (a zip of them is a copy)."""
     if item.kind == "export":
         return _read_export(vault, cfg, item, embedder=embedder)
     try:  # a file that can't even be looked at (no permission, say) is one failure, never the end of the batch
@@ -307,6 +371,8 @@ def read_item(vault: Vault, cfg, item: Item, *, readers_ocr=None, model_call=Non
                   read_at=time.strftime("%Y-%m-%d"), source_size=size, source_mtime=mtime, **_page_record(vault, doc_id))
     except Exception as exc:  # noqa: BLE001
         return _failed(vault, item, exc)
+    if item.kind in ("drive", "file") and Path(item.name).suffix.lower() in ARCHIVE_EXT:
+        return _archive(vault, doc, previous, str(keep[0]) if keep else item.path, siblings)
     read_from = item
     if keep:
         read_from = Item(item.kind, item.identity, item.source, item.name, str(keep[0]), item.url)
@@ -462,6 +528,15 @@ def label_line(doc: Doc) -> str:
     return " · ".join(str(p) for p in parts if p)
 
 
+def report_labels(doc: Doc) -> str:
+    """The labels a reading report shows: its wiki page's or the user's. Before there are any, only the date written in
+    the file name: the company worked out from the folder's name is a guess for search, and the folder is often one
+    like "Finals" or "Series B"."""
+    if doc.page_labels or doc.user_labels:
+        return label_line(doc)
+    return str((doc.labels or {}).get("date") or "") if isinstance(doc.labels, dict) else ""
+
+
 def summary(docs: list[Doc], notes: list[str] | tuple = ()) -> str:
     """What was read (with labels), what was already read and unchanged, what couldn't be read and why.
     `notes`: sentences about links that weren't found."""
@@ -481,7 +556,7 @@ def summary(docs: list[Doc], notes: list[str] | tuple = ()) -> str:
             first += f"; meaning search for {whom} will be ready once the model downloads"
         lines.append(first + ".")
         for d in read[:SUMMARY_LINES]:
-            labels = label_line(d)
+            labels = report_labels(d)
             lines.append(f"- {d.name}" + (f" — {labels}" if labels else ""))
         if len(read) > SUMMARY_LINES:
             lines.append(f"…and {len(read) - SUMMARY_LINES} more; see `bron kb list`")
@@ -512,7 +587,7 @@ def lines(docs: list[Doc], notes: list[str] | tuple = ()) -> str:
             page = f"page: [[{Path(d.page).stem}]]" if d.page else "no page yet"
             out.append(f"Already read {d.name} — doc {d.doc_id} ({page})")
         elif d.status == "duplicate":
-            out.append(f"Skipped {d.name}: {d.error} — doc {d.duplicate_of}")
+            out.append(f"Skipped {d.name}: {d.error}" + (f" — doc {d.duplicate_of}" if d.duplicate_of else ""))
         else:
             out.append(f"Couldn't read {d.name}: {d.error}")
     out += [str(n) for n in notes]

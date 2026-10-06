@@ -311,10 +311,29 @@ def save_ticket(ticket: Ticket) -> None:
 def editing(vault: Vault, ticket_id: str):
     """Load a ticket under its lock, yield it, save it on success."""
     path = find_ticket(vault, ticket_id)
-    with locked(path):
+    with locked(_edit_lock(vault, path)):
         ticket = load_ticket(path)
         yield ticket
         save_ticket(ticket)
+
+
+def _edit_lock(vault: Vault, path: Path) -> Path:
+    """The ticket's edit lock lives in .bron/state, so no lock file shows up in Tickets/."""
+    return vault.state_dir / "ticket-edits" / path.name.split(" ", 1)[0].removesuffix(".md")
+
+
+def clear_old_locks(vault: Vault) -> int:
+    """Remove the empty `<ticket>.md.lock` files that Bron 0.8.2 and earlier left next to tickets."""
+    removed = 0
+    if vault.tickets_dir.is_dir():
+        for lock in vault.tickets_dir.glob("T-*.md.lock"):
+            try:
+                if lock.is_file() and lock.stat().st_size == 0:
+                    lock.unlink()
+                    removed += 1
+            except OSError:
+                continue
+    return removed
 
 
 def add_message(ticket: Ticket, author: str, text: str) -> None:

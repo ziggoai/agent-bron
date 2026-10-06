@@ -421,6 +421,7 @@ def _work(vault: Vault, cfg, job: Job, *, embedder, readers_ocr, model_call) -> 
     job = fresh
     job.status, job.started = "running", job.started or _now()
     save(vault, job)
+    siblings = {str(i.get("name", "")) for i in job.items if isinstance(i, dict)}
     for raw in _remaining(job):
         if _cancel_path(vault, job.job_id).exists():
             _finish(vault, job, "cancelled")
@@ -440,7 +441,7 @@ def _work(vault: Vault, cfg, job: Job, *, embedder, readers_ocr, model_call) -> 
         job.attempts[identity] = tries + 1
         save(vault, job)  # written down before reading, so a crash on this file counts
         doc = ingest.read_item(vault, cfg, item, readers_ocr=readers_ocr, model_call=model_call,
-                               embedder=embedder, again=job.again)
+                               embedder=embedder, again=job.again, siblings=siblings)
         if doc.status == "read":
             job.done.append(identity)
             job.read.append(doc.doc_id)

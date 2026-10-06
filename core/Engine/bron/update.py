@@ -102,10 +102,24 @@ def _finish(vault: Vault, previous: str, tree: Path | None) -> int:
             print(line)
     except BundleError as exc:
         print(f"Obsidian: {exc}")
+    _tidy(vault)
     if _sync(vault, dry_run=False) != 0:
         return 1
     _check(vault)
     return 0
+
+
+def _tidy(vault: Vault) -> None:
+    """Leftovers of earlier versions that nothing needs: lock files next to tickets, and system files and zips of
+    files already read that were recorded as documents Bron couldn't read."""
+    from .kb.ingest import tidy_failed
+    from .tickets import clear_old_locks
+
+    for step in (clear_old_locks, tidy_failed):
+        try:
+            step(vault)
+        except Exception:  # noqa: BLE001 - tidying never fails an update
+            pass
 
 
 def _stamp() -> str:
