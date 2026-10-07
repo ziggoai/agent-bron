@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -162,7 +163,8 @@ def parse_claude(stdout: str) -> tuple[str, str, list[str], bool]:
         detail = denial.get("tool_input")
         if isinstance(detail, dict):
             detail = detail.get("command") or json.dumps(detail, ensure_ascii=False)
-        denials.append(f"{tool}: {str(detail)[:300]}" if detail else tool)
+        text = str(detail) if detail else ""
+        denials.append(f"{tool}: {text[:300]}" + ("…" if len(text) > 300 else "") if text else tool)
     return str(data.get("session_id") or ""), str(data.get("result") or ""), denials, data.get("is_error") is True
 
 
@@ -282,13 +284,75 @@ def _only_reads(denials: list[str]) -> bool:
 
 
 def _harmless(denials: list[str]) -> bool:
-    """Every refused action only reads, or is a command working in the scratch folder (deleting a scratch file, a
-    script Claude Code couldn't check): neither is something the user has to approve."""
-    return all(d.split(":", 1)[0].strip() in READ_TOOLS or (d.startswith("Bash:") and SCRATCH in d) for d in denials)
+    """Every refused action only reads, or is a command that only reads and tidies the scratch folder (deleting a
+    scratch file): neither is something the user has to approve."""
+    return all(d.split(":", 1)[0].strip() in READ_TOOLS
+               or (d.startswith("Bash:") and _scratch_only(d.split(":", 1)[1].strip())) for d in denials)
 
 
 SCRATCH = ".bron/tmp"
+_SCRATCH_PATH = re.compile(r"(\./)?(\.\./)*\.bron/tmp(/(?!\.\.(/|$))[^/]+)*/?")
+_UNCHECKABLE = re.compile(r"[$`]|<<|<\(|>\(")  # variables, command substitution, heredocs (a script) and the like
+_READERS = {"cat", "head", "tail", "grep", "ls", "diff", "wc", "tr", "fold", "cut", "echo"}
+_BRON_READS = {("kb", "show"), ("kb", "search"), ("kb", "list"), ("kb", "status"), ("wiki", "check")}
+
+
+def _scratch_only(command: str) -> bool:
+    """A command whose every part reads, or creates or deletes files in .bron/tmp only. Anything that can't be checked
+    (a variable, a script, a command cut short in the report) counts as needing the user's OK."""
+    import shlex
+
+    if command.endswith("…") or _UNCHECKABLE.search(command):
+        return False
+    for part in re.split(r"&&|\|\||[;|\n]", command):
+        try:
+            words = shlex.split(part)
+        except ValueError:
+            return False
+        args: list[str] = []
+        target = False
+        for word in words:
+            if word in ("2>&1", "2>/dev/null", ">/dev/null"):
+                continue
+            if word in (">", ">>", "2>"):
+                target = True
+                continue
+            if target or word.startswith(">"):
+                if not _SCRATCH_PATH.fullmatch(word.lstrip(">")):
+                    return False  # writes somewhere other than the scratch folder
+                target = False
+                continue
+            args.append(word)
+        if target:
+            return False
+        if not args:
+            continue
+        name, rest = args[0], args[1:]
+        if name in ("rm", "mkdir"):
+            paths = [a for a in rest if not a.startswith("-")]
+            if not paths or not all(_SCRATCH_PATH.fullmatch(a) for a in paths):
+                return False
+        elif name in _READERS:
+            continue
+        elif name.endswith("bron/bin/bron") and tuple(rest[:2]) in _BRON_READS:
+            continue
+        else:
+            return False
+    return True
 SCRATCH_HOURS = 24  # scratch files older than this are cleared after a run; a conversation's drafts are newer
+
+
+def _newest(entry) -> float:
+    """When anything in it last changed: a folder's own time doesn't move when a file inside it is edited."""
+    newest = entry.lstat().st_mtime
+    if entry.is_dir() and not entry.is_symlink():
+        for root, dirs, files in os.walk(entry):
+            for name in dirs + files:
+                try:
+                    newest = max(newest, os.lstat(os.path.join(root, name)).st_mtime)
+                except OSError:
+                    continue
+    return newest
 
 
 def clear_scratch(vault: Vault, now: float | None = None) -> None:
@@ -304,7 +368,7 @@ def clear_scratch(vault: Vault, now: float | None = None) -> None:
         return
     for entry in entries:
         try:
-            if entry.lstat().st_mtime >= cutoff:
+            if _newest(entry) >= cutoff:
                 continue
             if entry.is_dir() and not entry.is_symlink():
                 shutil.rmtree(entry)

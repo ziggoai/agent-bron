@@ -225,6 +225,16 @@ def test_an_interrupted_batch_resumes_there_without_writing_the_earlier_ones_aga
     assert len(then.calls) == 2 and final.wiki_status == "done" and final.wiki_tickets == [first.calls[0], *then.calls]
 
 
+def test_a_batch_whose_ticket_was_closed_before_a_crash_counts_as_written(vault, tmp_path):
+    class ClosedAlready(FakeTicketRunner):  # the ticket was closed, then the lid closed before the job was saved
+        def __call__(self, vault, ticket_id, **kw):
+            self.status = "done"
+            return super().__call__(vault, ticket_id, **kw)
+
+    job, runner = read_folder(vault, tmp_path, n=12, runner=ClosedAlready())
+    assert job.wiki_status == "done" and len(runner.calls) == 2
+
+
 def test_batches_are_as_few_and_as_even_as_possible():
     from bron.kb.wiki_run import batches
 

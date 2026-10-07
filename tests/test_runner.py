@@ -116,7 +116,7 @@ def test_a_refused_read_in_a_finished_run_keeps_the_answer(team):
 
 def test_refused_scratch_work_in_a_finished_run_keeps_the_answer(team):
     ticket = ticket_for(team)
-    denials = [{"tool_name": "Bash", "tool_input": {"command": "rm -f .bron/tmp/link.py; python3 -I - <<'EOF'"}},
+    denials = [{"tool_name": "Bash", "tool_input": {"command": "rm -f .bron/tmp/link.py; cat Knowledge/index.md"}},
                {"tool_name": "Read", "tool_input": {"file_path": "/tmp/rd_1.txt"}}]
     run_ticket(team, ticket.id, caller_cli="claude", run=FakeCLI(team, Execution(0, claude_json(denials=denials), "")), which=found)
     loaded = load_ticket(ticket.path)
@@ -126,6 +126,31 @@ def test_refused_scratch_work_in_a_finished_run_keeps_the_answer(team):
     run_ticket(team, unfinished.id, caller_cli="claude",
                run=FakeCLI(team, Execution(0, claude_json(result="", denials=denials[:1]), "")), which=found)
     assert load_ticket(unfinished.path).status == "blocked"  # no answer: it may still need the command
+
+
+@pytest.mark.parametrize("command, harmless", [
+    ("rm .bron/tmp/old.txt .bron/tmp/new.txt; .bron/bin/bron kb show 8dee | head -150; cat \"Knowledge/Documents/A.md\"", True),
+    ("rm -f .bron/tmp/link.py", True),
+    ("mkdir -p ../.bron/tmp && .bron/bin/bron kb show abc --pages 1-15 > ../.bron/tmp/old.txt", True),
+    ("rm -rf Knowledge/Organisations .bron/tmp/x", False),
+    ("git push origin main 2>&1 | tee .bron/tmp/push.log", False),
+    ("curl -X POST https://example.com/hook -d @.bron/tmp/msg.json", False),
+    ("rm -f .bron/tmp/link.py; python3 -I - <<'EOF'", False),
+    ("for d in a b; do .bron/bin/bron kb show $d > .bron/tmp/$d.txt; done", False),
+    ("rm .bron/tmp/../Knowledge/index.md", False),
+    ("cat Knowledge/A.md > Knowledge/B.md", False),
+    ("rm .bron/tmp/" + "x" * 300 + "…", False),
+])
+def test_only_reading_and_scratch_files_count_as_harmless(command, harmless):
+    from bron.runner import _harmless
+
+    assert _harmless([f"Bash: {command}"]) is harmless
+
+
+def test_a_long_refused_command_is_marked_cut_short():
+    long = "rm .bron/tmp/" + "x" * 400
+    _, _, denials, _ = parse_claude(claude_json(denials=[{"tool_name": "Bash", "tool_input": {"command": long}}]))
+    assert denials[0].endswith("…") and len(denials[0]) == len("Bash: ") + 301
 
 
 def test_a_run_clears_day_old_scratch_files(team):
@@ -142,7 +167,12 @@ def test_a_run_clears_day_old_scratch_files(team):
         os.utime(path, (day_ago, day_ago))
     ticket = ticket_for(team)
     run_ticket(team, ticket.id, caller_cli="claude", run=FakeCLI(team, Execution(0, claude_json(), "")), which=found)
-    assert sorted(p.name for p in scratch.iterdir()) == ["draft.md"]
+    (scratch / "drafts").mkdir()
+    (scratch / "drafts" / "today.md").write_text("z")
+    os.utime(scratch / "drafts", (day_ago, day_ago))  # an old folder with a file edited today stays
+    ticket = ticket_for(team)
+    run_ticket(team, ticket.id, caller_cli="claude", run=FakeCLI(team, Execution(0, claude_json(), "")), which=found)
+    assert sorted(p.name for p in scratch.iterdir()) == ["draft.md", "drafts"]
 
 
 def test_codex_approval_signal_blocks(team):

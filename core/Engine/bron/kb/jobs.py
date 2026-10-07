@@ -567,7 +567,7 @@ def _write_batch(vault: Vault, cfg, job: Job, run_ticket) -> tuple[bool, str, bo
 
         _log(vault, f"the wiki run of job {job.job_id}", exc)
         return False, WENT_WRONG, True
-    if outcome.status == "in-review":  # a ticket already in review (finished before a crash) counts as written
+    if outcome.status in ("in-review", "done"):  # finished before a crash, or closed already: written
         return True, "", False
     return False, outcome.message or f"its ticket is {outcome.status or 'not finished'}", True
 
