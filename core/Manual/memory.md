@@ -12,7 +12,7 @@ What Bron remembers between conversations, and where it keeps it.
 
 ## Conversation summaries
 
-- After a conversation ends, a small model writes a short summary in the background: what was asked, decided and left open. It is saved as a note in `System/Agents/<Name>/Memory/Conversations/<year-month>/`.
+- After a conversation ends, a small model writes a short summary in the background: what was asked, decided and left open. It is saved as a note in `System/Agents/<Name>/Memory/Conversations/<year-month>/`. When it's written after the next conversation has started (the window was closed without ending the session, say), that conversation gets it with your next message, in its first hour (Claude Code).
 - A conversation you resume updates its note instead of adding a second one.
 - Settings, in `System/Settings.md`:
 

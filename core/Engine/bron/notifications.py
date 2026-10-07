@@ -59,6 +59,8 @@ def take(vault: Vault, agent_key: str, default_key: str) -> list[dict]:
                 continue
             requester = entry.get("requested_by") or "you"
             if slug(str(requester)) == slug(agent_key) or (slug(str(requester)) == "you" and agent_key == default_key):
+                # One update per ticket: its latest ("in-review" then "done" is told once, as done).
+                updates = [u for u in updates if u.get("id") != entry.get("id")]
                 updates.append(entry)
         new_cursor = len(lines)
         if new_cursor != start:

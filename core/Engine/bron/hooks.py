@@ -36,7 +36,7 @@ def main(event: str, cli: str, stdin=None, stdout=None) -> int:
                 pass
         elif event == "user-prompt":
             payload = _payload(stdin)
-            text = _route(cli, payload) + _ticket_updates() + _kb_reports(cli)
+            text = _route(cli, payload) + _ticket_updates() + _kb_reports(cli) + _late_notes(cli, payload)
             if text:
                 try:
                     stdout.write(text)
@@ -169,6 +169,36 @@ def _kb_reports(cli: str) -> str:
     if not reports:
         return ""
     return "Knowledge base reading finished:\n" + "\n".join(reports) + "\nTell the user briefly what was read and what couldn't be.\n"
+
+
+def _late_notes(cli: str, payload: dict) -> str:
+    """The summary of the previous conversation, when it was written after this one's briefing (told once)."""
+    if os.environ.get("BRON_TICKET"):
+        return ""
+    try:
+        from .loader import load
+        from .memory.recall import late_lines
+        from .model import slug
+        from .vault import Vault
+
+        vault = Vault.find()
+        cfg = load(vault)
+        agent = slug(os.environ.get("BRON_AGENT") or cfg.settings.default_agent)
+        lines = late_lines(vault, cfg, agent, str(payload.get("session_id") or ""),
+                           _started(str(payload.get("transcript_path") or "")))
+    except Exception as exc:  # noqa: BLE001 - never costs the rest of the message
+        _log_error("user-prompt", cli, exc)
+        return ""
+    return "\n".join(lines) + "\n" if lines else ""
+
+
+def _started(transcript: str) -> float | None:
+    """When the conversation began: its transcript file was made then (session-start can't read the payload)."""
+    try:
+        info = os.stat(transcript)
+    except (OSError, ValueError):
+        return None
+    return float(getattr(info, "st_birthtime", info.st_ctime))
 
 
 def updates_text(cli: str) -> str:

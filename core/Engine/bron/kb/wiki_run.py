@@ -24,8 +24,18 @@ earlier pages, the pages you created and updated, and the documents that couldn'
 
 
 def batches(doc_ids: list[str]) -> list[list[str]]:
-    """The documents of a run, BATCH at a time, in order."""
-    return [doc_ids[i:i + BATCH] for i in range(0, len(doc_ids), BATCH)]
+    """The documents of a run in order, in as few batches of at most BATCH as possible, evenly sized: 11 documents are
+    6 and 5, not 10 and 1 (each run has a fixed cost of a few minutes, so a run for one document is mostly overhead)."""
+    if not doc_ids:
+        return []
+    parts = -(-len(doc_ids) // BATCH)
+    size, extra = divmod(len(doc_ids), parts)
+    out, start = [], 0
+    for n in range(parts):
+        end = start + size + (1 if n < extra else 0)
+        out.append(doc_ids[start:end])
+        start = end
+    return out
 
 
 def title(label: str, count: int, part: int = 1, parts: int = 1) -> str:

@@ -219,8 +219,18 @@ def index_text(vault: Vault, pages: list[Page] | None = None) -> str:
             else:
                 n = len(sources.get(name_of(page.title), set()))
                 tail = f"({n} source{'' if n == 1 else 's'}, updated {updated})"
-            lines.append(f"- [[{page.title}]] — {page.summary or 'no summary yet'} {tail}")
+            lines.append(f"- [[{page.title}]] — {_short(page.summary) or 'no summary yet'} {tail}")
     return "\n".join(lines) + "\n"
+
+
+INDEX_SUMMARY = 240  # characters of a summary in index.md: a catalogue line, not the page (the page keeps it all)
+
+
+def _short(summary: str) -> str:
+    if len(summary) <= INDEX_SUMMARY:
+        return summary
+    cut = summary[:INDEX_SUMMARY].rsplit(" ", 1)[0].rstrip(" ,;:(")
+    return cut + "…"
 
 
 def write_index(vault: Vault, pages: list[Page] | None = None) -> bool:

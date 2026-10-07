@@ -57,3 +57,23 @@ def take(vault: Vault) -> list[str]:
         tmp.write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries[-KEEP:]), encoding="utf-8")
         tmp.replace(path)
     return fresh
+
+
+def take_jobs(vault: Vault, job_ids: list[str]) -> list[str]:
+    """These jobs' reports, shown or not (a conversation waiting for its own reading is told it even when another
+    conversation was told first); they are marked as shown."""
+    path = _path(vault)
+    if not path.is_file():
+        return []
+    wanted = set(job_ids)
+    with statefile.locked(path):
+        entries = [e for e in (_parse(line) for line in statefile.read_lines(path)) if e is not None]
+        mine = [e for e in entries if e.get("job") in wanted]
+        if not mine:
+            return []
+        for e in mine:
+            e["shown"] = True
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        tmp.write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries[-KEEP:]), encoding="utf-8")
+        tmp.replace(path)
+    return [e["text"] for e in mine]

@@ -18,9 +18,9 @@ BACKGROUND = "Reading {count} into the wiki in the background ({duration}); I'll
 BEHIND = "A folder is being written into the wiki; I'll add these after it ({duration})."
 NEXT = "Next: load the read-documents skill, write their wiki pages, then run `.bron/bin/bron wiki done`."
 SHOW_PAGES = 20
-SHOW_CHARS = 24_000  # one `show` stays under what Claude Code and Codex print of a command in full (about 30,000)
-WAIT_HINT = ("To tell the user as soon as it's done, run `.bron/bin/bron kb wait` now as a background command "
-             "(run_in_background); when it finishes, tell them what it printed.")
+SHOW_CHARS = 20_000  # one `show` stays well under what Claude Code and Codex print of a command in full (about 30,000)
+WAIT_HINT = ("To tell the user as soon as it's done, run `.bron/bin/bron kb wait --job {job}` now as a background "
+             "command (run_in_background); when it finishes, tell them what it printed.")
 WAIT_HOURS = 8
 NEEDS_TOOLS = {"search", "serve", "run-job"}  # `add` sets the tools up itself, in the conversation
 CRASHED = "Something went wrong in the knowledge base ({}). Details are in .bron/logs/kb-errors.log."
@@ -62,7 +62,8 @@ def add_parser(sub) -> None:
     forget = commands.add_parser("forget", help="remove a document from the knowledge base")
     forget.add_argument("doc", help="the document's id, name or part of its name")
 
-    commands.add_parser("wait", help="wait until background reading and wiki writing are done, then report")
+    wait = commands.add_parser("wait", help="wait until background reading and wiki writing are done, then report")
+    wait.add_argument("--job", default="", help="wait for this reading only, and report only it (the id `add` printed)")
 
     status = commands.add_parser("status", help="reading in progress, and how many documents Bron has")
     status.add_argument("--cancel", action="store_true", help="stop the reading that's waiting or under way")
@@ -216,17 +217,18 @@ def _queue(vault, items, failed, *, again: bool, label: str, pages: int) -> int:
     duration = _duration(pages * SECONDS_PER_PAGE + (ahead + len(items)) * wiki_run.SECONDS_PER_DOC)
     print(BEHIND.format(duration=duration) if behind
           else BACKGROUND.format(count=_plural(len(items), "document"), duration=duration))
-    _wait_hint()
+    _wait_hint(job.job_id)
     return 0
 
 
-def _wait_hint() -> None:
+def _wait_hint(job_id: str) -> None:
     """In a Claude Code conversation a background command wakes the agent when it ends, so `kb wait` lets it tell the
-    user unasked. Codex has no such command: the Mac notification and the next message's notice tell them."""
+    user unasked. Codex has no such command: the Mac notification and the next message's notice tell them. The wait is
+    for this conversation's job only: with two conversations reading, each reports its own."""
     import os
 
     if os.environ.get("CLAUDECODE") and not os.environ.get("BRON_TICKET"):
-        print(WAIT_HINT)
+        print(WAIT_HINT.format(job=job_id))
 
 
 def _report(vault, docs, notes) -> int:
@@ -242,7 +244,7 @@ def _report(vault, docs, notes) -> int:
             job = jobs.create_wiki(vault, todo)
             jobs.spawn(vault, job.job_id)  # if it can't start now, the next session or `bron kb status` starts it
             print(BEHIND.format(duration=_duration((ahead + len(todo)) * wiki_run.SECONDS_PER_DOC)))
-            _wait_hint()
+            _wait_hint(job.job_id)
         else:
             print(NEXT)
     return 0 if any(d.status in ("read", "unchanged", "duplicate") for d in docs) else 1
@@ -526,7 +528,17 @@ def _wait(args, vault, *, sleep=None, clock=None) -> int:
 
     sleep, clock = sleep or time.sleep, clock or time.monotonic
     start, idle = clock(), 0
-    while jobs.pending(vault) or jobs.wiki_pending(vault):
+    job_id = getattr(args, "job", "") or ""
+    if job_id and jobs.load(vault, job_id) is None:
+        print(f"There's no reading {job_id}; `.bron/bin/bron kb status` shows what's being read.")
+        return 1
+
+    def busy() -> bool:
+        if job_id:
+            return any(j.job_id == job_id for j in jobs.pending(vault) + jobs.wiki_pending(vault))
+        return bool(jobs.pending(vault) or jobs.wiki_pending(vault))
+
+    while busy():
         if jobs.stalled(vault):
             idle += 1
             if idle >= 3:  # nobody has been at work for three checks in a row
@@ -538,9 +550,33 @@ def _wait(args, vault, *, sleep=None, clock=None) -> int:
             print(f"Still reading after {WAIT_HOURS} hours; `.bron/bin/bron kb status` shows where it is.")
             return 1
         sleep(10)
+    if job_id:
+        print(_job_report(vault, jobs.load(vault, job_id)))
+        return 0
     text = hooks.updates_text("kb-wait")
     print(text.rstrip() if text.strip() else "Everything is read and written; it was already reported.")
     return 0
+
+
+def _job_report(vault, job) -> str:
+    """What one reading came to: its reports and its wiki tickets, even when another conversation told them first (this
+    one asked for it). They aren't told again at the next message."""
+    from .. import notifications, tickets
+    from . import notices
+
+    lines = notices.take_jobs(vault, [job.job_id, f"{job.job_id}-wiki"])
+    done = []
+    for ticket_id in job.wiki_tickets:
+        try:
+            ticket = tickets.load_ticket(tickets.find_ticket(vault, ticket_id))
+        except Exception:  # noqa: BLE001 - a ticket deleted by hand: the rest are still told
+            continue
+        notifications.acknowledge(vault, ticket.id)
+        done.append(f"- {ticket.id} \"{ticket.title}\" is {ticket.status}")
+    if done:
+        lines += ["Wiki pages written in:", *done,
+                  "Read each ticket's result (.bron/bin/bron ticket show <id>) and tell the user what was learned."]
+    return "\n".join(lines) if lines else "That reading is finished; nothing more to report."
 
 
 def _status(args, vault) -> int:

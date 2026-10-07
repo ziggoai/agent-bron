@@ -2,6 +2,16 @@
 
 What changed in each version of Bron, newest first. Bron shows the new sections when you ask it to update itself.
 
+## 0.8.6
+- A background run that finished its work no longer stops as "blocked" when a command on its own scratch files was refused, so Bron doesn't run the batch a second time. Scratch files stay in `.bron/tmp/`, and Bron clears the ones older than a day after each run instead of asking you to approve each delete. Reader helpers keep document text inside the vault too.
+- Bron closes each batch's ticket once its wiki pages are written, so there are no reading tickets left for you to close. When a ticket changes twice before you hear about it, you get one update with its latest status.
+- When two conversations read folders at the same time, each one reports its own reading when it ends, even if the other conversation heard first.
+- Bron splits a folder into even batches. Eleven documents become six and five, not ten and one, because every run costs a few minutes before it writes anything.
+- A new conversation that starts before your last one's summary is written now gets that summary with your next message (Claude Code). The briefing also tells Bron to check tickets and reading status before saying something is still to do.
+- The wiki check now flags organisation, person and topic pages over 20,000 characters, which catches pages that collect a line per document. Document pages keep the 30,000 limit. It also flags a name that two pages answer to, since a link with that name can't tell them apart. Summaries in `index.md` are cut to one line.
+- Wiki pages show a share that a spreadsheet stores as a fraction (0.0831903962) as a percentage (8.32%). Bron removes a document it leaves out on purpose from the knowledge base, so the check stops listing it. After checking a fact against another source, Bron updates every page that still says "not checked yet".
+- Bron shows a little less of a document per command, so the text still fits when another command runs alongside it. Agents keep shell commands simple, because variables and loops stop a background run for your OK. They also talk to you in plain words, as themselves.
+
 ## 0.8.5
 - In Claude Code, a background run closes as soon as it replies. It can no longer set itself a reminder: a reminder kept a finished run open until it went off, and the next documents waited up to 20 minutes behind it. Your conversations with Bron can still set reminders.
 

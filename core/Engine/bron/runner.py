@@ -240,9 +240,11 @@ def _settle(ticket, agent, result: Execution, text: str, denials: list[str], log
     if ticket.status == "in-progress":
         if result.timed_out:
             set_status(ticket, "blocked", "runner", f"{agent.name} took longer than the time limit and was stopped; see {log}")
-        elif denials and _only_reads(denials) and text.strip() and not failure and result.returncode == 0:
-            # A file it wasn't allowed to read (outside the vault, say), and it finished anyway: the answer stands.
-            add_message(ticket, "runner", "Some reads were refused while working: " + "; ".join(denials))
+        elif denials and _harmless(denials) and text.strip() and not failure and result.returncode == 0:
+            # A file it wasn't allowed to read (outside the vault, say) or scratch work in .bron/tmp, and it finished
+            # anyway: the answer stands.
+            what = "reads were" if _only_reads(denials) else "actions were"
+            add_message(ticket, "runner", f"Some {what} refused while working: " + "; ".join(denials))
             _settle(ticket, agent, result, text, [], log)
         elif denials:
             set_status(ticket, "blocked", "runner", needs_ok)
@@ -277,6 +279,39 @@ READ_TOOLS = ("Read", "Glob", "Grep", "LS", "NotebookRead")
 def _only_reads(denials: list[str]) -> bool:
     """Every refused action only reads (Claude names the tool first: "Read: {…}")."""
     return all(d.split(":", 1)[0].strip() in READ_TOOLS for d in denials)
+
+
+def _harmless(denials: list[str]) -> bool:
+    """Every refused action only reads, or is a command working in the scratch folder (deleting a scratch file, a
+    script Claude Code couldn't check): neither is something the user has to approve."""
+    return all(d.split(":", 1)[0].strip() in READ_TOOLS or (d.startswith("Bash:") and SCRATCH in d) for d in denials)
+
+
+SCRATCH = ".bron/tmp"
+SCRATCH_HOURS = 24  # scratch files older than this are cleared after a run; a conversation's drafts are newer
+
+
+def clear_scratch(vault: Vault, now: float | None = None) -> None:
+    """Delete what's been sitting in .bron/tmp for a day: runs leave their scratch files there rather than ask to
+    delete them (deleting needs the user's OK)."""
+    folder = vault.bron_dir / "tmp"
+    if not folder.is_dir():
+        return
+    cutoff = (now if now is not None else time.time()) - SCRATCH_HOURS * 3600
+    try:
+        entries = list(folder.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        try:
+            if entry.lstat().st_mtime >= cutoff:
+                continue
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink()
+        except OSError:
+            continue  # gone already, or not ours to delete: the next run tries again
 
 
 def refusal(ticket, resume: bool) -> str | None:
@@ -438,6 +473,7 @@ def run_ticket(
         return RunOutcome(tid, "blocked", cli, f"{tid} is blocked: the run stopped unexpectedly ({exc.__class__.__name__}: {exc}); see {log}")
     finally:
         release(vault, tid, run_id)
+        clear_scratch(vault)
 
 
 ORPHANED = "The run stopped before it finished (Bron or the Mac was closed); see .bron/runs/"

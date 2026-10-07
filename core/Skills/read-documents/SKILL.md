@@ -15,17 +15,19 @@ description: Keep the wiki in Knowledge/. Use right after `bron kb add` reads do
 
 Read `Knowledge/Schema.md` first. Then take each document `bron kb add` printed (`Read <name> … — doc <id>`, or `Already read … (no page yet)`), one at a time (a `Skipped <name>: same text as …` line is a copy of a document already read: it gets no page; just tell the user it was skipped):
 
-1. **Read it.** `.bron/bin/bron kb show <doc id>` prints the first pages, each starting with `--- p. N ---`, as many as fit in one output it can show in full, and ends with the command for the next ones (`--pages 9-28`, or `--pages 4 --part 2` inside one very long page). Read the text where the command prints it; don't save it to files. Read every page of a document up to about 60 pages; for a longer one, read the beginning, the contents and the sections that matter, and use `.bron/bin/bron kb search '<words>'` for the rest.
+1. **Read it.** `.bron/bin/bron kb show <doc id>` prints the first pages, each starting with `--- p. N ---`, as many as fit in one output it can show in full, and ends with the command for the next ones (`--pages 9-28`, or `--pages 4 --part 2` inside one very long page). Read the text where the command prints it; don't save it to files. Run each `kb show` on its own: anything else in the same command (a `cat`, a second `show`) makes the output too long to be shown, and it gets cut. Read every page of a document up to about 60 pages; for a longer one, read the beginning, the contents and the sections that matter, and use `.bron/bin/bron kb search '<words>'` for the rest.
 2. **See what the wiki already knows.** Note the organisations, people, topics and other documents it mentions. For each name run `.bron/bin/bron kb search '<name>' --pages-only` and open the pages it finds. Read every page you are going to change before you change it.
 3. **Write the document page** in `Knowledge/Documents/` (format below): what the document is, its key facts each with its page number, the parties, and what it changes or contradicts in the wiki.
 4. **Update the pages it touches.** A rich document often touches 10–15 pages. For each organisation, person or topic that has a page, or now needs one (see "When a page is created"), add what this document says under the right heading, each fact with its citation. Add what's new; don't repeat what's there.
-   Put each fact on the page it is most about. A person or organisation that appears in many documents (someone who signs most of them, a law firm, the user's own company) gets their roles, relationships and changes, not a line per document: who signed what stays under the document page's Parties, and a role they already have gets the new document as one more citation on its line. A page that lists many things of one kind (contracts, projects, holdings) keeps one short line each, linking to the thing's own page, where the detail goes.
+   Put each fact on the page it is most about. A person or organisation that appears in many documents (someone who signs most of them, a law firm, the user's own company) gets their roles, relationships and changes, not a line per document. **Never add a "signed …", "attended …" or "party to …" line to their page:** who signed what stays under the document page's Parties, and a role they already have gets the new document as one more citation on its line. A page that lists many things of one kind (contracts, projects, holdings) keeps one short line each, linking to the thing's own page, where the detail goes; when a topic page already lists them, link the topic instead of repeating it.
 5. **Handle contradictions.** When this document says something different from a page:
    - if it clearly supersedes the earlier one (newer, an amendment, a correction), update the fact and keep the old one as a short note: "now USD 4,450.00 (see [[Rent increase (2026-01-10)]], p. 1); previously USD 4,200.00 (see [[Office lease (2025-03-01)]], p. 2)";
    - otherwise it's a real conflict: keep both with their citations, mark it **Conflict:** and tell the user. Never decide it yourself.
    Never delete a fact silently.
 6. **Cross-link.** Every page you add a fact to cites the document page; the document page links to the organisation, person and topic pages it touches. When you create a page for a name that earlier pages mention as plain text, turn those mentions into links (a `--pages-only` search for the name finds them).
 7. Go on to the next document.
+
+A document you leave out on purpose (the user's rule says to skip that kind, a blank form) gets no page: run `.bron/bin/bron kb forget <doc id>` so the check stops listing it, and say in your reply what you left out and why.
 
 When all the documents are done, run `.bron/bin/bron wiki done`. It records the document pages, updates the search database, `index.md` and `log.md`, and checks what changed. Fix every problem it lists (a broken link, a missing `summary`…) and run it again until it lists none. The exception is a page nothing links to (an orphan) that you can't fix: link every document page from the page of its main organisation, and if an orphan is still unavoidable, leave it for the user and don't keep running `wiki done` to clear it.
 
@@ -94,7 +96,7 @@ aliases: ["<other name>", "<abbreviation>"]
 
 ### Citations
 
-Every fact on a page other than the document's own page ends with `(see [[<Document page>]], p. N)`; on the document page itself, `(p. N)` is enough. Copy numbers, dates and names exactly as the document writes them. A fact without a source is a guess: leave it out.
+Every fact on a page other than the document's own page ends with `(see [[<Document page>]], p. N)`; on the document page itself, `(p. N)` is enough. Copy numbers, dates and names exactly as the document writes them, except that a share a spreadsheet stores as a fraction (0.0831903962) is written as a percentage with two decimals (8.32%). A fact without a source is a guess: leave it out.
 
 ### Your edits win (the user's)
 
@@ -105,7 +107,8 @@ Keep what the user wrote on a page, word for word, unless they ask you to change
 Whenever a fact on a page changes (a newer document, a correction from the user, an answer):
 - check that the page's `summary` still holds, and fix it if it repeats the old fact: it is what `index.md` and search show;
 - when it answers an open question, put the answer where it belongs on the page, with its source, and delete the question. "Open questions" lists only what is still open;
-- when a page grows past about 20,000 characters, tidy it as you go: merge lines that say the same thing (one line, several citations) and move detail to the pages it is about. Every later run reads the page again, so a long page slows every one of them.
+- when you check a fact against another source (a system the user connected, the user), update every page that says it hasn't been checked yet: search for the phrase, not just the page in front of you;
+- when a page grows past 20,000 characters (a document page 30,000), tidy it as you go: merge lines that say the same thing (one line, several citations) and move detail to the pages it is about. `wiki done` lists such pages. Every later run reads the page again, so a long page slows every one of them.
 
 ## Background runs
 
@@ -122,8 +125,8 @@ After a folder, and as part of "check the wiki", over the pages you touched and 
 
 ## "Check the wiki" (full checkup)
 
-1. `.bron/bin/bron wiki check --all` lists the mechanical problems: broken links, pages nothing links to, missing `type` or `summary`, documents read without a page, pages whose document was forgotten, probable duplicates, pages over 30,000 characters.
-2. Fix them: create or relink missing pages; add properties; merge duplicates (keep one page, move the facts with their citations, list the other names under `aliases`, point the links to the page you kept); split long pages by heading. Ask the user before deleting a page.
+1. `.bron/bin/bron wiki check --all` lists the mechanical problems: broken links, pages nothing links to, missing `type` or `summary`, documents read without a page, pages whose document was forgotten, probable duplicates, names two pages answer to, pages over 20,000 characters (document pages 30,000).
+2. Fix them: create or relink missing pages; add properties; merge duplicates (keep one page, move the facts with their citations, list the other names under `aliases`, point the links to the page you kept); keep a shared name on one page only; tidy long pages (one line per fact, detail on the pages it is about) and split a long document page by heading. Ask the user before deleting a page.
 3. Documents "read but no page yet": write their pages as in the ingest steps. This is also what "finish the wiki pages" means.
 4. Run the judgement checkup over the whole wiki, one type folder at a time.
 5. Tell the user what you fixed and what needs their decision.
@@ -141,7 +144,8 @@ After an answer that combined several documents, offer: "Save this as a page?" O
 ## Never
 
 - download or copy a Drive file, or put a document into `Knowledge/` yourself (only `bron kb add` keeps copies, in `Knowledge/Files/`);
-- save document text in a file outside the vault (`/tmp` and the like): it is left there for anyone on the computer to read, and reading it back needs the user's OK. If you really need a scratch file, use `.bron/tmp/` (`mkdir -p .bron/tmp` first) and delete it when you're done;
+- save document text in a file outside the vault (`/tmp` and the like): it is left there for anyone on the computer to read, and reading it back needs the user's OK. If you really need a scratch file, use `.bron/tmp/` (`mkdir -p .bron/tmp` first) and leave it there: Bron clears it, and deleting a file needs the user's OK, which stops a background run;
+- write shell commands Claude Code can't check before they run (variables such as `$d`, loops, `cd ..`): in a background run they stop for the user's OK. Run one simple command at a time, and quote separators (`echo '---'`: a bare `=====` fails in zsh);
 - edit `index.md` or `log.md`;
 - poll `bron kb status`;
 - invent a fact, a number or a citation;

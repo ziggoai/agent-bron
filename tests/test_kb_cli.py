@@ -249,12 +249,12 @@ def test_show_cut_short_by_a_closed_pipe_is_not_an_error(env, capsys, monkeypatc
 def test_in_claude_code_a_background_read_says_to_wait_for_it(env, capsys, monkeypatch):
     monkeypatch.setenv("CLAUDECODE", "1")
     code, out = run(env, capsys, "add", acme_folder(env))
-    assert code == 0 and out.strip().splitlines()[-1] == kb_cli.WAIT_HINT
+    assert code == 0 and out.strip().splitlines()[-1] == kb_cli.WAIT_HINT.format(job=env.spawned[-1])
     monkeypatch.setenv("BRON_TICKET", "T-0001")  # a background ticket run has nobody to tell
-    kb_cli._wait_hint()
+    kb_cli._wait_hint("j1")
     monkeypatch.delenv("BRON_TICKET")
     monkeypatch.delenv("CLAUDECODE")  # Codex: the Mac notification and the next message's notice tell the user
-    kb_cli._wait_hint()
+    kb_cli._wait_hint("j1")
     assert capsys.readouterr().out == ""
 
 
@@ -271,9 +271,31 @@ def test_wait_reports_once_the_reading_and_the_wiki_are_done(env, capsys):
     args = bron_cli.build_parser().parse_args(["kb", "wait"])
     assert kb_cli._wait(args, env.vault, sleep=sleep) == 0
     out = capsys.readouterr().out
-    assert checks == [10] and "Ticket updates since your last message:" in out and "is now in-review" in out
+    assert checks == [10] and "Ticket updates since your last message:" in out and "is now done" in out
     assert kb_cli._wait(args, env.vault, sleep=sleep) == 0  # told once: the next message won't repeat it
     assert capsys.readouterr().out.strip() == "Everything is read and written; it was already reported."
+
+
+def test_a_wait_for_one_job_reports_only_it_even_after_another_conversation_was_told(env, capsys):
+    from bron import hooks
+
+    run(env, capsys, "add", acme_folder(env))
+    mine = env.spawned[-1]
+
+    def sleep(seconds):
+        jobs.run(env.vault, mine, embedder=fake_embed)
+        ticket = load_ticket(find_ticket(env.vault, jobs.load(env.vault, mine).ticket))
+        notifications.record(env.vault, ticket)
+        hooks.updates_text("claude")  # another conversation's next message takes the updates first
+
+    args = bron_cli.build_parser().parse_args(["kb", "wait", "--job", mine])
+    assert kb_cli._wait(args, env.vault, sleep=sleep) == 0
+    out = capsys.readouterr().out
+    ticket = jobs.load(env.vault, mine).wiki_tickets[0]
+    assert f"- {ticket} " in out and "is done" in out and "ticket show <id>" in out
+    assert hooks.updates_text("claude") == ""  # and it isn't told again
+    bad = bron_cli.build_parser().parse_args(["kb", "wait", "--job", "nope"])
+    assert kb_cli._wait(bad, env.vault, sleep=sleep) == 1 and "There's no reading nope" in capsys.readouterr().out
 
 
 def test_wait_stops_when_nobody_is_reading(env, capsys, monkeypatch):

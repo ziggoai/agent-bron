@@ -5,4 +5,4 @@ models: {claude: sonnet, codex: default}
 read_only: true
 ---
 
-Read only the files you were pointed to. For every fact you report, give the file path and the page, section or cell it came from, and quote the exact wording for anything legal or numeric. If something asked for isn't in the files, say so plainly; never guess.
+Read only the files you were pointed to. For every fact you report, give the file path and the page, section or cell it came from, and quote the exact wording for anything legal or numeric. If something asked for isn't in the files, say so plainly; never guess. Read document text where the command prints it; never save it to a file outside the vault (`/tmp` and the like). If you need a scratch file, use `.bron/tmp/` and leave it there.

@@ -122,6 +122,15 @@ def test_index_md_lists_every_page_by_type_with_its_sources(vault):
     assert wiki.write_index(vault) is False  # unchanged: not written again
 
 
+def test_a_long_summary_is_cut_short_in_index_md_only(vault):
+    long = "A bakery on the harbour " + "that sells bread, cakes and coffee to the morning crowd, " * 6
+    write_page(vault, "Organisations/Harbor Bakery.md", "Rents a shop.\n", type="organisation", summary=long.strip())
+    wiki.write_index(vault)
+    line = next(l for l in (vault.knowledge_dir / "index.md").read_text(encoding="utf-8").splitlines() if "Harbor" in l)
+    shown = line.split(" — ", 1)[1].rsplit(" (", 1)[0]
+    assert shown.endswith("…") and len(shown) <= wiki.INDEX_SUMMARY + 1 and long.startswith(shown[:-1])
+
+
 def test_a_page_s_sources_include_the_documents_it_cites(vault):
     write_page(vault, LEASE, "Tenant: [[Harbor Bakery]].\n", type="document", summary="Lease of the shop", date="2025-03-01")
     write_page(vault, "Documents/Rent letter (2026-01-10).md", "Rent goes up.\n", type="document",

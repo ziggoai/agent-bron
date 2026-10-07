@@ -1,6 +1,7 @@
 """Mechanical checks of the wiki (free: no model). Links to pages that don't exist, pages nothing links to, pages
 missing `type` or `summary`, documents read without a page, pages naming a document Bron doesn't have, probable
-duplicates, pages too long to read in one go, and pages whose properties can't be read."""
+duplicates, two pages answering to one name, pages too long to read in one go, and pages whose properties can't be
+read."""
 from __future__ import annotations
 
 import os
@@ -12,10 +13,11 @@ from ..memory.facts import fold
 from ..vault import Vault
 from . import store, wiki
 
-MAX_CHARS = 30_000
+MAX_CHARS = 20_000  # a page every later run reads again (an organisation, a person, a topic)
+MAX_DOCUMENT_CHARS = 30_000  # a document page follows one long document
 SUFFIXES = {"ltda", "llc", "inc", "sa", "lp"}  # folded away when looking for duplicates ("Acme Ltda." = "Acme")
-ORDER = ("bad-properties", "broken-link", "missing-properties", "unknown-doc", "no-page-yet", "duplicate", "orphan",
-         "too-long")
+ORDER = ("bad-properties", "broken-link", "missing-properties", "unknown-doc", "no-page-yet", "duplicate", "same-name",
+         "orphan", "too-long")
 TITLES = {
     "bad-properties": "Pages whose properties can't be read",
     "broken-link": "Links to pages that don't exist",
@@ -23,8 +25,9 @@ TITLES = {
     "unknown-doc": "Document pages whose document Bron doesn't have",
     "no-page-yet": "Documents read but no page yet",
     "duplicate": "Pages that look like duplicates",
+    "same-name": "Names two pages answer to",
     "orphan": "Pages nothing links to",
-    "too-long": "Pages over 30,000 characters",
+    "too-long": "Pages over 20,000 characters (document pages 30,000)",
 }
 
 
@@ -89,6 +92,26 @@ def _duplicates(pages: list[wiki.Page], mine) -> list[Problem]:
     return out
 
 
+def _same_names(pages: list[wiki.Page], mine) -> list[Problem]:
+    """A title or alias that two pages of different types answer to (a document page whose alias is the round's page
+    title, say): a link with that name can't tell them apart. Pages of one type are the duplicate check's."""
+    owners: dict[str, dict[str, wiki.Page]] = {}
+    for page in pages:
+        for name in {page.title, *page.aliases}:
+            key = " ".join(name.casefold().split())
+            if key:
+                owners.setdefault(key, {})[page.rel] = page
+    out: list[Problem] = []
+    for key, group in sorted(owners.items()):
+        same = sorted(group.values(), key=lambda p: p.rel)
+        if len({p.kind for p in same}) < 2 or not any(mine(p) for p in same):
+            continue
+        name = next(n for n in (same[0].title, *same[0].aliases) if " ".join(n.casefold().split()) == key)
+        listed = " and ".join(f"[[{p.title}]]" for p in same)
+        out.append(Problem("same-name", same[0].rel, f'"{name}" is a name of {listed}; keep it on one of them.'))
+    return out
+
+
 def run(vault: Vault, *, only: set[str] | None = None, pages: list[wiki.Page] | None = None) -> list[Problem]:
     """Every problem, or (only=) those of these pages: `wiki done` checks the pages that changed and the pages linking
     to them, and leaves out the store-wide "read but no page yet" check."""
@@ -117,12 +140,17 @@ def run(vault: Vault, *, only: set[str] | None = None, pages: list[wiki.Page] | 
         if page.doc_id and not store.exists(vault, page.doc_id):
             out.append(Problem("unknown-doc", page.rel, f"{page.title}: its doc {page.doc_id} isn't in the knowledge "
                                                         "base (forgotten, or never read)."))
-        if len(page.body) > MAX_CHARS:
+        if page.is_document and len(page.body) > MAX_DOCUMENT_CHARS:
             out.append(Problem("too-long", page.rel,
                                f"{page.title}: {len(page.body):,} characters; split it into smaller pages."))
+        elif not page.is_document and len(page.body) > MAX_CHARS:
+            out.append(Problem("too-long", page.rel,
+                               f"{page.title}: {len(page.body):,} characters; tidy it: one line per fact (merge lines "
+                               "that repeat it), and move detail to the pages it is about."))
         if not (linked.get(wiki.name_of(page.title), set()) - {page.rel}):
             out.append(Problem("orphan", page.rel, f"{page.title}: no other page links to it."))
     out += _duplicates(good, mine)
+    out += _same_names(good, mine)
     if only is None:
         with_pages = {p.doc_id for p in good if p.doc_id}
         for doc in store.all_docs(vault):

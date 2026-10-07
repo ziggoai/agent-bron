@@ -114,6 +114,37 @@ def test_a_refused_read_in_a_finished_run_keeps_the_answer(team):
     assert load_ticket(mixed.path).status == "blocked"  # anything more than a read still needs the user's OK
 
 
+def test_refused_scratch_work_in_a_finished_run_keeps_the_answer(team):
+    ticket = ticket_for(team)
+    denials = [{"tool_name": "Bash", "tool_input": {"command": "rm -f .bron/tmp/link.py; python3 -I - <<'EOF'"}},
+               {"tool_name": "Read", "tool_input": {"file_path": "/tmp/rd_1.txt"}}]
+    run_ticket(team, ticket.id, caller_cli="claude", run=FakeCLI(team, Execution(0, claude_json(denials=denials), "")), which=found)
+    loaded = load_ticket(ticket.path)
+    assert loaded.status == "in-review" and loaded.result == "Done."
+    assert any("Some actions were refused while working: Bash: rm -f .bron/tmp/link.py" in e for e in loaded.thread)
+    unfinished = ticket_for(team)
+    run_ticket(team, unfinished.id, caller_cli="claude",
+               run=FakeCLI(team, Execution(0, claude_json(result="", denials=denials[:1]), "")), which=found)
+    assert load_ticket(unfinished.path).status == "blocked"  # no answer: it may still need the command
+
+
+def test_a_run_clears_day_old_scratch_files(team):
+    import os
+    import time
+
+    scratch = team.bron_dir / "tmp"
+    (scratch / "old-dir").mkdir(parents=True)
+    old, fresh = scratch / "old.txt", scratch / "draft.md"
+    old.write_text("x")
+    fresh.write_text("y")
+    day_ago = time.time() - 25 * 3600
+    for path in (old, scratch / "old-dir"):
+        os.utime(path, (day_ago, day_ago))
+    ticket = ticket_for(team)
+    run_ticket(team, ticket.id, caller_cli="claude", run=FakeCLI(team, Execution(0, claude_json(), "")), which=found)
+    assert sorted(p.name for p in scratch.iterdir()) == ["draft.md"]
+
+
 def test_codex_approval_signal_blocks(team):
     ticket = ticket_for(team, "pinned")
     run_ticket(team, ticket.id, run=FakeCLI(team, Execution(0, codex_jsonl(text=""), f"... {APPROVAL_SIGNAL} ...")), which=found)

@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import re
+import time
 
 from ..loader import Config
 from ..vault import Vault
 from . import facts
 from .commands import MemoryError, conversations_dir, facts_file, read_lines
+from .. import frontmatter as fm
+from ..statefile import update_json
 
 DATED = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}\.\d{2}\b")
 CAPS = {"shared": 4000, "own": 2500, "recent": 5, "open_from": 3, "open": 6}
@@ -76,5 +79,54 @@ def briefing_lines(vault: Vault, cfg: Config, agent_key: str, *, ticket_run: boo
         lines += ["", "### Recent conversations", *[f"- {stem}" for stem in recent],
                   "Search older ones with `.bron/bin/bron memory search`."]
     if still_open:
-        lines += ["", "### Open from recent conversations (may be done since)", *[f"- {item}" for item in still_open]]
+        lines += ["", "### Open from recent conversations (may be done since)", *[f"- {item}" for item in still_open],
+                  STALE]
+    return lines
+
+
+STALE = ("Before telling the user one of these is still to do, check the tickets and `.bron/bin/bron kb status`: they "
+         "are current, these notes may not be. The last conversation's summary can arrive after this one starts; it "
+         "then comes with a later message.")
+LATE = "late-notes.json"
+LATE_WINDOW = 3600  # seconds after a session starts during which a newly written summary is passed on
+
+
+def late_lines(vault: Vault, cfg: Config, agent_key: str, session_id: str, started: float | None,
+               now: float | None = None) -> list[str]:
+    """Conversation summaries written since this conversation started (its briefing was built before them), told once,
+    in its first hour."""
+    now = time.time() if now is None else now
+    if not session_id or started is None or now - started > LATE_WINDOW or agent_key not in cfg.agents:
+        return []
+    folder = conversations_dir(cfg, agent_key)
+    if not folder.is_dir():
+        return []
+    found: list = []
+
+    def change(data):
+        data = {k: v for k, v in data.items() if isinstance(v, dict) and now - float(v.get("since", 0)) < 86400}
+        entry = data.setdefault(session_id, {"since": started, "told": []})
+        told = set(entry.get("told") or [])
+        for path in sorted(folder.rglob("*.md")):
+            if not DATED.match(path.stem) or path.name in told:
+                continue
+            try:
+                if path.stat().st_mtime <= float(entry["since"]):
+                    continue
+                own = str(fm.read(path).meta.get("session_id") or "") == session_id
+            except Exception:  # noqa: BLE001 - a note being written or broken: looked at next time
+                continue
+            if not own:  # this conversation's own summary (written when it was compacted) isn't news to it
+                found.append(path)
+                told.add(path.name)
+        entry["told"] = sorted(told)
+        return data
+
+    update_json(vault.state_dir / LATE, {}, change)
+    if not found:
+        return []
+    lines = ["Summary of an earlier conversation, written after this one started (newer than your briefing):"]
+    for path in found:
+        lines.append(f"- {path.stem}")
+        lines += [f"  - Still open: {item}" for item in _open_items([path])]
     return lines

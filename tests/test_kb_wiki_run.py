@@ -40,7 +40,8 @@ def test_a_folder_is_read_then_written_into_the_wiki_by_one_ticket(vault, tmp_pa
     assert runner.calls == [job.ticket]
     ticket = load_ticket(find_ticket(vault, job.ticket))
     assert ticket.title == "Read the Leases folder into the wiki"
-    assert ticket.assignee == "bron" and ticket.requested_by == "you" and ticket.status == "in-review"
+    assert ticket.assignee == "bron" and ticket.requested_by == "you" and ticket.status == "done"  # closed once written
+    assert any("status → done: the wiki pages are written" in e for e in ticket.thread)
     assert "read-documents skill" in ticket.request and "wiki done --log 'check |" in ticket.request
     assert all(f"doc {doc_id}" in ticket.request for doc_id in job.wiki_docs)
     assert job.report.startswith("Read 3 documents")
@@ -195,7 +196,7 @@ def test_a_big_run_is_written_in_batches_one_ticket_after_another(vault, tmp_pat
     job, runner = read_folder(vault, tmp_path, n=25, runner=FakeTicketRunner(write=lambda v, t: asked.append(t)))
     assert job.wiki_status == "done" and len(job.wiki_docs) == 25
     assert len(runner.calls) == 3 and len(set(runner.calls)) == 3 and job.wiki_tickets == runner.calls
-    assert [docs_in(t) for t in asked] == [job.wiki_docs[:10], job.wiki_docs[10:20], job.wiki_docs[20:]]
+    assert [docs_in(t) for t in asked] == [job.wiki_docs[:9], job.wiki_docs[9:17], job.wiki_docs[17:]]  # even parts
     assert [t.title for t in asked] == [f"Read the Leases folder into the wiki (part {n} of 3)" for n in (1, 2, 3)]
     assert notices.take(vault) == []  # each ticket's update is its summary
     assert jobs.status_lines(vault)[0] == jobs.IDLE
@@ -224,6 +225,15 @@ def test_an_interrupted_batch_resumes_there_without_writing_the_earlier_ones_aga
     assert len(then.calls) == 2 and final.wiki_status == "done" and final.wiki_tickets == [first.calls[0], *then.calls]
 
 
+def test_batches_are_as_few_and_as_even_as_possible():
+    from bron.kb.wiki_run import batches
+
+    assert [len(b) for b in batches([str(n) for n in range(11)])] == [6, 5]
+    assert [len(b) for b in batches([str(n) for n in range(10)])] == [10]
+    assert [len(b) for b in batches([str(n) for n in range(21)])] == [7, 7, 7]
+    assert batches([]) == [] and sum(batches([str(n) for n in range(23)]), []) == [str(n) for n in range(23)]
+
+
 def test_a_failed_batch_says_which_documents_got_pages(vault, tmp_path):
     class SecondBatchFails(FakeTicketRunner):  # the first batch's pages are written; the second batch's run fails
         def __call__(self, vault, ticket_id, **kw):
@@ -236,9 +246,9 @@ def test_a_failed_batch_says_which_documents_got_pages(vault, tmp_path):
     told = notices.take(vault)
     assert len(told) == 1 and "couldn't write all their wiki pages (the run failed)" in told[0]
     names = {d: store.load(vault, d).name for d in job.wiki_docs}
-    written = ", ".join(names[d] for d in job.wiki_docs[:10])
+    written = ", ".join(names[d] for d in job.wiki_docs[:6])  # 12 documents are two batches of 6
     assert f"Pages written for: {written}." in told[0]
-    assert f"No page yet: {names[job.wiki_docs[10]]}, {names[job.wiki_docs[11]]}." in told[0]
+    assert "No page yet: " + ", ".join(names[d] for d in job.wiki_docs[6:]) + "." in told[0]
 
 
 def test_a_failed_cli_run_is_tried_once_more(vault, tmp_path):

@@ -56,7 +56,7 @@ class Job:
     wiki_since: str = ""  # when it began waiting to be written
     wiki_attempts: int = 0  # runs started for the current batch (a third is never tried)
     ticket: str = ""  # the current batch's ticket ("" until it's made; the last batch's once done)
-    wiki_batch: int = 0  # batches of wiki_docs written (wiki_run.BATCH documents each); the next one is this index
+    wiki_batch: int = 0  # batches of wiki_docs written (wiki_run.batches); the next one is this index
     wiki_tickets: list[str] = field(default_factory=list)  # every batch's ticket, in order
     label: str = ""  # "the Leases folder" (empty: "N documents"), for the ticket's title
     report: str = ""  # the reading report: handed to the wiki run, and told to the user if the run fails
@@ -125,9 +125,9 @@ def wiki_pending(vault: Vault) -> list[Job]:
 
 def wiki_left(job: Job) -> list[str]:
     """The documents whose batch isn't written yet."""
-    from .wiki_run import BATCH
+    from .wiki_run import batches
 
-    return job.wiki_docs[job.wiki_batch * BATCH:]
+    return [d for part in batches(job.wiki_docs)[job.wiki_batch:] for d in part]
 
 
 def _prune(vault: Vault) -> None:
@@ -593,6 +593,7 @@ def _write_one(vault: Vault, cfg, job: Job, *, run_ticket=None) -> None:
             return
         ok, why, again = _write_batch(vault, cfg, job, run_ticket)
         if ok:
+            _close(vault, job.ticket)
             job.wiki_batch += 1
             if job.wiki_batch < len(parts):
                 job.ticket, job.wiki_attempts = "", 0
@@ -603,6 +604,24 @@ def _write_one(vault: Vault, cfg, job: Job, *, run_ticket=None) -> None:
     job.wiki_status, job.finished, job.wiki_done = "done", time.strftime("%Y-%m-%d %H:%M"), _now()
     save(vault, job)
     _wiki_written(vault, job)
+
+
+def _close(vault: Vault, ticket_id: str) -> None:
+    """A written batch's ticket is done: its summary is the user's report, and nobody reviews a wiki run's ticket, so
+    leaving it waiting for review only leaves the user tickets to close by hand."""
+    from .. import tickets
+    from ..notifications import record
+
+    try:
+        with tickets.editing(vault, ticket_id) as ticket:
+            if ticket.status != "in-review":
+                return
+            tickets.set_status(ticket, "done", "runner", "the wiki pages are written")
+        record(vault, ticket)
+    except Exception as exc:  # noqa: BLE001 - the pages are written; a ticket left in review never undoes that
+        from .ingest import _log
+
+        _log(vault, f"closing ticket {ticket_id}", exc)
 
 
 def give_up(vault: Vault, reason: str) -> None:

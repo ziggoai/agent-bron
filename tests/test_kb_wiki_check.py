@@ -72,12 +72,26 @@ def test_probable_duplicates_fold_case_accents_and_company_suffixes(vault):
                     "[[Agora]] and [[Ágora Ltda.]] look like the same page."]
 
 
-def test_pages_over_30000_characters(vault):
-    org(vault, "Acme Ltda", "word " * 6001 + "[[Acme Ltda]]\n")
+def test_pages_over_20000_characters_and_documents_over_30000(vault):
+    org(vault, "Acme Ltda", "word " * 4001 + "[[Acme Ltda]]\n")
     write_page(vault, "Topics/Notes.md", "[[Acme Ltda]]\n", type="topic", summary="Notes")
-    org(vault, "Beta", "[[Notes]]\n")
+    org(vault, "Beta", "[[Notes]] [[Long lease]] [[Longer lease]]\n")
+    for name, words in (("Long lease", 4001), ("Longer lease", 6001)):
+        write_page(vault, f"Documents/{name}.md", "word " * words + "[[Beta]]\n", type="document", summary="A lease")
     found = [p.text for p in wiki_check.run(vault) if p.code == "too-long"]
-    assert found == ["Acme Ltda: 30,019 characters; split it into smaller pages."]
+    assert found == ["Longer lease: 30,014 characters; split it into smaller pages.",
+                     "Acme Ltda: 20,019 characters; tidy it: one line per fact (merge lines that repeat it), and move "
+                     "detail to the pages it is about."]
+
+
+def test_a_name_two_kinds_of_page_answer_to(vault):
+    org(vault, "Acme", "See [[Acme SAFE]].\n")
+    write_page(vault, "Investments/Acme SAFE.md", "[[Acme]] [[Acme SAFE (2020-01-01)]]\n", type="investment",
+               summary="The round")
+    write_page(vault, "Documents/Acme SAFE (2020-01-01).md", "[[Acme SAFE]]\n", type="document", summary="The SAFE",
+               aliases=["acme  safe", "Acme SAFE agreement"])
+    found = [p.text for p in wiki_check.run(vault) if p.code == "same-name"]
+    assert found == ['"acme safe" is a name of [[Acme SAFE (2020-01-01)]] and [[Acme SAFE]]; keep it on one of them.']
 
 
 def test_the_report_shows_three_of_each_unless_all(vault):

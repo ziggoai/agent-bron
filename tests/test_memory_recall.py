@@ -238,3 +238,38 @@ def test_the_summaries_nothing_placeholder_is_not_an_open_item(vault):
     assert "- MFN question" in text and "- Nothing" not in text
     conv_open(vault, "2026-10-01 09.00 Busy", "Nothing.")
     assert OPEN not in build_briefing(vault, cli="claude")
+
+
+def test_a_summary_written_after_the_conversation_started_comes_with_a_later_message(vault):
+    import os
+    import time
+
+    from bron import hooks
+
+    started = time.time() - 60
+    folder = vault.agents_dir / "Bron" / "Memory" / "Conversations" / "2026-10"
+    folder.mkdir(parents=True)
+    before = folder / "2026-10-06 23.00 Earlier.md"
+    before.write_text("---\nsession_id: old\n---\n## Open\n- Long done\n")
+    os.utime(before, (started - 600, started - 600))
+    late = folder / "2026-10-07 00.10 Worky Series A.md"
+    late.write_text("---\nsession_id: prev\n---\n## Open\n- Read the A-2 folder\n")
+    own = folder / "2026-10-07 10.23 This one.md"
+    own.write_text("---\nsession_id: me\n---\n## Open\n- Mine\n")
+    cfg = load(vault)
+    lines = recall.late_lines(vault, cfg, "bron", "me", started)
+    assert lines == ["Summary of an earlier conversation, written after this one started (newer than your briefing):",
+                     "- 2026-10-07 00.10 Worky Series A", "  - Still open: Read the A-2 folder"]
+    assert recall.late_lines(vault, cfg, "bron", "me", started) == []  # told once
+    assert recall.late_lines(vault, cfg, "bron", "other", started - 7200) == []  # only in a conversation's first hour
+    transcript = vault.root / "t.jsonl"
+    transcript.write_text("")
+    assert hooks._started(str(transcript)) is not None and hooks._started("") is None
+
+
+def test_open_items_say_to_check_live_state_first(vault):
+    conv(vault, "Bron", "2026-10-01 09.00 Topic")
+    note = next((vault.agents_dir / "Bron" / "Memory" / "Conversations").rglob("*.md"))
+    note.write_text("---\nsession_id: x\n---\n## Open\n- Ingest the FUDO folder\n")
+    text = build_briefing(vault, cli="claude")
+    assert "- Ingest the FUDO folder" in text and "check the tickets and `.bron/bin/bron kb status`" in text
