@@ -17,23 +17,27 @@ from .store import KbError
 
 RRF_K = 60
 TOP = 50
+POOL = TOP * 4  # passages each ranking gives: the per-document cap and copies leave fewer to show
+MAX_POOL = POOL * 16
 PER_DOC = 2  # passages shown from one document at most
 TEXT_LIMIT = 600  # characters shown of a passage: its best part
 WINDOW_WORDS = 100
 SAME_MIN = 200  # passages this long with the same text are shown once, naming the other documents
+ALSO_SHOWN = 3
 _WORD = re.compile(r"\w+")
 _NUMBER_RUN = re.compile(r"\d+(?:[.,]\d+)+")
 
-# Function words (English, Portuguese, Spanish) left out of the keyword ranking. Not "i": it's a roman numeral too.
+# Function words (English, Portuguese, Spanish) left out of the keyword ranking. No single letters: "Exhibit A",
+# "Series B", "Fund I".
 STOPWORDS = frozenset(fold(w) for w in """
-    a an the and or but nor of to in on at by for from with without into onto about as than then that this these those
+    an the and or but nor of to in on at by for from with without into onto about as than then that this these those
     there here is are was were be been being am do does did has have had it its he she they them their his her we our
     you your me my who whom whose what which when where why how all any each if so not no can could will would should
-    o os as um uma uns umas de do da dos das em no na nos nas num numa por pelo pela pelos pelas para com sem sob sobre
-    entre até e ou mas nem que se ao aos à às quem qual quais cujo cuja onde quando como porque este esta estes estas
-    esse essa esses essas isto isso aquele aquela aquilo ele ela eles elas seu sua seus suas lhe lhes meu minha é são
+    os as um uma uns umas de do da dos das em no na nos nas num numa por pelo pela pelos pelas para com sem sob sobre
+    entre até ou mas nem que se ao aos às quem qual quais cujo cuja onde quando como porque este esta estes estas
+    esse essa esses essas isto isso aquele aquela aquilo ele ela eles elas seu sua seus suas lhe lhes meu minha são
     foi ser ter tem há não
-    el la los las unos unas del al y u pero sus lo le les cuando donde quien cual cuales estos ese esos esas es son
+    el la los las unos unas del al pero sus lo le les cuando donde quien cual cuales estos ese esos esas es son
     fue si sí más
 """.split())
 
@@ -98,31 +102,31 @@ def _phrases(query: str) -> list[str]:
     return list(dict.fromkeys(out))
 
 
-def _matches(con, match: str, allowed: set[str] | None) -> list[tuple[str, int]]:
+def _matches(con, match: str, allowed: set[str] | None, pool: int) -> list[tuple[str, int]]:
     sql = "SELECT doc_id, n FROM fts WHERE fts MATCH ?"
     args: list = [match]
     if allowed is not None:
         sql += " AND doc_id IN (SELECT value FROM json_each(?))"
         args.append(json.dumps(sorted(allowed)))
-    sql += f" ORDER BY bm25(fts) LIMIT {TOP}"
+    sql += f" ORDER BY bm25(fts) LIMIT {int(pool)}"
     return [(d, int(n)) for d, n in con.execute(sql, args)]
 
 
-def _keyword(con, query: str, allowed: set[str] | None) -> list[tuple[str, int]]:
+def _keyword(con, query: str, allowed: set[str] | None, pool: int = POOL) -> list[tuple[str, int]]:
     terms = _query_terms(query)
     terms = [t for t in terms if t[1:-1] not in STOPWORDS] or terms  # only stopwords: search those
     if not terms:
         return []
-    return _matches(con, " OR ".join(terms), allowed)
+    return _matches(con, " OR ".join(terms), allowed, pool)
 
 
-def _phrase(con, query: str, allowed: set[str] | None) -> list[tuple[str, int]]:
+def _phrase(con, query: str, allowed: set[str] | None, pool: int = POOL) -> list[tuple[str, int]]:
     """Passages with the question's numbers as written ("Section 10.9"): the most specific phrase first."""
     found: dict[tuple[str, int], None] = {}
     for phrase in _phrases(query):
-        for key in _matches(con, phrase, allowed):
+        for key in _matches(con, phrase, allowed, pool):
             found.setdefault(key, None)
-    return list(found)[:TOP]
+    return list(found)[:pool]
 
 
 def _read_vectors(con) -> list[tuple[str, int, bytes]]:
@@ -153,7 +157,8 @@ def _load_matrix(vault: Vault, con):
     return data
 
 
-def _meaning(vault: Vault, con, query: str, allowed: set[str] | None, embedder) -> list[tuple[str, int]]:
+def _meaning(vault: Vault, con, query: str, allowed: set[str] | None, embedder,
+             pool: int = POOL) -> list[tuple[str, int]]:
     matrix, doc_index, doc_of, pass_of, pass_list = _load_matrix(vault, con)
     if not len(matrix):
         return []
@@ -174,7 +179,7 @@ def _meaning(vault: Vault, con, query: str, allowed: set[str] | None, embedder) 
     scores = matrix[mask] @ q
     best = np.full(len(pass_list), -np.inf, dtype=np.float32)
     np.maximum.at(best, pass_of[mask], scores)
-    order = np.argsort(-best)[:TOP]
+    order = np.argsort(-best)[:pool]
     return [pass_list[i] for i in order if best[i] > 0]
 
 
@@ -239,16 +244,36 @@ def _find(vault, query, embedder, company, doc_type, after, before, limit, pages
         pages = wiki_index.search_pages(vault, con, query, embedder, allowed=allowed)
         if pages_only or limit <= 0 or (allowed is not None and not allowed):
             return Results(pages, [])
-        keyword = _keyword(con, query, allowed)
-        meaning = _meaning(vault, con, query, allowed, embedder)
-        phrase = _phrase(con, query, allowed)  # empty without numbers in the question
+        pool = POOL
+        fused, more = _ranked(vault, con, query, allowed, embedder, pool)
     finally:
         con.close()
-    hits: list[Hit] = []
     docs: dict[str, tuple] = {}
+    hits = _hits(vault, fused, query, limit, docs)
+    while len(hits) < limit and more and pool < MAX_POOL:  # the cap left too few: look deeper
+        pool *= 4
+        con = index.open(vault)
+        try:
+            fused, more = _ranked(vault, con, query, allowed, embedder, pool)
+        finally:
+            con.close()
+        hits = _hits(vault, fused, query, limit, docs)
+    return Results(pages, hits)
+
+
+def _ranked(vault, con, query, allowed, embedder, pool) -> tuple[list, bool]:
+    """The passages fused from the three rankings, and whether any ranking filled its `pool` (it may have more)."""
+    rankings = (_keyword(con, query, allowed, pool), _meaning(vault, con, query, allowed, embedder, pool),
+                _phrase(con, query, allowed, pool))  # the phrase ranking is empty without numbers in the question
+    return _fuse(*rankings), any(len(r) >= pool for r in rankings)
+
+
+def _hits(vault, fused, query: str, limit: int, docs: dict) -> list[Hit]:
+    """The fused passages to show: at most PER_DOC per document, copies named under the first (`docs`: a cache)."""
+    hits: list[Hit] = []
     shown: dict[str, int] = {}  # passages shown per document
     same: dict[str, Hit] = {}  # a long passage's text (spaces evened out) -> the hit showing it
-    for (doc_id, n), score in _fuse(keyword, meaning, phrase):
+    for (doc_id, n), score in fused:
         if doc_id not in docs:
             doc = store.load(vault, doc_id)
             docs[doc_id] = (doc, store.passages(vault, doc_id)) if doc else (None, [])
@@ -275,7 +300,7 @@ def _find(vault, query, embedder, company, doc_type, after, before, limit, pages
             same[flat] = hit
         if len(hits) >= limit:
             break
-    return Results(pages, hits)
+    return hits
 
 
 def find(vault: Vault, query: str, *, embedder, company: str = "", doc_type: str = "", after: str = "",
@@ -328,7 +353,10 @@ def render(hits: list[Hit]) -> str:
         if h.section:
             parts.append(h.section)
         head = " · ".join(str(p) for p in parts if p)
-        also = f"\nAlso in: {', '.join(h.also_in)}" if h.also_in else ""
+        also = ""
+        if h.also_in:
+            more = len(h.also_in) - ALSO_SHOWN
+            also = "\nAlso in: " + ", ".join(h.also_in[:ALSO_SHOWN]) + (f" and {more} more" if more > 0 else "")
         page_line = f"\nPage: [[{h.wiki_page}]]" if h.wiki_page else ""
         blocks.append(f"{i}. {head}\n{h.source}{also}{page_line}\n{_excerpt(h.text, h.query)}")
     return "\n\n".join(blocks)

@@ -429,9 +429,22 @@ def test_numbers_are_searched_with_the_word_before_them(vault, embedder):
     assert got[0][0] == right.doc_id and len(got) == 4  # the exact phrase first, then the number alone
 
 
+def test_the_number_with_its_word_decides_between_two_close_passages(vault, embedder, monkeypatch):
+    """Keyword and meaning disagree (one each): the phrase ranking puts "Section 10.9" first."""
+    stored_doc(vault, "agreement.pdf", ["Section 10.9."], index_it=True)
+    stored_doc(vault, "memo.pdf", ["10.9 section section section."], index_it=True)
+    assert [h.name for h in search.search(vault, "Section 10.9", embedder=embedder)] == ["agreement.pdf", "memo.pdf"]
+    monkeypatch.setattr(search, "_phrase", lambda *a, **k: [])
+    assert search.search(vault, "Section 10.9", embedder=embedder)[0].name == "memo.pdf"  # without it, the other way
+
+
 def test_only_stopwords_still_searches(vault, embedder):
     stored_doc(vault, "a.pdf", ["the of and"], index_it=True)
-    assert search.search(vault, "the of and", embedder=embedder)  # falls back to the words themselves
+    assert search.search(vault, "the of and", embedder=embedder)
+    con = index.open(vault)
+    assert search._keyword(con, "the of and", None)  # falls back to the words themselves
+    con.close()
+    assert not {w for w in search.STOPWORDS if len(w) < 2}  # "Exhibit A", "Series B", "Fund I"
 
 
 def test_at_most_two_passages_per_document(vault, embedder):
@@ -441,6 +454,17 @@ def test_at_most_two_passages_per_document(vault, embedder):
     stored_doc(vault, "small.pdf", ["Lease rent once"], index_it=True)
     names = [h.name for h in search.search(vault, "lease rent", embedder=embedder)]
     assert names.count("big.pdf") <= 2 and "small.pdf" in names
+
+
+def test_the_cap_still_fills_the_results_from_other_documents(vault, embedder):
+    """More passages from three documents than one ranking gives: the search looks deeper for other documents."""
+    for d in range(3):
+        add(vault, f"big{d}", [f"rent clause {d} {i}" for i in range(90)])
+    for j in range(20):
+        add(vault, f"small{j}", [f"rent paid {j}"])
+    hits = search.search(vault, "rent clause", embedder=embedder, limit=8)
+    assert len(hits) == 8 and any(h.name.startswith("small") for h in hits)
+    assert max(sum(h.name == f"big{d}.pdf" for h in hits) for d in range(3)) == search.PER_DOC
 
 
 def test_identical_passages_collapse(vault, embedder):
@@ -459,3 +483,12 @@ def test_results_show_the_best_part_of_a_long_passage(vault, embedder):
     hit = search.search(vault, "deposit three months", embedder=embedder)[0]
     shown = search.render([hit])
     assert "deposit is three months" in shown and len(shown) < 900
+
+
+def test_also_in_names_three_documents_at_most(vault, embedder):
+    text = "Clause 4. The tenant pays rent monthly in advance to the landlord. " * 4
+    for v in range(6):
+        stored_doc(vault, f"lease v{v}.pdf", [text], index_it=True)
+    hits = search.search(vault, "tenant pays rent monthly", embedder=embedder)
+    assert len(hits) == 1 and len(hits[0].also_in) == 5
+    assert search.render(hits).count(", ") == 2 and "and 2 more" in search.render(hits)
