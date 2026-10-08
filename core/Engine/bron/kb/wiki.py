@@ -73,12 +73,19 @@ class Page:
         return property_text(self.meta.get("summary"))
 
     @property
+    def doc_ids(self) -> list[str]:
+        """The documents this page covers: `doc` as one id or a list of ids, in order, each once."""
+        raw = self.meta.get("doc")
+        items = raw if isinstance(raw, list) else [raw] if raw else []
+        return list(dict.fromkeys(t for t in (property_text(x) for x in items) if t))
+
+    @property
     def doc_id(self) -> str:
-        return property_text(self.meta.get("doc"))
+        return self.doc_ids[0] if self.doc_ids else ""
 
     @property
     def is_document(self) -> bool:
-        return bool(self.doc_id) or self.kind == "Documents"
+        return bool(self.doc_ids) or self.kind == "Documents"
 
     @property
     def aliases(self) -> list[str]:
@@ -143,7 +150,11 @@ def link_documents(vault: Vault, pages: list[Page], removed=()) -> tuple[list[st
     doesn't have, ids of the documents whose record changed)."""
     unknown: list[str] = []
     touched: set[str] = set()
-    claimed = {p.doc_id: p for p in pages if not p.error and p.doc_id}
+    claimed: dict[str, Page] = {}  # an id named by two pages stays with the first (wiki check reports the pair)
+    for p in sorted(pages, key=lambda p: p.rel):
+        if not p.error:
+            for doc_id in p.doc_ids:
+                claimed.setdefault(doc_id, p)
     looked_at = set(removed) | {p.rel for p in pages if not p.error}
     for doc in store.all_docs(vault):
         if doc.page in looked_at and doc.doc_id not in claimed:

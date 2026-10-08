@@ -73,7 +73,7 @@ def _put(con: sqlite3.Connection, page: wiki.Page, embedder, *, only_with_vector
     with con:
         _delete(con, page.rel)
         con.execute("INSERT INTO pages VALUES (?,?,?,?,?,?,?,?,?)",
-                    (page.rel, page.mtime, page.size, page.title, page.kind, page.summary, page.doc_id,
+                    (page.rel, page.mtime, page.size, page.title, page.kind, page.summary, ",".join(page.doc_ids),
                      int(matrix is not None), index._model_name(embedder) if matrix is not None else ""))
         _bump(con)
         con.executemany("INSERT INTO page_fts(path, w, excerpt, body) VALUES (?,?,?,?)",
@@ -124,7 +124,7 @@ def refresh(vault: Vault, con: sqlite3.Connection, embedder) -> bool:
             _put(con, page, embedder, only_with_vectors=True)
     good = [p for p in pages if not p.error]
     _, touched = wiki.link_documents(vault, good, removed)
-    for doc_id in touched | {p.doc_id for p in good if p.doc_id}:
+    for doc_id in touched | {i for p in good for i in p.doc_ids}:
         doc = store.load(vault, doc_id)
         if doc is not None and doc.status == "read":
             index.set_labels(con, doc)
@@ -186,7 +186,7 @@ def search_pages(vault: Vault, con: sqlite3.Connection, query: str, embedder, *,
         return []
     rows = {r[0]: r for r in con.execute("SELECT path, title, kind, summary, doc_id FROM pages WHERE kind != ''")}
     if allowed is not None:
-        rows = {path: r for path, r in rows.items() if not r[4] or r[4] in allowed}
+        rows = {path: r for path, r in rows.items() if not r[4] or set(r[4].split(",")) & allowed}
     if not rows:
         return []
     best: dict[str, tuple[int, float]] = {}

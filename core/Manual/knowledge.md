@@ -52,7 +52,7 @@ Knowledge/
   Inbox/  Files/
 ```
 
-- Every page has `type` and a one-line `summary` (and `aliases` for other names). A document page also has `doc` (Bron's id for the document), `source` (its link or path), `organisation` (the organisation it is mainly about), `doc_type` and `date`.
+- Every page has `type` and a one-line `summary` (and `aliases` for other names). A document page also has `doc` (Bron's id for the document), `source` (its link or path), `organisation` (the organisation it is mainly about), `doc_type` and `date`. A page can cover several documents (copies, drafts, a set of the same form) by listing their ids under `doc`.
 - Facts cite their source: "(see [[Office lease (2025-03-01)]], p. 2)". When a newer document changes a fact, the page keeps the old value as a "previously" note; when it isn't clear which is right, both stay, marked as a conflict, and the agent asks you.
 - An organisation, person or topic gets its own page when a document is mainly about it, when it appears in two or more documents, or when you ask. A folder of 10–15 documents usually gives 10–15 document pages plus about 5–15 others.
 - Your edits win: agents keep what you wrote and treat your corrections as the newest source. To correct a document's organisation, type or date, edit its page's properties; search uses them from then on.
@@ -73,7 +73,7 @@ Knowledge/
 
 ## Checking the wiki
 
-- The health check counts wiki problems (if the check itself fails, it says "The wiki couldn't be checked; run `bron wiki check` for details."): links to pages that don't exist (a link like `[[Organisations/Acme Ltda]]` counts when that path exists, as in Obsidian), pages nothing links to, pages missing `type` or `summary`, documents read without a page, pages whose document was forgotten, probable duplicates (Acme, Acme Ltda.), a name two pages answer to (a document page whose alias is another page's title), and pages over 20,000 characters (document pages 30,000). `.bron/bin/bron wiki check` shows them; `--all` lists every one.
+- The health check counts wiki problems (if the check itself fails, it says "The wiki couldn't be checked; run `bron wiki check` for details."): links to pages that don't exist (a link like `[[Organisations/Acme Ltda]]` counts when that path exists, as in Obsidian), pages nothing links to, pages missing `type` or `summary`, documents read without a page, pages whose document was forgotten, a document named by two pages, probable duplicates (Acme, Acme Ltda.), a name two pages answer to (a document page whose alias is another page's title), and pages over 20,000 characters (document pages 30,000). `.bron/bin/bron wiki check` shows them; `--all` lists every one.
 - After each folder, the agent rereads the pages it touched: it settles changes a newer document clearly makes, flags real conflicts to you, creates pages for names that now appear in two or more documents, and lists gaps (a document that's referred to but wasn't read) as suggestions.
 - Say "check the wiki" for a full checkup, or "finish the wiki pages" to write the pages of documents that were read without one (an interrupted run, or documents read before the wiki existed).
 

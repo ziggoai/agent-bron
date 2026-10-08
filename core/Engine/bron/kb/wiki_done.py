@@ -77,7 +77,7 @@ def _done(vault: Vault, log_text: str) -> str:
             continue
         if page.is_document and page.rel not in before:
             entries.append(("ingest", f"[[{page.title}]]"))
-        elif page.is_document and page.doc_id in reads and reads[page.doc_id] != _read_stamp(vault, page.doc_id):
+        elif page.is_document and any(i in reads and reads[i] != _read_stamp(vault, i) for i in page.doc_ids):
             entries.append(("ingest", f"[[{page.title}]] (read again)"))
         else:
             others.append(page)
@@ -97,8 +97,7 @@ def _done(vault: Vault, log_text: str) -> str:
     names = {wiki.name_of(p.title) for p in changed} | {wiki.name_of(Path(rel).stem) for rel in removed}
     scope |= {p.rel for p in pages if not p.error and any(wiki.name_of(t) in names for t in p.links())}
     problems = wiki_check.run(vault, only=scope, pages=pages) if scope else []
-    docs = {p.doc_id: _read_stamp(vault, p.doc_id) for p in pages
-            if not p.error and p.doc_id and store.exists(vault, p.doc_id)}
+    docs = {i: _read_stamp(vault, i) for p in pages if not p.error for i in p.doc_ids if store.exists(vault, i)}
     statefile.write_json(_state_path(vault), {"pages": now, "docs": docs})
     if not changed and not removed:
         head = "Nothing changed in the wiki" + ("; the log line is recorded." if log_text.strip() and not notes else ".")

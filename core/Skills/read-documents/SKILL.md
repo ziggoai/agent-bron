@@ -77,6 +77,8 @@ date: <YYYY-MM-DD, or leave it empty>
 
 Put links and the doc id in properties in quotes (`"[[Name]]"`, `"3f2a…"`) so they're read correctly. Put every alias in double quotes too: an alias with a comma ("Acme, Inc.") splits in two without them. With no other names, write `aliases: []`. Always keep `doc` in quotes: an all-digit id without quotes is read as a number and loses its leading zeros.
 
+**One page for several documents.** Copies and drafts of a document that has a page, and a set of near-identical documents (the same form signed by different people, a batch of standard agreements), share one page: list every doc id under `doc` (`doc: ["3f2a…", "9b1c…"]`), add a short table or list with one line per document (its date, the parties, what differs, its link), and keep the facts that only one of them has. Don't write a page per copy or per form.
+
 ### Other pages
 
 Organisation, person and topic pages (and any type `Knowledge/Schema.md` adds) live in their type's folder, named the way the user would say it ("Acme Ltda", "Jane Doe", "Office move"). Use the headings the schema suggests for the type.

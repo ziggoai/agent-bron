@@ -173,3 +173,31 @@ def test_an_escaped_pipe_in_a_table_link_is_still_a_link(vault):
     org(vault, "Acme Ltda", "| Who | Role |\n|---|---|\n| [[Beta Ltda\\|Beta]] | buyer |\n")
     org(vault, "Beta Ltda", "| Who | Role |\n|---|---|\n| [[Acme Ltda\\|Acme]] | seller |\n")
     assert wiki_check.run(vault) == []  # no broken link to "Acme Ltda\", no orphan
+
+
+def test_one_page_can_cover_several_documents(vault):
+    a = stored_doc(vault, "form-a.pdf", ["Signed form A"])
+    b = stored_doc(vault, "form-b.pdf", ["Signed form B"])
+    write_page(vault, "Documents/Supplier forms.md", "Two signed forms (p. 1). See [[Acme Ltda]].\n", type="document",
+               summary="Signed supplier forms", doc=[a.doc_id, b.doc_id], organisation="[[Acme Ltda]]")
+    org(vault, "Acme Ltda", "Signed forms (see [[Supplier forms]], p. 1).\n")
+    assert wiki_check.run(vault) == []  # neither document is "read but no page yet"
+
+
+def test_a_list_with_one_unknown_id(vault):
+    a = stored_doc(vault, "form-a.pdf", ["Signed form A"])
+    write_page(vault, "Documents/Supplier forms.md", "See [[Acme Ltda]].\n", type="document", summary="Forms",
+               doc=[a.doc_id, "0000000000000000"], organisation="[[Acme Ltda]]")
+    org(vault, "Acme Ltda", "See [[Supplier forms]].\n")
+    found = [p for p in wiki_check.run(vault) if p.code == "unknown-doc"]
+    assert [p.text for p in found] == ["Supplier forms: its doc 0000000000000000 isn't in the knowledge base "
+                                       "(forgotten, or never read)."]
+
+
+def test_one_document_on_two_pages(vault):
+    a = stored_doc(vault, "form-a.pdf", ["Signed form A"])
+    write_page(vault, "Documents/Form A.md", "See [[Acme Ltda]].\n", type="document", summary="Form A", doc=a.doc_id)
+    write_page(vault, "Documents/Supplier forms.md", "See [[Acme Ltda]].\n", type="document", summary="Forms",
+               doc=[a.doc_id])
+    org(vault, "Acme Ltda", "See [[Form A]] and [[Supplier forms]].\n")
+    assert ("doc-on-two-pages", "Knowledge/Documents/Form A.md") in codes(vault)

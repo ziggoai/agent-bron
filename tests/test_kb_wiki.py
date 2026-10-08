@@ -228,3 +228,16 @@ def test_an_unreadable_log_is_left_alone(vault):
     with pytest.raises(store.KbError, match="log.md can't be read"):
         wiki.append_log(vault, [("update", "x")])
     assert log.read_bytes() == b"# Log\ncaf\xe9\n"
+
+
+def test_a_page_for_several_documents_is_each_documents_page(vault):
+    a = stored_doc(vault, "form-a.pdf", ["Signed form A"])
+    b = stored_doc(vault, "form-b.pdf", ["Signed form B"])
+    path = write_page(vault, "Documents/Supplier forms.md", "Two forms.\n", type="document", summary="Forms",
+                      doc=[a.doc_id, b.doc_id])
+    page = wiki.read_page(vault, path)
+    assert page.doc_ids == [a.doc_id, b.doc_id] and page.doc_id == a.doc_id
+    unknown, touched = wiki.link_documents(vault, [page])
+    assert unknown == [] and touched == {a.doc_id, b.doc_id}
+    for doc in (a, b):
+        assert store.page_of(vault, doc.doc_id)["page"] == "Knowledge/Documents/Supplier forms.md"
