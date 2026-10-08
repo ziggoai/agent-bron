@@ -16,8 +16,8 @@ from . import store, wiki
 MAX_CHARS = 20_000  # a page every later run reads again (an organisation, a person, a topic)
 MAX_DOCUMENT_CHARS = 30_000  # a document page follows one long document
 SUFFIXES = {"ltda", "llc", "inc", "sa", "lp"}  # folded away when looking for duplicates ("Acme Ltda." = "Acme")
-ORDER = ("bad-properties", "broken-link", "missing-properties", "unknown-doc", "doc-on-two-pages", "no-page-yet", "duplicate", "same-name",
-         "orphan", "too-long")
+ORDER = ("bad-properties", "broken-link", "missing-properties", "unknown-doc", "doc-on-two-pages", "no-page-yet",
+         "duplicate", "same-name", "orphan", "too-long")
 TITLES = {
     "bad-properties": "Pages whose properties can't be read",
     "broken-link": "Links to pages that don't exist",
@@ -153,17 +153,17 @@ def run(vault: Vault, *, only: set[str] | None = None, pages: list[wiki.Page] | 
             out.append(Problem("orphan", page.rel, f"{page.title}: no other page links to it."))
     out += _duplicates(good, mine)
     out += _same_names(good, mine)
+    first: dict[str, wiki.Page] = {}
+    for page in sorted(good, key=lambda p: p.rel):
+        for doc_id in page.doc_ids:
+            other = first.setdefault(doc_id, page)
+            if other is not page and (mine(other) or mine(page)):
+                doc = store.load(vault, doc_id)
+                out.append(Problem("doc-on-two-pages", other.rel,
+                                   f"{doc.name if doc else doc_id} (doc {doc_id}) is named by [[{other.title}]] "
+                                   f"and [[{page.title}]]; keep it on one page."))
     if only is None:
-        with_pages = {i for p in good for i in p.doc_ids}
-        first: dict[str, wiki.Page] = {}
-        for page in sorted(good, key=lambda p: p.rel):
-            for doc_id in page.doc_ids:
-                other = first.setdefault(doc_id, page)
-                if other is not page:
-                    doc = store.load(vault, doc_id)
-                    out.append(Problem("doc-on-two-pages", other.rel,
-                                       f"{doc.name if doc else doc_id} (doc {doc_id}) is named by [[{other.title}]] "
-                                       f"and [[{page.title}]]; keep it on one page."))
+        with_pages = set(first)
         for doc in store.all_docs(vault):
             # a page whose properties can't be read is still its document's page (reported above, never written twice)
             recorded = bool(doc.page) and (vault.root / doc.page).is_file()

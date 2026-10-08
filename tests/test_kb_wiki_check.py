@@ -201,3 +201,15 @@ def test_one_document_on_two_pages(vault):
                doc=[a.doc_id])
     org(vault, "Acme Ltda", "See [[Form A]] and [[Supplier forms]].\n")
     assert ("doc-on-two-pages", "Knowledge/Documents/Form A.md") in codes(vault)
+
+
+def test_a_scoped_run_reports_a_document_on_two_pages(vault):
+    a = stored_doc(vault, "form-a.pdf", ["Signed form A"])
+    first = write_page(vault, "Documents/Form A.md", "See [[Acme Ltda]].\n", type="document", summary="Form A", doc=a.doc_id)
+    second = write_page(vault, "Documents/Supplier forms.md", "See [[Acme Ltda]].\n", type="document", summary="Forms",
+                        doc=[a.doc_id])
+    org(vault, "Acme Ltda", "See [[Form A]] and [[Supplier forms]].\n")
+    rel = "Knowledge/Documents/Supplier forms.md"  # only the later page changed
+    found = [p for p in wiki_check.run(vault, only={rel}) if p.code == "doc-on-two-pages"]
+    assert [p.text for p in found] == ["form-a.pdf (doc %s) is named by [[Form A]] and [[Supplier forms]]; keep it "
+                                       "on one page." % a.doc_id]

@@ -249,3 +249,16 @@ def test_a_page_for_several_documents_is_shown_when_one_of_them_is_allowed(vault
     assert titles(found) == ["Supplier forms"]
     assert found.hits and found.hits[0].wiki_page == "Supplier forms"
     assert find(vault, "delivery", company="nobody").pages == []
+
+
+def test_a_page_for_several_documents_is_found_through_its_second_document(vault):
+    a = stored_doc(vault, "form-a.pdf", ["Signed supplier form, delivery within ten days. " * 3], folder="Acme",
+                   index_it=True)
+    b = stored_doc(vault, "form-b.pdf", ["Signed supplier form, delivery within ten days. " * 3], folder="Zeta",
+                   index_it=True)
+    write_page(vault, "Documents/Supplier forms.md", "Signed delivery forms (p. 1).\n", type="document",
+               summary="Signed supplier forms", doc=[a.doc_id, b.doc_id])
+    found = find(vault, "delivery within ten days", company="zeta")
+    assert [h.doc_id for h in found.hits] == [b.doc_id]  # the filter leaves only the second document
+    assert titles(found) == ["Supplier forms"]
+    assert "Page: [[Supplier forms]]" in search.render_all(found)
