@@ -246,7 +246,7 @@ def _wait_hint(job_id: str) -> None:
     """In a Claude Code conversation a background command wakes the agent when it ends, so `kb wait` lets it tell the
     user unasked. Codex has no such command: the Mac notification and the next message's notice tell them. The wait is
     for this conversation's job only: with two conversations reading, each reports its own."""
-    if os.environ.get("CLAUDECODE") and not os.environ.get("BRON_TICKET"):
+    if _who_hears() == "claude":
         print(WAIT_HINT.format(job=job_id))
 
 

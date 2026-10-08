@@ -97,6 +97,8 @@ def _done(vault: Vault, log_text: str) -> str:
     names = {wiki.name_of(p.title) for p in changed} | {wiki.name_of(Path(rel).stem) for rel in removed}
     scope |= {p.rel for p in pages if not p.error and any(wiki.name_of(t) in names for t in p.links())}
     problems = wiki_check.run(vault, only=scope, pages=pages) if scope else []
+    edited = {p.rel for p in changed}  # a long summary on a page that merely links here is `wiki check`'s to list
+    problems = [p for p in problems if p.code != "long-summary" or p.where in edited]
     items = wiki_check.review(vault, only=scope, pages=pages) if scope else []
     looks = wiki_check.render_review(items, everything=False)
     docs = {i: _read_stamp(vault, i) for p in pages if not p.error for i in p.doc_ids if store.exists(vault, i)}

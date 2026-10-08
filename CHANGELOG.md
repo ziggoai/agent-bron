@@ -5,12 +5,12 @@ What changed in each version of Bron, newest first. Bron shows the new sections 
 ## 0.8.7
 - New vaults start Bron on `gpt-6-astra` in Codex, as it starts on Opus 5.5 in Claude Code, instead of whatever model Codex is set to. An existing vault keeps its setting; to change it, ask Bron or run `.bron/bin/bron agent set Bron --model codex=gpt-6-astra`.
 - One wiki page can cover several documents (copies, drafts, a set of the same form), and the check reports a document that two pages claim.
-- The wiki check tells a page over about 15,000 characters to tidy, and flags a summary over 300 characters. Agents keep growing pages short and move long lists to their own topic page. Summaries in `index.md` are cut at 200 characters.
+- The wiki check flags an organisation, person or topic page over 20,000 characters and tells it to tidy to about 15,000, and flags a summary over 300 characters. Existing summaries over 300 characters show up in `bron wiki check` and the health check; "check the wiki" shortens them. Agents keep growing pages short and move long lists to their own topic page. Summaries in `index.md` are cut at 200 characters.
 - `bron wiki check --all` and `bron wiki done` show a "worth a look" list: a note saying something isn't checked yet, numbers in spreadsheet form, a timeline out of order. It never stops `wiki done`.
-- Agents write pages from the reader helpers' notes, and never wait with `sleep`. Shell commands follow a simpler rule, so fewer background runs stop for your OK.
-- Background reading is honest about Codex: it says a Mac notification will come. A folder that is queued says it starts right after the current one, and a ticket's title names the parent folder.
+- Agents write pages from the reader helpers' notes, and never wait with `sleep`. Shell commands follow a simpler rule: one simple command at a time.
+- Background reading says the right thing in Codex, where a Mac notification brings the news. A folder that is queued says it starts right after the current one, and a ticket's title names the parent folder.
 - Search is faster on a big wiki. `index.md` is now written by `bron wiki done`, not by each search.
-- Search ranks a number with the word before it ("Section 10.9"), ignores common words, shows at most two passages per document, and shows the best part (about 600 characters) of each passage. Identical passages from copies show once, with "Also in: ...".
+- Search ranks a number with the word before it ("Section 10.9"), ignores common words, shows at most two passages per document (more when only a few documents match), and shows the best part (about 600 characters) of each passage. Identical passages from copies show once, with "Also in: ...".
 
 ## 0.8.6
 - A background run that finished its work no longer stops as "blocked" when a command on its own scratch files was refused, so Bron doesn't run the batch a second time. Scratch files stay in `.bron/tmp/`, and Bron clears the ones older than a day after each run instead of asking you to approve each delete. Reader helpers keep document text inside the vault too.

@@ -258,6 +258,9 @@ def test_in_claude_code_a_background_read_says_to_wait_for_it(env, capsys, monke
     monkeypatch.delenv("CLAUDECODE")  # Codex: the Mac notification and the next message's notice tell the user
     kb_cli._wait_hint("j1")
     assert capsys.readouterr().out == ""
+    monkeypatch.setattr(kb_cli, "_who_hears", lambda: "claude")  # one rule for who hears the end
+    kb_cli._wait_hint("j1")
+    assert capsys.readouterr().out.strip() == kb_cli.WAIT_HINT.format(job="j1")
 
 
 def test_wait_reports_once_the_reading_and_the_wiki_are_done(env, capsys):

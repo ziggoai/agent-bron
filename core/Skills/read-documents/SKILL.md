@@ -33,7 +33,7 @@ When all the documents are done, run `.bron/bin/bron wiki done`. It records the 
 
 Then tell the user, in a few lines: what you learned, what changed or contradicted earlier pages, which pages you created and which you updated, and any document that couldn't be read. Don't paste whole pages.
 
-If `bron kb add` said "A folder is being written into the wiki; I'll add these after it", don't write pages for those documents: the background run will. Never poll `bron kb status` while you wait, and never wait for it with `sleep` or by reading the documents yourself: tell the user it's being written and go on.
+If `bron kb add` said "A folder is already being written into the wiki; these start right after it and should be done in …", don't write pages for those documents: the background run will. Never poll `bron kb status` while you wait, and never wait for it with `sleep` or by reading the documents yourself: tell the user it's being written and go on.
 
 ### When a page is created
 
@@ -110,13 +110,13 @@ Whenever a fact on a page changes (a newer document, a correction from the user,
 - check that the page's `summary` still holds, and fix it if it repeats the old fact: it is what `index.md` and search show;
 - when it answers an open question, put the answer where it belongs on the page, with its source, and delete the question. "Open questions" lists only what is still open;
 - when you check a fact against another source (a system the user connected, the user), update every page that says it hasn't been checked yet: search for the phrase, not just the page in front of you;
-- when a page grows past 20,000 characters (a document page 30,000), tidy it to about 15,000 characters (a document page: split it): merge lines that say the same thing (one line, several citations) and move detail to the pages it is about. `wiki done` lists such pages. Every later run reads the page again, so a long page slows every one of them. Keep `summary` to one line under 300 characters: it's what `index.md` and search show.
+- when a page grows past 20,000 characters (a document page 30,000), tidy it to about 15,000 characters (a document page: split it): merge lines that say the same thing (one line, several citations) and move detail to the pages it is about. `wiki done` lists such pages. Every later run reads the page again, so a long page slows every one of them. Keep `summary` to one line under 300 characters: it's what search shows, and `index.md` shows its first 200 characters.
 
 ## Background runs
 
 A ticket may ask you to read several documents into the wiki. Do the same as above, document by document. Nobody is waiting, so don't ask questions: note real conflicts and open questions in your final reply. When the documents are done, run the judgement checkup below over the pages you touched, then `.bron/bin/bron wiki done --log 'check | <what the checkup found and fixed>'`. Your final reply is the summary the user reads: what you learned, what changed or contradicted, the pages created and updated, and the documents that couldn't be read.
 
-Reader helpers: give each a few documents and ask for the facts the page needs, with page numbers and exact wording. Write the pages from the readers' notes; open a document yourself only to check a fact you are about to cite. Reading it all again yourself doubles the cost.
+Reader helpers: give each a few documents and ask for the facts the page needs, with page numbers and exact wording. Write the pages from the readers' notes; open a document yourself only to check a fact you are about to cite. Reading the documents again yourself doubles the cost.
 
 ## Judgement checkup
 

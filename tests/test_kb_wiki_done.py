@@ -4,7 +4,7 @@ import os
 import time
 
 from bron.cli import build_parser
-from bron.kb import index, search, store, wiki_cli
+from bron.kb import index, search, store, wiki_check, wiki_cli
 from bron.kb.wiki_done import done
 from kbkit import fake_embed, later, stored_doc, write_page
 
@@ -204,3 +204,20 @@ def test_done_shows_what_is_worth_a_look_without_asking_for_another_run(vault):
     assert "Worth a look (fix what's real; these don't block `wiki done`):" in out
     assert "Numbers in spreadsheet form" in out
     assert "run `.bron/bin/bron wiki done` again" not in out
+
+
+def test_done_lists_long_summaries_only_of_the_pages_that_changed(vault):
+    long = "x" * 320
+    notes = "".join(f"[[Note {i}]] " for i in range(30))
+    hub = write_page(vault, "Organisations/Harbor Bakery.md", f"A bakery. {notes}\n", type="organisation",
+                     summary="A bakery")
+    for i in range(30):
+        write_page(vault, f"Topics/Note {i}.md", "About [[Harbor Bakery]].\n", type="topic", summary=long)
+    done(vault)  # everything recorded
+    write_page(vault, "Organisations/Harbor Bakery.md", f"A bakery on the corner. {notes}\n", type="organisation",
+               summary="B" * 310)
+    later(hub)
+    out = done(vault)
+    assert "- Harbor Bakery: its summary is 310 characters; keep it to one line under 300." in out
+    assert "Note " not in out  # the 30 pages linking to it keep their long summaries out of `wiki done`
+    assert sum(p.code == "long-summary" for p in wiki_check.run(vault)) == 31  # `wiki check` still lists them all

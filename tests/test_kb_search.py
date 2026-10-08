@@ -15,8 +15,8 @@ def embedder():
 
 
 def add(vault, ident, texts, *, company="Acme", doc_type="contract", date="2025-01-10", fund="", name=None, embedder=fake_embed,
-        user_labels=None):
-    labels = {"company": company, "doc_type": doc_type, "date": date, "title": name or ident, "fund": fund}
+        user_labels=None, title=None):
+    labels = {"company": company, "doc_type": doc_type, "date": date, "title": title or name or ident, "fund": fund}
     doc = Doc(store.doc_id_for(ident), ident, "pdf", f"/drive/{ident}.pdf", name or f"{ident}.pdf", "", labels=labels,
               user_labels=user_labels or {})
     passages = [{"text": t, "page": i + 1, "section": "", "header": f"[{company} | {doc_type} | p. {i + 1}]"} for i, t in enumerate(texts)]
@@ -444,7 +444,7 @@ def test_only_stopwords_still_searches(vault, embedder):
     con = index.open(vault)
     assert search._keyword(con, "the of and", None)  # falls back to the words themselves
     con.close()
-    assert not {w for w in search.STOPWORDS if len(w) < 2}  # "Exhibit A", "Series B", "Fund I"
+    assert not {w for w in search.STOPWORDS if len(w) < 2}  # "Exhibit A", "Schedule B", "Part I"
 
 
 def test_at_most_two_passages_per_document(vault, embedder):
@@ -453,7 +453,7 @@ def test_at_most_two_passages_per_document(vault, embedder):
                index_it=True)
     stored_doc(vault, "small.pdf", ["Lease rent once"], index_it=True)
     names = [h.name for h in search.search(vault, "lease rent", embedder=embedder)]
-    assert names.count("big.pdf") <= 2 and "small.pdf" in names
+    assert names[:3].count("big.pdf") == 2 and "small.pdf" in names[:3]  # the rest of big.pdf only fills empty slots
 
 
 def test_the_cap_still_fills_the_results_from_other_documents(vault, embedder):
@@ -492,3 +492,31 @@ def test_also_in_names_three_documents_at_most(vault, embedder):
     hits = search.search(vault, "tenant pays rent monthly", embedder=embedder)
     assert len(hits) == 1 and len(hits[0].also_in) == 5
     assert search.render(hits).count(", ") == 2 and "and 2 more" in search.render(hits)
+
+
+def test_a_filter_to_one_document_still_fills_the_results(vault, embedder):
+    """Only one document passes the filter: the passages the per-document cap skipped fill the empty slots."""
+    add(vault, "lease", [f"Lease rent clause {i}. " + "Other terms apply here. " * 20 for i in range(10)],
+        company="Harbor Bakery")
+    add(vault, "other", ["Lease rent clause elsewhere."], company="Corner Shop")
+    hits = search.search(vault, "lease rent clause", embedder=embedder, company="harbor", limit=8)
+    assert len(hits) == 8 and {h.name for h in hits} == {"lease.pdf"}
+    assert len({h.page for h in hits}) == 8
+    names = [h.name for h in search.search(vault, "lease rent clause", embedder=embedder, limit=8)]
+    assert len(names) == 8 and names.count("other.pdf") == 1  # without a filter: the other document, then the rest
+
+
+def test_filled_slots_keep_identical_passages_collapsed(vault, embedder):
+    text = "Clause 4. The tenant pays rent monthly in advance to the landlord. " * 4
+    add(vault, "lease", [text, "Rent is due monthly.", "Rent rises yearly.", text], company="Harbor Bakery")
+    hits = search.search(vault, "tenant pays rent monthly", embedder=embedder, company="harbor", limit=8)
+    assert len(hits) == 3 and sum(h.text == text for h in hits) == 1
+
+
+def test_also_in_names_the_documents_not_the_set_page_they_share(vault, embedder):
+    text = "Clause 4. The supplier delivers the goods within ten days of the order. " * 4
+    for v in (1, 2, 3):
+        add(vault, f"form{v}", [text], name=f"Supplier form {v}.pdf", title="Supplier forms")  # one set page
+    hits = search.search(vault, "supplier delivers goods", embedder=embedder)
+    assert len(hits) == 1 and sorted([hits[0].name, *hits[0].also_in]) == [
+        "Supplier form 1.pdf", "Supplier form 2.pdf", "Supplier form 3.pdf"]

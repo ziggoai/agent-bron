@@ -71,3 +71,11 @@ def test_the_skill_keeps_growing_pages_short_and_uses_readers_well(vault):
     assert "Claude Code can't check" not in text
     reader = (REPO / "core" / "Helpers" / "reader.md").read_text(encoding="utf-8")
     assert "=====" in reader
+
+
+def test_the_skill_and_manual_quote_what_kb_add_says_when_a_folder_is_being_written():
+    from bron.kb import cli as kb_cli
+
+    said = kb_cli.BEHIND.split("{duration}")[0]
+    assert said in SKILL.read_text(encoding="utf-8")
+    assert said in (REPO / "core" / "Manual" / "knowledge.md").read_text(encoding="utf-8")

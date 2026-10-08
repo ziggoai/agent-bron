@@ -28,7 +28,7 @@ _WORD = re.compile(r"\w+")
 _NUMBER_RUN = re.compile(r"\d+(?:[.,]\d+)+")
 
 # Function words (English, Portuguese, Spanish) left out of the keyword ranking. No single letters: "Exhibit A",
-# "Series B", "Fund I".
+# "Schedule B", "Part I".
 STOPWORDS = frozenset(fold(w) for w in """
     an the and or but nor of to in on at by for from with without into onto about as than then that this these those
     there here is are was were be been being am do does did has have had it its he she they them their his her we our
@@ -258,6 +258,8 @@ def _find(vault, query, embedder, company, doc_type, after, before, limit, pages
         finally:
             con.close()
         hits = _hits(vault, fused, query, limit, docs)
+    if len(hits) < limit:  # still short (a filter to one document, say): the passages the cap skipped fill the rest
+        hits = _hits(vault, fused, query, limit, docs, fill=True)
     return Results(pages, hits)
 
 
@@ -268,11 +270,29 @@ def _ranked(vault, con, query, allowed, embedder, pool) -> tuple[list, bool]:
     return _fuse(*rankings), any(len(r) >= pool for r in rankings)
 
 
-def _hits(vault, fused, query: str, limit: int, docs: dict) -> list[Hit]:
-    """The fused passages to show: at most PER_DOC per document, copies named under the first (`docs`: a cache)."""
+def _hits(vault, fused, query: str, limit: int, docs: dict, fill: bool = False) -> list[Hit]:
+    """The fused passages to show: at most PER_DOC per document, copies named under the first (`docs`: a cache). With
+    `fill`, slots still empty after that take the passages the cap skipped, in ranked order."""
     hits: list[Hit] = []
     shown: dict[str, int] = {}  # passages shown per document
     same: dict[str, Hit] = {}  # a long passage's text (spaces evened out) -> the hit showing it
+    named: dict[str, set[str]] = {}  # that text -> the documents already shown or named with it
+    skipped: list[tuple] = []  # passages the cap left out, for `fill`
+
+    def place(doc_id, doc, labels, p, text, flat, score) -> None:
+        """Shows the passage, or names its document under the copy already shown."""
+        first = same.get(flat) if len(flat) >= SAME_MIN else None
+        if first is not None:
+            if doc_id not in named[flat]:
+                named[flat].add(doc_id)
+                first.also_in.append(doc.name)  # the document's own name: a set page's title is the same for all
+            return
+        hit = Hit(doc_id, doc.name, labels, p.get("page") or 0, str(p.get("section") or ""), doc.source, text, score,
+                  Path(doc.page).stem if doc.page else "", query=query)
+        hits.append(hit)
+        if len(flat) >= SAME_MIN:
+            same[flat], named[flat] = hit, {doc_id}
+
     for (doc_id, n), score in fused:
         if doc_id not in docs:
             doc = store.load(vault, doc_id)
@@ -282,22 +302,18 @@ def _hits(vault, fused, query: str, limit: int, docs: dict) -> list[Hit]:
             continue  # the index is out of step with the store (or the last reading failed); skip
         p = passages[n]
         text = str(p.get("text", ""))
-        labels = store.effective_labels(doc)
         flat = " ".join(text.split())
-        first = same.get(flat) if len(flat) >= SAME_MIN else None
-        if first is not None:  # a copy: named under the hit already shown
-            name = labels.get("title") or doc.name
-            if first.doc_id != doc_id and name not in first.also_in:
-                first.also_in.append(name)
-            continue
-        if shown.get(doc_id, 0) >= PER_DOC:
-            continue
-        shown[doc_id] = shown.get(doc_id, 0) + 1
-        hit = Hit(doc_id, doc.name, labels, p.get("page") or 0, str(p.get("section") or ""), doc.source, text, score,
-                  Path(doc.page).stem if doc.page else "", query=query)
-        hits.append(hit)
-        if len(flat) >= SAME_MIN:
-            same[flat] = hit
+        entry = (doc_id, doc, store.effective_labels(doc), p, text, flat, score)
+        if len(flat) < SAME_MIN or flat not in same:
+            if shown.get(doc_id, 0) >= PER_DOC:
+                skipped.append(entry)
+                continue
+            shown[doc_id] = shown.get(doc_id, 0) + 1
+        place(*entry)
+        if len(hits) >= limit:
+            return hits
+    for entry in skipped if fill else ():
+        place(*entry)
         if len(hits) >= limit:
             break
     return hits
