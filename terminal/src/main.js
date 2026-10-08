@@ -223,7 +223,11 @@ class BronTerminalView extends ItemView {
     this.renderAgent();
     const provider = this.session?.provider || this.provider;
     this.input.placeholder = provider === 'shell' ? 'Enter a command, such as claude -c or codex resume…' : 'Message ' + PROVIDERS[provider].label + '…';
-    if (this.renderedProvider !== provider) { this.renderedProvider = provider; this.leaf.updateHeader(); }
+    if (this.renderedProvider !== provider) {
+      // A different program now owns the tab (Codex exited, or a new one started), so its editor starts empty.
+      // An unconfirmed Enter from the previous program must not keep blocking the composer.
+      this.renderedProvider = provider; this.terminalInput?.reset(); this.leaf.updateHeader();
+    }
     const entering = this.card.dataset.native !== 'true' && state?.native;
     const returning = this.card.dataset.native === 'true' && !state?.native;
     this.card.dataset.native = String(!!state?.native);

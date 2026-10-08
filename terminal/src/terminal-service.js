@@ -53,6 +53,7 @@ class TerminalService {
     catch { throw new Error('The Bron terminal helper is missing or not executable. Reinstall the complete plugin folder.'); }
     const { Terminal } = require('@xterm/xterm');
     const { FitAddon } = require('@xterm/addon-fit');
+    const { Unicode11Addon } = require('@xterm/addon-unicode11');
     const { PtyProcess } = require('./pty-process');
     const css = require('@xterm/xterm/css/xterm.css');
     const doc = container.ownerDocument;
@@ -73,6 +74,9 @@ class TerminalService {
       allowProposedApi: true, macOptionIsMeta: true, theme: this.theme(container),
     });
     const fitAddon = new FitAddon(); terminal.loadAddon(fitAddon);
+    // Claude Code and Codex draw emoji two columns wide; xterm's default Unicode 6 table counts one,
+    // which leaves stale characters behind redrawn input lines.
+    terminal.loadAddon(new Unicode11Addon()); terminal.unicode.activeVersion = '11';
     terminal.open(mount); fitAddon.fit();
     let alive = true, backend;
     const subscriptions = [];

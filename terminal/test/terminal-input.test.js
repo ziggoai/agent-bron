@@ -111,6 +111,17 @@ test('unconfirmed Enter has a bounded recovery path and never resends the old dr
   input.dispose();
 });
 
+test('a new program in the tab starts unblocked with an empty editor', () => {
+  const s=session('codex',['› unchanged','','GPT-6-Astra high · ~/project'],0,11);
+  const input=new TerminalInput(s,()=>{},()=>{});
+  input.sync('unchanged'); input.key('\r'); input.deadline=0; input.reconcile(true);
+  assert.equal(input.blocked,true); assert.equal(input.sync('retry'),false);
+  // The view calls reset() when Codex exits and a new program starts in the same tab.
+  input.reset(); s.writes.length=0;
+  assert.equal(input.sync('hello'),true); assert.deepEqual(s.writes,['hello']);
+  input.dispose();
+});
+
 test('PTY write failure preserves the draft and does not leave a pending send', () => {
   const s=session('claude',[rule,'❯ draft',rule,'auto mode on (shift+tab to cycle)'],1,7);
   const edits=[]; const input=new TerminalInput(s,v=>edits.push(v)); input.value='draft';

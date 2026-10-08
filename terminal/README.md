@@ -1,6 +1,6 @@
 # Bron Terminal
 
-Bron Terminal 0.6.0 is a standalone Obsidian desktop plugin. It bundles xterm.js, its styles, and a native PTY helper. It does not load Termy, use Termy's server, or require a Bron theme or framework installation.
+Bron Terminal 0.6.1 is a standalone Obsidian desktop plugin. It bundles xterm.js, its styles, and a native PTY helper. It does not load Termy, use Termy's server, or require a Bron theme or framework installation.
 
 The current release targets macOS 11 or later on Apple Silicon and Intel. The helper contains both architectures; live acceptance was run on Apple Silicon. Obsidian 1.8.7 or later is required. Linux and Windows backends are not included.
 

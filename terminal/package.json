@@ -1,6 +1,6 @@
 {
   "name": "bron-terminal",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "license": "MIT",
   "private": true,
   "scripts": {
@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/xterm": "^6.0.0"
   }
 }

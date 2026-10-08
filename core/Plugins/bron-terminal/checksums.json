@@ -1,7 +1,7 @@
 {
-  "main.js": "616ab0030d649d3aed1e31e17e344aa8f247b21a504cc6a4b4185b0ed7813fc1",
-  "manifest.json": "b50c2a948b8784ebc7bfa0cfa709560d1d8e1d2a90c9cd58fa18dbe512aa5f9f",
+  "main.js": "fd3ac40fc0943ec817d33fa402a5a486dcb6e719d2954b857e80a571edae9fcc",
+  "manifest.json": "871a057064e6692c907b2b9b47a9b50f667a37df6f654074a5543b71abb63cc2",
   "styles.css": "4bf0b2384db0440c849bcef7234640eb26b8d19667068e5ef2cd74e80b2cccfb",
-  "THIRD-PARTY-NOTICES.txt": "267860dcd6184ba57dfa90c98f6bbb1807ddf572b552809df03bac0aadc11d7b",
+  "THIRD-PARTY-NOTICES.txt": "f10241302cb93a4010f71960ea532ab2548c1467a34fabc9a08b41ce49c55e88",
   "bin/pty-host-darwin": "788f2b121afae970ac92b49ba34068e973e56d401921d36697e9c09a09c789f9"
 }

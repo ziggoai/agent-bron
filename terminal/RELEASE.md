@@ -1,8 +1,34 @@
-# Bron Terminal 0.6.0 release verification
+# Bron Terminal release verification
+
+## 0.6.1
+
+Verified on 2026-10-08 using macOS Apple Silicon, Obsidian 1.13.7, Claude Code 2.1.294, and Codex 0.161.0, in a fresh `scripts/dev-vault.sh` vault.
+
+### Changes
+
+- When a different program starts in a tab, the composer is cleared of an earlier unconfirmed Enter. Previously, once its error message had cleared, the composer stayed blocked after Codex exited and a new session started in the same tab.
+- The terminal uses Unicode 11 character widths (`@xterm/addon-unicode11` 0.9.0), matching how Claude Code and Codex draw emoji. Previously, a stale character could stay on Codex's input line after the model picker closed.
+
+### Acceptance checks
+
+The terminal suite passed 94 tests. The PTY helper is byte-identical to 0.6.0's.
+
+Live checks in the clean vault cover:
+
+- A Codex multiline draft containing accented text, emoji, and CJK characters, answered exactly.
+- Opening and cancelling the Codex model picker with an emoji draft. The input line redrew without stale characters, and Codex received the draft exactly as typed.
+- A forced unconfirmed Enter, followed by Codex exiting and a new Codex starting in the same tab. The new session accepted typed text and Enter.
+- `codex resume --last` restoring the conversation, and `codex resume` opening its picker, where Escape opened a new session.
+- `/quit` typed in the composer.
+- A Claude Code message with accented text, emoji, and CJK characters, echoed exactly and displayed without overlap.
+
+Codex drops an Enter that arrives within about 30 ms of the typed text. Only scripted input is that fast; from 30 ms on, every Enter was accepted. The composer now recovers from such a drop when a new program starts, and Escape or Ctrl+C recovers within the same session.
+
+## 0.6.0
 
 Verified on 2026-10-02 using macOS Apple Silicon, Obsidian 1.13.7, Claude Code 2.1.288, and Codex 0.160.0. A separate vault used the default Obsidian theme and had only Bron Terminal installed.
 
-## Changes
+### Changes
 
 - Added a default login-shell entry point. Shell commands and CLI startup arguments reach the actual shell.
 - Moved the maintainable source, locked dependencies, build, native helper source, and tests into the framework repository.
@@ -13,7 +39,7 @@ Verified on 2026-10-02 using macOS Apple Silicon, Obsidian 1.13.7, Claude Code 2
 - Added output backpressure, idempotent process disposal, and cleanup during failed startup.
 - Added a checksum-verified installer with upgrade backups and a standalone archive containing the complete runtime payload.
 
-## Acceptance checks
+### Acceptance checks
 
 The terminal suite passed 91 tests. The framework suite passed 627 tests with 14 opt-in live tests skipped; six installer tests were also rerun against the release payload. A fresh `scripts/dev-vault.sh` installation completed with no health-check errors and the expected first-use Codex trust warning.
 
@@ -29,21 +55,6 @@ Live checks in the clean vault cover:
 - A real Codex response to a multiline draft containing accented text, emoji, and CJK characters.
 - Opening and cancelling the Codex model picker with an unsent draft retained and resynchronized.
 - Plugin reload and startup from the packaged payload with Termy absent.
-
-## Recheck with Codex 0.161.0
-
-Rechecked on 2026-10-08 with Codex 0.161.0 and Claude Code 2.1.294 in a fresh `scripts/dev-vault.sh` vault. The terminal code was unchanged. The following Codex checks passed:
-
-- A multiline draft with accented text, emoji, and CJK characters reached Codex unchanged and was answered. The composer was then empty.
-- With an unsent draft in the composer, opening and cancelling the model picker kept the draft. Codex then received it exactly as typed.
-- `codex resume --last` restored the saved test conversation.
-- `codex resume` opened its native picker, and Escape opened a new session.
-- `/quit` typed in the composer exited Codex.
-
-Found during the recheck; neither is specific to 0.161.0:
-
-- After an Enter is not confirmed, the composer stays blocked even if Codex exits and a new session starts in the same tab. Once the error message clears, typing and Enter do nothing. Escape, Ctrl+C, or editing in terminal controls clears the block. Codex drops an Enter that arrives within about 30 ms of the typed text, which happens only with scripted input. From 30 ms on, every Enter was accepted.
-- After an emoji, a stale character can stay visible in Codex's input line once the model picker closes. The text Codex receives is correct. The cause is that xterm counts emoji as one column wide and Codex counts them as two.
 
 ## Release boundaries
 

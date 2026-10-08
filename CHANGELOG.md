@@ -2,6 +2,9 @@
 
 What changed in each version of Bron, newest first. Bron shows the new sections when you ask it to update itself.
 
+## 0.8.8
+- Bron Terminal 0.6.1. The message box no longer stops working after an agent quits and a new one starts in the same tab. Emoji now take the right width, so no stray character is left behind on the agent's input line. Checked with Codex 0.161.0 and Claude Code 2.1.294.
+
 ## 0.8.7
 - New vaults start Bron on `gpt-6-astra` in Codex, as it starts on Opus 5.5 in Claude Code, instead of whatever model Codex is set to. An existing vault keeps its setting; to change it, ask Bron or run `.bron/bin/bron agent set Bron --model codex=gpt-6-astra`.
 - One wiki page can cover several documents (copies, drafts, a set of the same form), and the check reports a document that two pages claim.

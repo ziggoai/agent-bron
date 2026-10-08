@@ -11592,6 +11592,1859 @@ var require_addon_fit = __commonJS({
   }
 });
 
+// node_modules/@xterm/addon-unicode11/lib/addon-unicode11.js
+var require_addon_unicode11 = __commonJS({
+  "node_modules/@xterm/addon-unicode11/lib/addon-unicode11.js"(exports2, module2) {
+    !(function(e, t) {
+      "object" == typeof exports2 && "object" == typeof module2 ? module2.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports2 ? exports2.Unicode11Addon = t() : e.Unicode11Addon = t();
+    })(globalThis, (() => (() => {
+      "use strict";
+      var e = { 384: (e2, t2, s2) => {
+        Object.defineProperty(t2, "__esModule", { value: true }), t2.UnicodeV11 = void 0;
+        const r2 = s2(765), n = [[768, 879], [1155, 1161], [1425, 1469], [1471, 1471], [1473, 1474], [1476, 1477], [1479, 1479], [1536, 1541], [1552, 1562], [1564, 1564], [1611, 1631], [1648, 1648], [1750, 1757], [1759, 1764], [1767, 1768], [1770, 1773], [1807, 1807], [1809, 1809], [1840, 1866], [1958, 1968], [2027, 2035], [2045, 2045], [2070, 2073], [2075, 2083], [2085, 2087], [2089, 2093], [2137, 2139], [2259, 2306], [2362, 2362], [2364, 2364], [2369, 2376], [2381, 2381], [2385, 2391], [2402, 2403], [2433, 2433], [2492, 2492], [2497, 2500], [2509, 2509], [2530, 2531], [2558, 2558], [2561, 2562], [2620, 2620], [2625, 2626], [2631, 2632], [2635, 2637], [2641, 2641], [2672, 2673], [2677, 2677], [2689, 2690], [2748, 2748], [2753, 2757], [2759, 2760], [2765, 2765], [2786, 2787], [2810, 2815], [2817, 2817], [2876, 2876], [2879, 2879], [2881, 2884], [2893, 2893], [2902, 2902], [2914, 2915], [2946, 2946], [3008, 3008], [3021, 3021], [3072, 3072], [3076, 3076], [3134, 3136], [3142, 3144], [3146, 3149], [3157, 3158], [3170, 3171], [3201, 3201], [3260, 3260], [3263, 3263], [3270, 3270], [3276, 3277], [3298, 3299], [3328, 3329], [3387, 3388], [3393, 3396], [3405, 3405], [3426, 3427], [3530, 3530], [3538, 3540], [3542, 3542], [3633, 3633], [3636, 3642], [3655, 3662], [3761, 3761], [3764, 3772], [3784, 3789], [3864, 3865], [3893, 3893], [3895, 3895], [3897, 3897], [3953, 3966], [3968, 3972], [3974, 3975], [3981, 3991], [3993, 4028], [4038, 4038], [4141, 4144], [4146, 4151], [4153, 4154], [4157, 4158], [4184, 4185], [4190, 4192], [4209, 4212], [4226, 4226], [4229, 4230], [4237, 4237], [4253, 4253], [4448, 4607], [4957, 4959], [5906, 5908], [5938, 5940], [5970, 5971], [6002, 6003], [6068, 6069], [6071, 6077], [6086, 6086], [6089, 6099], [6109, 6109], [6155, 6158], [6277, 6278], [6313, 6313], [6432, 6434], [6439, 6440], [6450, 6450], [6457, 6459], [6679, 6680], [6683, 6683], [6742, 6742], [6744, 6750], [6752, 6752], [6754, 6754], [6757, 6764], [6771, 6780], [6783, 6783], [6832, 6846], [6912, 6915], [6964, 6964], [6966, 6970], [6972, 6972], [6978, 6978], [7019, 7027], [7040, 7041], [7074, 7077], [7080, 7081], [7083, 7085], [7142, 7142], [7144, 7145], [7149, 7149], [7151, 7153], [7212, 7219], [7222, 7223], [7376, 7378], [7380, 7392], [7394, 7400], [7405, 7405], [7412, 7412], [7416, 7417], [7616, 7673], [7675, 7679], [8203, 8207], [8234, 8238], [8288, 8292], [8294, 8303], [8400, 8432], [11503, 11505], [11647, 11647], [11744, 11775], [12330, 12333], [12441, 12442], [42607, 42610], [42612, 42621], [42654, 42655], [42736, 42737], [43010, 43010], [43014, 43014], [43019, 43019], [43045, 43046], [43204, 43205], [43232, 43249], [43263, 43263], [43302, 43309], [43335, 43345], [43392, 43394], [43443, 43443], [43446, 43449], [43452, 43453], [43493, 43493], [43561, 43566], [43569, 43570], [43573, 43574], [43587, 43587], [43596, 43596], [43644, 43644], [43696, 43696], [43698, 43700], [43703, 43704], [43710, 43711], [43713, 43713], [43756, 43757], [43766, 43766], [44005, 44005], [44008, 44008], [44013, 44013], [64286, 64286], [65024, 65039], [65056, 65071], [65279, 65279], [65529, 65531]], i = [[66045, 66045], [66272, 66272], [66422, 66426], [68097, 68099], [68101, 68102], [68108, 68111], [68152, 68154], [68159, 68159], [68325, 68326], [68900, 68903], [69446, 69456], [69633, 69633], [69688, 69702], [69759, 69761], [69811, 69814], [69817, 69818], [69821, 69821], [69837, 69837], [69888, 69890], [69927, 69931], [69933, 69940], [70003, 70003], [70016, 70017], [70070, 70078], [70089, 70092], [70191, 70193], [70196, 70196], [70198, 70199], [70206, 70206], [70367, 70367], [70371, 70378], [70400, 70401], [70459, 70460], [70464, 70464], [70502, 70508], [70512, 70516], [70712, 70719], [70722, 70724], [70726, 70726], [70750, 70750], [70835, 70840], [70842, 70842], [70847, 70848], [70850, 70851], [71090, 71093], [71100, 71101], [71103, 71104], [71132, 71133], [71219, 71226], [71229, 71229], [71231, 71232], [71339, 71339], [71341, 71341], [71344, 71349], [71351, 71351], [71453, 71455], [71458, 71461], [71463, 71467], [71727, 71735], [71737, 71738], [72148, 72151], [72154, 72155], [72160, 72160], [72193, 72202], [72243, 72248], [72251, 72254], [72263, 72263], [72273, 72278], [72281, 72283], [72330, 72342], [72344, 72345], [72752, 72758], [72760, 72765], [72767, 72767], [72850, 72871], [72874, 72880], [72882, 72883], [72885, 72886], [73009, 73014], [73018, 73018], [73020, 73021], [73023, 73029], [73031, 73031], [73104, 73105], [73109, 73109], [73111, 73111], [73459, 73460], [78896, 78904], [92912, 92916], [92976, 92982], [94031, 94031], [94095, 94098], [113821, 113822], [113824, 113827], [119143, 119145], [119155, 119170], [119173, 119179], [119210, 119213], [119362, 119364], [121344, 121398], [121403, 121452], [121461, 121461], [121476, 121476], [121499, 121503], [121505, 121519], [122880, 122886], [122888, 122904], [122907, 122913], [122915, 122916], [122918, 122922], [123184, 123190], [123628, 123631], [125136, 125142], [125252, 125258], [917505, 917505], [917536, 917631], [917760, 917999]], o = [[4352, 4447], [8986, 8987], [9001, 9002], [9193, 9196], [9200, 9200], [9203, 9203], [9725, 9726], [9748, 9749], [9800, 9811], [9855, 9855], [9875, 9875], [9889, 9889], [9898, 9899], [9917, 9918], [9924, 9925], [9934, 9934], [9940, 9940], [9962, 9962], [9970, 9971], [9973, 9973], [9978, 9978], [9981, 9981], [9989, 9989], [9994, 9995], [10024, 10024], [10060, 10060], [10062, 10062], [10067, 10069], [10071, 10071], [10133, 10135], [10160, 10160], [10175, 10175], [11035, 11036], [11088, 11088], [11093, 11093], [11904, 11929], [11931, 12019], [12032, 12245], [12272, 12283], [12288, 12329], [12334, 12350], [12353, 12438], [12443, 12543], [12549, 12591], [12593, 12686], [12688, 12730], [12736, 12771], [12784, 12830], [12832, 12871], [12880, 19903], [19968, 42124], [42128, 42182], [43360, 43388], [44032, 55203], [63744, 64255], [65040, 65049], [65072, 65106], [65108, 65126], [65128, 65131], [65281, 65376], [65504, 65510]], a = [[94176, 94179], [94208, 100343], [100352, 101106], [110592, 110878], [110928, 110930], [110948, 110951], [110960, 111355], [126980, 126980], [127183, 127183], [127374, 127374], [127377, 127386], [127488, 127490], [127504, 127547], [127552, 127560], [127568, 127569], [127584, 127589], [127744, 127776], [127789, 127797], [127799, 127868], [127870, 127891], [127904, 127946], [127951, 127955], [127968, 127984], [127988, 127988], [127992, 128062], [128064, 128064], [128066, 128252], [128255, 128317], [128331, 128334], [128336, 128359], [128378, 128378], [128405, 128406], [128420, 128420], [128507, 128591], [128640, 128709], [128716, 128716], [128720, 128722], [128725, 128725], [128747, 128748], [128756, 128762], [128992, 129003], [129293, 129393], [129395, 129398], [129402, 129442], [129445, 129450], [129454, 129482], [129485, 129535], [129648, 129651], [129656, 129658], [129664, 129666], [129680, 129685], [131072, 196605], [196608, 262141]];
+        let l;
+        function c(e3, t3) {
+          let s3, r3 = 0, n2 = t3.length - 1;
+          if (e3 < t3[0][0] || e3 > t3[n2][1]) return false;
+          for (; n2 >= r3; ) if (s3 = r3 + n2 >> 1, e3 > t3[s3][1]) r3 = s3 + 1;
+          else {
+            if (!(e3 < t3[s3][0])) return true;
+            n2 = s3 - 1;
+          }
+          return false;
+        }
+        t2.UnicodeV11 = class {
+          constructor() {
+            if (this.version = "11", !l) {
+              l = new Uint8Array(65536), l.fill(1), l[0] = 0, l.fill(0, 1, 32), l.fill(0, 127, 160);
+              for (let e3 = 0; e3 < n.length; ++e3) l.fill(0, n[e3][0], n[e3][1] + 1);
+              for (let e3 = 0; e3 < o.length; ++e3) l.fill(2, o[e3][0], o[e3][1] + 1);
+            }
+          }
+          wcwidth(e3) {
+            return e3 < 32 ? 0 : e3 < 127 ? 1 : e3 < 65536 ? l[e3] : c(e3, i) ? 0 : c(e3, a) ? 2 : 1;
+          }
+          charProperties(e3, t3) {
+            let s3 = this.wcwidth(e3), n2 = 0 === s3 && 0 !== t3;
+            if (n2) {
+              const e4 = r2.UnicodeService.extractWidth(t3);
+              0 === e4 ? n2 = false : e4 > s3 && (s3 = e4);
+            }
+            return r2.UnicodeService.createPropertyValue(0, s3, n2);
+          }
+        };
+      }, 546: (e2, t2, s2) => {
+        Object.defineProperty(t2, "__esModule", { value: true }), t2.UnicodeV6 = void 0;
+        const r2 = s2(765), n = [[768, 879], [1155, 1158], [1160, 1161], [1425, 1469], [1471, 1471], [1473, 1474], [1476, 1477], [1479, 1479], [1536, 1539], [1552, 1557], [1611, 1630], [1648, 1648], [1750, 1764], [1767, 1768], [1770, 1773], [1807, 1807], [1809, 1809], [1840, 1866], [1958, 1968], [2027, 2035], [2305, 2306], [2364, 2364], [2369, 2376], [2381, 2381], [2385, 2388], [2402, 2403], [2433, 2433], [2492, 2492], [2497, 2500], [2509, 2509], [2530, 2531], [2561, 2562], [2620, 2620], [2625, 2626], [2631, 2632], [2635, 2637], [2672, 2673], [2689, 2690], [2748, 2748], [2753, 2757], [2759, 2760], [2765, 2765], [2786, 2787], [2817, 2817], [2876, 2876], [2879, 2879], [2881, 2883], [2893, 2893], [2902, 2902], [2946, 2946], [3008, 3008], [3021, 3021], [3134, 3136], [3142, 3144], [3146, 3149], [3157, 3158], [3260, 3260], [3263, 3263], [3270, 3270], [3276, 3277], [3298, 3299], [3393, 3395], [3405, 3405], [3530, 3530], [3538, 3540], [3542, 3542], [3633, 3633], [3636, 3642], [3655, 3662], [3761, 3761], [3764, 3769], [3771, 3772], [3784, 3789], [3864, 3865], [3893, 3893], [3895, 3895], [3897, 3897], [3953, 3966], [3968, 3972], [3974, 3975], [3984, 3991], [3993, 4028], [4038, 4038], [4141, 4144], [4146, 4146], [4150, 4151], [4153, 4153], [4184, 4185], [4448, 4607], [4959, 4959], [5906, 5908], [5938, 5940], [5970, 5971], [6002, 6003], [6068, 6069], [6071, 6077], [6086, 6086], [6089, 6099], [6109, 6109], [6155, 6157], [6313, 6313], [6432, 6434], [6439, 6440], [6450, 6450], [6457, 6459], [6679, 6680], [6912, 6915], [6964, 6964], [6966, 6970], [6972, 6972], [6978, 6978], [7019, 7027], [7616, 7626], [7678, 7679], [8203, 8207], [8234, 8238], [8288, 8291], [8298, 8303], [8400, 8431], [12330, 12335], [12441, 12442], [43014, 43014], [43019, 43019], [43045, 43046], [64286, 64286], [65024, 65039], [65056, 65059], [65279, 65279], [65529, 65531]], i = [[68097, 68099], [68101, 68102], [68108, 68111], [68152, 68154], [68159, 68159], [119143, 119145], [119155, 119170], [119173, 119179], [119210, 119213], [119362, 119364], [917505, 917505], [917536, 917631], [917760, 917999]];
+        let o;
+        t2.UnicodeV6 = class {
+          constructor() {
+            if (this.version = "6", !o) {
+              o = new Uint8Array(65536), o.fill(1), o[0] = 0, o.fill(0, 1, 32), o.fill(0, 127, 160), o.fill(2, 4352, 4448), o[9001] = 2, o[9002] = 2, o.fill(2, 11904, 42192), o[12351] = 1, o.fill(2, 44032, 55204), o.fill(2, 63744, 64256), o.fill(2, 65040, 65050), o.fill(2, 65072, 65136), o.fill(2, 65280, 65377), o.fill(2, 65504, 65511);
+              for (let e3 = 0; e3 < n.length; ++e3) o.fill(0, n[e3][0], n[e3][1] + 1);
+            }
+          }
+          wcwidth(e3) {
+            return e3 < 32 ? 0 : e3 < 127 ? 1 : e3 < 65536 ? o[e3] : (function(e4, t3) {
+              let s3, r3 = 0, n2 = t3.length - 1;
+              if (e4 < t3[0][0] || e4 > t3[n2][1]) return false;
+              for (; n2 >= r3; ) if (s3 = r3 + n2 >> 1, e4 > t3[s3][1]) r3 = s3 + 1;
+              else {
+                if (!(e4 < t3[s3][0])) return true;
+                n2 = s3 - 1;
+              }
+              return false;
+            })(e3, i) ? 0 : e3 >= 131072 && e3 <= 196605 || e3 >= 196608 && e3 <= 262141 ? 2 : 1;
+          }
+          charProperties(e3, t3) {
+            let s3 = this.wcwidth(e3), n2 = 0 === s3 && 0 !== t3;
+            if (n2) {
+              const e4 = r2.UnicodeService.extractWidth(t3);
+              0 === e4 ? n2 = false : e4 > s3 && (s3 = e4);
+            }
+            return r2.UnicodeService.createPropertyValue(0, s3, n2);
+          }
+        };
+      }, 765: (e2, t2, s2) => {
+        Object.defineProperty(t2, "__esModule", { value: true }), t2.UnicodeService = void 0;
+        const r2 = s2(546), n = s2(276);
+        class i {
+          static extractShouldJoin(e3) {
+            return !!(1 & e3);
+          }
+          static extractWidth(e3) {
+            return e3 >> 1 & 3;
+          }
+          static extractCharKind(e3) {
+            return e3 >> 3;
+          }
+          static createPropertyValue(e3, t3, s3 = false) {
+            return (16777215 & e3) << 3 | (3 & t3) << 1 | (s3 ? 1 : 0);
+          }
+          constructor() {
+            this._providers = /* @__PURE__ */ Object.create(null), this._active = "", this._onChange = new n.Emitter(), this.onChange = this._onChange.event;
+            const e3 = new r2.UnicodeV6();
+            this.register(e3), this._active = e3.version, this._activeProvider = e3;
+          }
+          dispose() {
+            this._onChange.dispose();
+          }
+          get versions() {
+            return Object.keys(this._providers);
+          }
+          get activeVersion() {
+            return this._active;
+          }
+          set activeVersion(e3) {
+            if (!this._providers[e3]) throw new Error(`unknown Unicode version "${e3}"`);
+            this._active = e3, this._activeProvider = this._providers[e3], this._onChange.fire(e3);
+          }
+          register(e3) {
+            this._providers[e3.version] = e3;
+          }
+          wcwidth(e3) {
+            return this._activeProvider.wcwidth(e3);
+          }
+          getStringCellWidth(e3) {
+            let t3 = 0, s3 = 0;
+            const r3 = e3.length;
+            for (let n2 = 0; n2 < r3; ++n2) {
+              let o = e3.charCodeAt(n2);
+              if (55296 <= o && o <= 56319) {
+                if (++n2 >= r3) return t3 + this.wcwidth(o);
+                const s4 = e3.charCodeAt(n2);
+                56320 <= s4 && s4 <= 57343 ? o = 1024 * (o - 55296) + s4 - 56320 + 65536 : t3 += this.wcwidth(s4);
+              }
+              const a = this.charProperties(o, s3);
+              let l = i.extractWidth(a);
+              i.extractShouldJoin(a) && (l -= i.extractWidth(s3)), t3 += l, s3 = a;
+            }
+            return t3;
+          }
+          charProperties(e3, t3) {
+            return this._activeProvider.charProperties(e3, t3);
+          }
+        }
+        t2.UnicodeService = i;
+      }, 732: (e2, t2, s2) => {
+        Object.defineProperty(t2, "__esModule", { value: true }), t2.Permutation = t2.CallbackIterable = t2.ArrayQueue = t2.booleanComparator = t2.numberComparator = t2.CompareResult = void 0, t2.tail = function(e3, t3 = 0) {
+          return e3[e3.length - (1 + t3)];
+        }, t2.tail2 = function(e3) {
+          if (0 === e3.length) throw new Error("Invalid tail call");
+          return [e3.slice(0, e3.length - 1), e3[e3.length - 1]];
+        }, t2.equals = function(e3, t3, s3 = (e4, t4) => e4 === t4) {
+          if (e3 === t3) return true;
+          if (!e3 || !t3) return false;
+          if (e3.length !== t3.length) return false;
+          for (let r3 = 0, n2 = e3.length; r3 < n2; r3++) if (!s3(e3[r3], t3[r3])) return false;
+          return true;
+        }, t2.removeFastWithoutKeepingOrder = function(e3, t3) {
+          const s3 = e3.length - 1;
+          t3 < s3 && (e3[t3] = e3[s3]), e3.pop();
+        }, t2.binarySearch = function(e3, t3, s3) {
+          return i(e3.length, ((r3) => s3(e3[r3], t3)));
+        }, t2.binarySearch2 = i, t2.quickSelect = function e3(t3, s3, r3) {
+          if ((t3 |= 0) >= s3.length) throw new TypeError("invalid index");
+          const n2 = s3[Math.floor(s3.length * Math.random())], i2 = [], o2 = [], a2 = [];
+          for (const e4 of s3) {
+            const t4 = r3(e4, n2);
+            t4 < 0 ? i2.push(e4) : t4 > 0 ? o2.push(e4) : a2.push(e4);
+          }
+          return t3 < i2.length ? e3(t3, i2, r3) : t3 < i2.length + a2.length ? a2[0] : e3(t3 - (i2.length + a2.length), o2, r3);
+        }, t2.groupBy = function(e3, t3) {
+          const s3 = [];
+          let r3;
+          for (const n2 of e3.slice(0).sort(t3)) r3 && 0 === t3(r3[0], n2) ? r3.push(n2) : (r3 = [n2], s3.push(r3));
+          return s3;
+        }, t2.groupAdjacentBy = function* (e3, t3) {
+          let s3, r3;
+          for (const n2 of e3) void 0 !== r3 && t3(r3, n2) ? s3.push(n2) : (s3 && (yield s3), s3 = [n2]), r3 = n2;
+          s3 && (yield s3);
+        }, t2.forEachAdjacent = function(e3, t3) {
+          for (let s3 = 0; s3 <= e3.length; s3++) t3(0 === s3 ? void 0 : e3[s3 - 1], s3 === e3.length ? void 0 : e3[s3]);
+        }, t2.forEachWithNeighbors = function(e3, t3) {
+          for (let s3 = 0; s3 < e3.length; s3++) t3(0 === s3 ? void 0 : e3[s3 - 1], e3[s3], s3 + 1 === e3.length ? void 0 : e3[s3 + 1]);
+        }, t2.sortedDiff = o, t2.delta = function(e3, t3, s3) {
+          const r3 = o(e3, t3, s3), n2 = [], i2 = [];
+          for (const t4 of r3) n2.push(...e3.slice(t4.start, t4.start + t4.deleteCount)), i2.push(...t4.toInsert);
+          return { removed: n2, added: i2 };
+        }, t2.top = function(e3, t3, s3) {
+          if (0 === s3) return [];
+          const r3 = e3.slice(0, s3).sort(t3);
+          return a(e3, t3, r3, s3, e3.length), r3;
+        }, t2.topAsync = function(e3, t3, s3, n2, i2) {
+          return 0 === s3 ? Promise.resolve([]) : new Promise(((o2, l2) => {
+            (async () => {
+              const o3 = e3.length, l3 = e3.slice(0, s3).sort(t3);
+              for (let c2 = s3, h2 = Math.min(s3 + n2, o3); c2 < o3; c2 = h2, h2 = Math.min(h2 + n2, o3)) {
+                if (c2 > s3 && await new Promise(((e4) => setTimeout(e4))), i2 && i2.isCancellationRequested) throw new r2.CancellationError();
+                a(e3, t3, l3, c2, h2);
+              }
+              return l3;
+            })().then(o2, l2);
+          }));
+        }, t2.coalesce = function(e3) {
+          return e3.filter(((e4) => !!e4));
+        }, t2.coalesceInPlace = function(e3) {
+          let t3 = 0;
+          for (let s3 = 0; s3 < e3.length; s3++) e3[s3] && (e3[t3] = e3[s3], t3 += 1);
+          e3.length = t3;
+        }, t2.move = function(e3, t3, s3) {
+          e3.splice(s3, 0, e3.splice(t3, 1)[0]);
+        }, t2.isFalsyOrEmpty = function(e3) {
+          return !Array.isArray(e3) || 0 === e3.length;
+        }, t2.isNonEmptyArray = function(e3) {
+          return Array.isArray(e3) && e3.length > 0;
+        }, t2.distinct = function(e3, t3 = (e4) => e4) {
+          const s3 = /* @__PURE__ */ new Set();
+          return e3.filter(((e4) => {
+            const r3 = t3(e4);
+            return !s3.has(r3) && (s3.add(r3), true);
+          }));
+        }, t2.uniqueFilter = function(e3) {
+          const t3 = /* @__PURE__ */ new Set();
+          return (s3) => {
+            const r3 = e3(s3);
+            return !t3.has(r3) && (t3.add(r3), true);
+          };
+        }, t2.firstOrDefault = function(e3, t3) {
+          return e3.length > 0 ? e3[0] : t3;
+        }, t2.lastOrDefault = function(e3, t3) {
+          return e3.length > 0 ? e3[e3.length - 1] : t3;
+        }, t2.commonPrefixLength = function(e3, t3, s3 = (e4, t4) => e4 === t4) {
+          let r3 = 0;
+          for (let n2 = 0, i2 = Math.min(e3.length, t3.length); n2 < i2 && s3(e3[n2], t3[n2]); n2++) r3++;
+          return r3;
+        }, t2.range = function(e3, t3) {
+          let s3 = "number" == typeof t3 ? e3 : 0;
+          "number" == typeof t3 ? s3 = e3 : (s3 = 0, t3 = e3);
+          const r3 = [];
+          if (s3 <= t3) for (let e4 = s3; e4 < t3; e4++) r3.push(e4);
+          else for (let e4 = s3; e4 > t3; e4--) r3.push(e4);
+          return r3;
+        }, t2.index = function(e3, t3, s3) {
+          return e3.reduce(((e4, r3) => (e4[t3(r3)] = s3 ? s3(r3) : r3, e4)), /* @__PURE__ */ Object.create(null));
+        }, t2.insert = function(e3, t3) {
+          return e3.push(t3), () => l(e3, t3);
+        }, t2.remove = l, t2.arrayInsert = function(e3, t3, s3) {
+          const r3 = e3.slice(0, t3), n2 = e3.slice(t3);
+          return r3.concat(s3, n2);
+        }, t2.shuffle = function(e3, t3) {
+          let s3;
+          if ("number" == typeof t3) {
+            let e4 = t3;
+            s3 = () => {
+              const t4 = 179426549 * Math.sin(e4++);
+              return t4 - Math.floor(t4);
+            };
+          } else s3 = Math.random;
+          for (let t4 = e3.length - 1; t4 > 0; t4 -= 1) {
+            const r3 = Math.floor(s3() * (t4 + 1)), n2 = e3[t4];
+            e3[t4] = e3[r3], e3[r3] = n2;
+          }
+        }, t2.pushToStart = function(e3, t3) {
+          const s3 = e3.indexOf(t3);
+          s3 > -1 && (e3.splice(s3, 1), e3.unshift(t3));
+        }, t2.pushToEnd = function(e3, t3) {
+          const s3 = e3.indexOf(t3);
+          s3 > -1 && (e3.splice(s3, 1), e3.push(t3));
+        }, t2.pushMany = function(e3, t3) {
+          for (const s3 of t3) e3.push(s3);
+        }, t2.mapArrayOrNot = function(e3, t3) {
+          return Array.isArray(e3) ? e3.map(t3) : t3(e3);
+        }, t2.asArray = function(e3) {
+          return Array.isArray(e3) ? e3 : [e3];
+        }, t2.getRandomElement = function(e3) {
+          return e3[Math.floor(Math.random() * e3.length)];
+        }, t2.insertInto = c, t2.splice = function(e3, t3, s3, r3) {
+          const n2 = h(e3, t3);
+          let i2 = e3.splice(n2, s3);
+          return void 0 === i2 && (i2 = []), c(e3, n2, r3), i2;
+        }, t2.compareBy = function(e3, t3) {
+          return (s3, r3) => t3(e3(s3), e3(r3));
+        }, t2.tieBreakComparators = function(...e3) {
+          return (t3, s3) => {
+            for (const r3 of e3) {
+              const e4 = r3(t3, s3);
+              if (!u.isNeitherLessOrGreaterThan(e4)) return e4;
+            }
+            return u.neitherLessOrGreaterThan;
+          };
+        }, t2.reverseOrder = function(e3) {
+          return (t3, s3) => -e3(t3, s3);
+        };
+        const r2 = s2(577), n = s2(411);
+        function i(e3, t3) {
+          let s3 = 0, r3 = e3 - 1;
+          for (; s3 <= r3; ) {
+            const e4 = (s3 + r3) / 2 | 0, n2 = t3(e4);
+            if (n2 < 0) s3 = e4 + 1;
+            else {
+              if (!(n2 > 0)) return e4;
+              r3 = e4 - 1;
+            }
+          }
+          return -(s3 + 1);
+        }
+        function o(e3, t3, s3) {
+          const r3 = [];
+          function n2(e4, t4, s4) {
+            if (0 === t4 && 0 === s4.length) return;
+            const n3 = r3[r3.length - 1];
+            n3 && n3.start + n3.deleteCount === e4 ? (n3.deleteCount += t4, n3.toInsert.push(...s4)) : r3.push({ start: e4, deleteCount: t4, toInsert: s4 });
+          }
+          let i2 = 0, o2 = 0;
+          for (; ; ) {
+            if (i2 === e3.length) {
+              n2(i2, 0, t3.slice(o2));
+              break;
+            }
+            if (o2 === t3.length) {
+              n2(i2, e3.length - i2, []);
+              break;
+            }
+            const r4 = e3[i2], a2 = t3[o2], l2 = s3(r4, a2);
+            0 === l2 ? (i2 += 1, o2 += 1) : l2 < 0 ? (n2(i2, 1, []), i2 += 1) : l2 > 0 && (n2(i2, 0, [a2]), o2 += 1);
+          }
+          return r3;
+        }
+        function a(e3, t3, s3, r3, i2) {
+          for (const o2 = s3.length; r3 < i2; r3++) {
+            const i3 = e3[r3];
+            if (t3(i3, s3[o2 - 1]) < 0) {
+              s3.pop();
+              const e4 = (0, n.findFirstIdxMonotonousOrArrLen)(s3, ((e5) => t3(i3, e5) < 0));
+              s3.splice(e4, 0, i3);
+            }
+          }
+        }
+        function l(e3, t3) {
+          const s3 = e3.indexOf(t3);
+          if (s3 > -1) return e3.splice(s3, 1), t3;
+        }
+        function c(e3, t3, s3) {
+          const r3 = h(e3, t3), n2 = e3.length, i2 = s3.length;
+          e3.length = n2 + i2;
+          for (let t4 = n2 - 1; t4 >= r3; t4--) e3[t4 + i2] = e3[t4];
+          for (let t4 = 0; t4 < i2; t4++) e3[t4 + r3] = s3[t4];
+        }
+        function h(e3, t3) {
+          return t3 < 0 ? Math.max(t3 + e3.length, 0) : Math.min(t3, e3.length);
+        }
+        var u;
+        !(function(e3) {
+          e3.isLessThan = function(e4) {
+            return e4 < 0;
+          }, e3.isLessThanOrEqual = function(e4) {
+            return e4 <= 0;
+          }, e3.isGreaterThan = function(e4) {
+            return e4 > 0;
+          }, e3.isNeitherLessOrGreaterThan = function(e4) {
+            return 0 === e4;
+          }, e3.greaterThan = 1, e3.lessThan = -1, e3.neitherLessOrGreaterThan = 0;
+        })(u || (t2.CompareResult = u = {})), t2.numberComparator = (e3, t3) => e3 - t3, t2.booleanComparator = (e3, s3) => (0, t2.numberComparator)(e3 ? 1 : 0, s3 ? 1 : 0), t2.ArrayQueue = class {
+          constructor(e3) {
+            this.items = e3, this.firstIdx = 0, this.lastIdx = this.items.length - 1;
+          }
+          get length() {
+            return this.lastIdx - this.firstIdx + 1;
+          }
+          takeWhile(e3) {
+            let t3 = this.firstIdx;
+            for (; t3 < this.items.length && e3(this.items[t3]); ) t3++;
+            const s3 = t3 === this.firstIdx ? null : this.items.slice(this.firstIdx, t3);
+            return this.firstIdx = t3, s3;
+          }
+          takeFromEndWhile(e3) {
+            let t3 = this.lastIdx;
+            for (; t3 >= 0 && e3(this.items[t3]); ) t3--;
+            const s3 = t3 === this.lastIdx ? null : this.items.slice(t3 + 1, this.lastIdx + 1);
+            return this.lastIdx = t3, s3;
+          }
+          peek() {
+            if (0 !== this.length) return this.items[this.firstIdx];
+          }
+          peekLast() {
+            if (0 !== this.length) return this.items[this.lastIdx];
+          }
+          dequeue() {
+            const e3 = this.items[this.firstIdx];
+            return this.firstIdx++, e3;
+          }
+          removeLast() {
+            const e3 = this.items[this.lastIdx];
+            return this.lastIdx--, e3;
+          }
+          takeCount(e3) {
+            const t3 = this.items.slice(this.firstIdx, this.firstIdx + e3);
+            return this.firstIdx += e3, t3;
+          }
+        };
+        class d {
+          static {
+            this.empty = new d(((e3) => {
+            }));
+          }
+          constructor(e3) {
+            this.iterate = e3;
+          }
+          forEach(e3) {
+            this.iterate(((t3) => (e3(t3), true)));
+          }
+          toArray() {
+            const e3 = [];
+            return this.iterate(((t3) => (e3.push(t3), true))), e3;
+          }
+          filter(e3) {
+            return new d(((t3) => this.iterate(((s3) => !e3(s3) || t3(s3)))));
+          }
+          map(e3) {
+            return new d(((t3) => this.iterate(((s3) => t3(e3(s3))))));
+          }
+          some(e3) {
+            let t3 = false;
+            return this.iterate(((s3) => (t3 = e3(s3), !t3))), t3;
+          }
+          findFirst(e3) {
+            let t3;
+            return this.iterate(((s3) => !e3(s3) || (t3 = s3, false))), t3;
+          }
+          findLast(e3) {
+            let t3;
+            return this.iterate(((s3) => (e3(s3) && (t3 = s3), true))), t3;
+          }
+          findLastMaxBy(e3) {
+            let t3, s3 = true;
+            return this.iterate(((r3) => ((s3 || u.isGreaterThan(e3(r3, t3))) && (s3 = false, t3 = r3), true))), t3;
+          }
+        }
+        t2.CallbackIterable = d;
+        class f {
+          constructor(e3) {
+            this._indexMap = e3;
+          }
+          static createSortPermutation(e3, t3) {
+            const s3 = Array.from(e3.keys()).sort(((s4, r3) => t3(e3[s4], e3[r3])));
+            return new f(s3);
+          }
+          apply(e3) {
+            return e3.map(((t3, s3) => e3[this._indexMap[s3]]));
+          }
+          inverse() {
+            const e3 = this._indexMap.slice();
+            for (let t3 = 0; t3 < this._indexMap.length; t3++) e3[this._indexMap[t3]] = t3;
+            return new f(e3);
+          }
+        }
+        t2.Permutation = f;
+      }, 411: (e2, t2) => {
+        function s2(e3, t3, s3 = e3.length - 1) {
+          for (let r3 = s3; r3 >= 0; r3--) if (t3(e3[r3])) return r3;
+          return -1;
+        }
+        function r2(e3, t3, s3 = 0, r3 = e3.length) {
+          let n2 = s3, i2 = r3;
+          for (; n2 < i2; ) {
+            const s4 = Math.floor((n2 + i2) / 2);
+            t3(e3[s4]) ? n2 = s4 + 1 : i2 = s4;
+          }
+          return n2 - 1;
+        }
+        function n(e3, t3, s3 = 0, r3 = e3.length) {
+          let n2 = s3, i2 = r3;
+          for (; n2 < i2; ) {
+            const s4 = Math.floor((n2 + i2) / 2);
+            t3(e3[s4]) ? i2 = s4 : n2 = s4 + 1;
+          }
+          return n2;
+        }
+        Object.defineProperty(t2, "__esModule", { value: true }), t2.MonotonousArray = void 0, t2.findLast = function(e3, t3) {
+          const r3 = s2(e3, t3);
+          if (-1 !== r3) return e3[r3];
+        }, t2.findLastIdx = s2, t2.findLastMonotonous = function(e3, t3) {
+          const s3 = r2(e3, t3);
+          return -1 === s3 ? void 0 : e3[s3];
+        }, t2.findLastIdxMonotonous = r2, t2.findFirstMonotonous = function(e3, t3) {
+          const s3 = n(e3, t3);
+          return s3 === e3.length ? void 0 : e3[s3];
+        }, t2.findFirstIdxMonotonousOrArrLen = n, t2.findFirstIdxMonotonous = function(e3, t3, s3 = 0, r3 = e3.length) {
+          const i2 = n(e3, t3, s3, r3);
+          return i2 === e3.length ? -1 : i2;
+        }, t2.findFirstMax = o, t2.findLastMax = function(e3, t3) {
+          if (0 === e3.length) return;
+          let s3 = e3[0];
+          for (let r3 = 1; r3 < e3.length; r3++) {
+            const n2 = e3[r3];
+            t3(n2, s3) >= 0 && (s3 = n2);
+          }
+          return s3;
+        }, t2.findFirstMin = function(e3, t3) {
+          return o(e3, ((e4, s3) => -t3(e4, s3)));
+        }, t2.findMaxIdx = function(e3, t3) {
+          if (0 === e3.length) return -1;
+          let s3 = 0;
+          for (let r3 = 1; r3 < e3.length; r3++) t3(e3[r3], e3[s3]) > 0 && (s3 = r3);
+          return s3;
+        }, t2.mapFindFirst = function(e3, t3) {
+          for (const s3 of e3) {
+            const e4 = t3(s3);
+            if (void 0 !== e4) return e4;
+          }
+        };
+        class i {
+          static {
+            this.assertInvariants = false;
+          }
+          constructor(e3) {
+            this._array = e3, this._findLastMonotonousLastIdx = 0;
+          }
+          findLastMonotonous(e3) {
+            if (i.assertInvariants) {
+              if (this._prevFindLastPredicate) {
+                for (const t4 of this._array) if (this._prevFindLastPredicate(t4) && !e3(t4)) throw new Error("MonotonousArray: current predicate must be weaker than (or equal to) the previous predicate.");
+              }
+              this._prevFindLastPredicate = e3;
+            }
+            const t3 = r2(this._array, e3, this._findLastMonotonousLastIdx);
+            return this._findLastMonotonousLastIdx = t3 + 1, -1 === t3 ? void 0 : this._array[t3];
+          }
+        }
+        function o(e3, t3) {
+          if (0 === e3.length) return;
+          let s3 = e3[0];
+          for (let r3 = 1; r3 < e3.length; r3++) {
+            const n2 = e3[r3];
+            t3(n2, s3) > 0 && (s3 = n2);
+          }
+          return s3;
+        }
+        t2.MonotonousArray = i;
+      }, 33: (e2, t2) => {
+        var s2;
+        Object.defineProperty(t2, "__esModule", { value: true }), t2.SetWithKey = void 0, t2.groupBy = function(e3, t3) {
+          const s3 = /* @__PURE__ */ Object.create(null);
+          for (const r3 of e3) {
+            const e4 = t3(r3);
+            let n = s3[e4];
+            n || (n = s3[e4] = []), n.push(r3);
+          }
+          return s3;
+        }, t2.diffSets = function(e3, t3) {
+          const s3 = [], r3 = [];
+          for (const r4 of e3) t3.has(r4) || s3.push(r4);
+          for (const s4 of t3) e3.has(s4) || r3.push(s4);
+          return { removed: s3, added: r3 };
+        }, t2.diffMaps = function(e3, t3) {
+          const s3 = [], r3 = [];
+          for (const [r4, n] of e3) t3.has(r4) || s3.push(n);
+          for (const [s4, n] of t3) e3.has(s4) || r3.push(n);
+          return { removed: s3, added: r3 };
+        }, t2.intersection = function(e3, t3) {
+          const s3 = /* @__PURE__ */ new Set();
+          for (const r3 of t3) e3.has(r3) && s3.add(r3);
+          return s3;
+        };
+        class r2 {
+          static {
+            s2 = Symbol.toStringTag;
+          }
+          constructor(e3, t3) {
+            this.toKey = t3, this._map = /* @__PURE__ */ new Map(), this[s2] = "SetWithKey";
+            for (const t4 of e3) this.add(t4);
+          }
+          get size() {
+            return this._map.size;
+          }
+          add(e3) {
+            const t3 = this.toKey(e3);
+            return this._map.set(t3, e3), this;
+          }
+          delete(e3) {
+            return this._map.delete(this.toKey(e3));
+          }
+          has(e3) {
+            return this._map.has(this.toKey(e3));
+          }
+          *entries() {
+            for (const e3 of this._map.values()) yield [e3, e3];
+          }
+          keys() {
+            return this.values();
+          }
+          *values() {
+            for (const e3 of this._map.values()) yield e3;
+          }
+          clear() {
+            this._map.clear();
+          }
+          forEach(e3, t3) {
+            this._map.forEach(((s3) => e3.call(t3, s3, s3, this)));
+          }
+          [Symbol.iterator]() {
+            return this.values();
+          }
+        }
+        t2.SetWithKey = r2;
+      }, 577: (e2, t2) => {
+        Object.defineProperty(t2, "__esModule", { value: true }), t2.BugIndicatingError = t2.ErrorNoTelemetry = t2.ExpectedError = t2.NotSupportedError = t2.NotImplementedError = t2.ReadonlyError = t2.CancellationError = t2.errorHandler = t2.ErrorHandler = void 0, t2.setUnexpectedErrorHandler = function(e3) {
+          t2.errorHandler.setUnexpectedErrorHandler(e3);
+        }, t2.isSigPipeError = function(e3) {
+          if (!e3 || "object" != typeof e3) return false;
+          const t3 = e3;
+          return "EPIPE" === t3.code && "WRITE" === t3.syscall?.toUpperCase();
+        }, t2.onUnexpectedError = function(e3) {
+          n(e3) || t2.errorHandler.onUnexpectedError(e3);
+        }, t2.onUnexpectedExternalError = function(e3) {
+          n(e3) || t2.errorHandler.onUnexpectedExternalError(e3);
+        }, t2.transformErrorForSerialization = function(e3) {
+          if (e3 instanceof Error) {
+            const { name: t3, message: s3 } = e3;
+            return { $isError: true, name: t3, message: s3, stack: e3.stacktrace || e3.stack, noTelemetry: h.isErrorNoTelemetry(e3) };
+          }
+          return e3;
+        }, t2.transformErrorFromSerialization = function(e3) {
+          let t3;
+          return e3.noTelemetry ? t3 = new h() : (t3 = new Error(), t3.name = e3.name), t3.message = e3.message, t3.stack = e3.stack, t3;
+        }, t2.isCancellationError = n, t2.canceled = function() {
+          const e3 = new Error(r2);
+          return e3.name = e3.message, e3;
+        }, t2.illegalArgument = function(e3) {
+          return e3 ? new Error(`Illegal argument: ${e3}`) : new Error("Illegal argument");
+        }, t2.illegalState = function(e3) {
+          return e3 ? new Error(`Illegal state: ${e3}`) : new Error("Illegal state");
+        }, t2.getErrorMessage = function(e3) {
+          return e3 ? e3.message ? e3.message : e3.stack ? e3.stack.split("\n")[0] : String(e3) : "Error";
+        };
+        class s2 {
+          constructor() {
+            this.listeners = [], this.unexpectedErrorHandler = function(e3) {
+              setTimeout((() => {
+                if (e3.stack) {
+                  if (h.isErrorNoTelemetry(e3)) throw new h(e3.message + "\n\n" + e3.stack);
+                  throw new Error(e3.message + "\n\n" + e3.stack);
+                }
+                throw e3;
+              }), 0);
+            };
+          }
+          addListener(e3) {
+            return this.listeners.push(e3), () => {
+              this._removeListener(e3);
+            };
+          }
+          emit(e3) {
+            this.listeners.forEach(((t3) => {
+              t3(e3);
+            }));
+          }
+          _removeListener(e3) {
+            this.listeners.splice(this.listeners.indexOf(e3), 1);
+          }
+          setUnexpectedErrorHandler(e3) {
+            this.unexpectedErrorHandler = e3;
+          }
+          getUnexpectedErrorHandler() {
+            return this.unexpectedErrorHandler;
+          }
+          onUnexpectedError(e3) {
+            this.unexpectedErrorHandler(e3), this.emit(e3);
+          }
+          onUnexpectedExternalError(e3) {
+            this.unexpectedErrorHandler(e3);
+          }
+        }
+        t2.ErrorHandler = s2, t2.errorHandler = new s2();
+        const r2 = "Canceled";
+        function n(e3) {
+          return e3 instanceof i || e3 instanceof Error && e3.name === r2 && e3.message === r2;
+        }
+        class i extends Error {
+          constructor() {
+            super(r2), this.name = this.message;
+          }
+        }
+        t2.CancellationError = i;
+        class o extends TypeError {
+          constructor(e3) {
+            super(e3 ? `${e3} is read-only and cannot be changed` : "Cannot change read-only property");
+          }
+        }
+        t2.ReadonlyError = o;
+        class a extends Error {
+          constructor(e3) {
+            super("NotImplemented"), e3 && (this.message = e3);
+          }
+        }
+        t2.NotImplementedError = a;
+        class l extends Error {
+          constructor(e3) {
+            super("NotSupported"), e3 && (this.message = e3);
+          }
+        }
+        t2.NotSupportedError = l;
+        class c extends Error {
+          constructor() {
+            super(...arguments), this.isExpected = true;
+          }
+        }
+        t2.ExpectedError = c;
+        class h extends Error {
+          constructor(e3) {
+            super(e3), this.name = "CodeExpectedError";
+          }
+          static fromError(e3) {
+            if (e3 instanceof h) return e3;
+            const t3 = new h();
+            return t3.message = e3.message, t3.stack = e3.stack, t3;
+          }
+          static isErrorNoTelemetry(e3) {
+            return "CodeExpectedError" === e3.name;
+          }
+        }
+        t2.ErrorNoTelemetry = h;
+        class u extends Error {
+          constructor(e3) {
+            super(e3 || "An unexpected bug occurred."), Object.setPrototypeOf(this, u.prototype);
+          }
+        }
+        t2.BugIndicatingError = u;
+      }, 276: (e2, t2, s2) => {
+        Object.defineProperty(t2, "__esModule", { value: true }), t2.ValueWithChangeEvent = t2.Relay = t2.EventBufferer = t2.DynamicListEventMultiplexer = t2.EventMultiplexer = t2.MicrotaskEmitter = t2.DebounceEmitter = t2.PauseableEmitter = t2.AsyncEmitter = t2.createEventDeliveryQueue = t2.Emitter = t2.ListenerRefusalError = t2.ListenerLeakError = t2.EventProfiling = t2.Event = void 0, t2.setGlobalLeakWarningThreshold = function(e3) {
+          const t3 = h;
+          return h = e3, { dispose() {
+            h = t3;
+          } };
+        };
+        const r2 = s2(577), n = s2(355), i = s2(540), o = s2(711), a = s2(79);
+        var l;
+        !(function(e3) {
+          function t3(e4) {
+            return (t4, s4 = null, r4) => {
+              let n3, i2 = false;
+              return n3 = e4(((e5) => {
+                if (!i2) return n3 ? n3.dispose() : i2 = true, t4.call(s4, e5);
+              }), null, r4), i2 && n3.dispose(), n3;
+            };
+          }
+          function s3(e4, t4, s4) {
+            return n2(((s5, r4 = null, n3) => e4(((e5) => s5.call(r4, t4(e5))), null, n3)), s4);
+          }
+          function r3(e4, t4, s4) {
+            return n2(((s5, r4 = null, n3) => e4(((e5) => t4(e5) && s5.call(r4, e5)), null, n3)), s4);
+          }
+          function n2(e4, t4) {
+            let s4;
+            const r4 = new m({ onWillAddFirstListener() {
+              s4 = e4(r4.fire, r4);
+            }, onDidRemoveLastListener() {
+              s4?.dispose();
+            } });
+            return t4?.add(r4), r4.event;
+          }
+          function o2(e4, t4, s4 = 100, r4 = false, n3 = false, i2, o3) {
+            let a3, l3, c3, h2, u2 = 0;
+            const d2 = new m({ leakWarningThreshold: i2, onWillAddFirstListener() {
+              a3 = e4(((e5) => {
+                u2++, l3 = t4(l3, e5), r4 && !c3 && (d2.fire(l3), l3 = void 0), h2 = () => {
+                  const e6 = l3;
+                  l3 = void 0, c3 = void 0, (!r4 || u2 > 1) && d2.fire(e6), u2 = 0;
+                }, "number" == typeof s4 ? (clearTimeout(c3), c3 = setTimeout(h2, s4)) : void 0 === c3 && (c3 = 0, queueMicrotask(h2));
+              }));
+            }, onWillRemoveListener() {
+              n3 && u2 > 0 && h2?.();
+            }, onDidRemoveLastListener() {
+              h2 = void 0, a3.dispose();
+            } });
+            return o3?.add(d2), d2.event;
+          }
+          e3.None = () => i.Disposable.None, e3.defer = function(e4, t4) {
+            return o2(e4, (() => {
+            }), 0, void 0, true, void 0, t4);
+          }, e3.once = t3, e3.map = s3, e3.forEach = function(e4, t4, s4) {
+            return n2(((s5, r4 = null, n3) => e4(((e5) => {
+              t4(e5), s5.call(r4, e5);
+            }), null, n3)), s4);
+          }, e3.filter = r3, e3.signal = function(e4) {
+            return e4;
+          }, e3.any = function(...e4) {
+            return (t4, s4 = null, r4) => {
+              return n3 = (0, i.combinedDisposable)(...e4.map(((e5) => e5(((e6) => t4.call(s4, e6)))))), (o3 = r4) instanceof Array ? o3.push(n3) : o3 && o3.add(n3), n3;
+              var n3, o3;
+            };
+          }, e3.reduce = function(e4, t4, r4, n3) {
+            let i2 = r4;
+            return s3(e4, ((e5) => (i2 = t4(i2, e5), i2)), n3);
+          }, e3.debounce = o2, e3.accumulate = function(t4, s4 = 0, r4) {
+            return e3.debounce(t4, ((e4, t5) => e4 ? (e4.push(t5), e4) : [t5]), s4, void 0, true, void 0, r4);
+          }, e3.latch = function(e4, t4 = (e5, t5) => e5 === t5, s4) {
+            let n3, i2 = true;
+            return r3(e4, ((e5) => {
+              const s5 = i2 || !t4(e5, n3);
+              return i2 = false, n3 = e5, s5;
+            }), s4);
+          }, e3.split = function(t4, s4, r4) {
+            return [e3.filter(t4, s4, r4), e3.filter(t4, ((e4) => !s4(e4)), r4)];
+          }, e3.buffer = function(e4, t4 = false, s4 = [], r4) {
+            let n3 = s4.slice(), i2 = e4(((e5) => {
+              n3 ? n3.push(e5) : a3.fire(e5);
+            }));
+            r4 && r4.add(i2);
+            const o3 = () => {
+              n3?.forEach(((e5) => a3.fire(e5))), n3 = null;
+            }, a3 = new m({ onWillAddFirstListener() {
+              i2 || (i2 = e4(((e5) => a3.fire(e5))), r4 && r4.add(i2));
+            }, onDidAddFirstListener() {
+              n3 && (t4 ? setTimeout(o3) : o3());
+            }, onDidRemoveLastListener() {
+              i2 && i2.dispose(), i2 = null;
+            } });
+            return r4 && r4.add(a3), a3.event;
+          }, e3.chain = function(e4, t4) {
+            return (s4, r4, n3) => {
+              const i2 = t4(new l2());
+              return e4((function(e5) {
+                const t5 = i2.evaluate(e5);
+                t5 !== a2 && s4.call(r4, t5);
+              }), void 0, n3);
+            };
+          };
+          const a2 = Symbol("HaltChainable");
+          class l2 {
+            constructor() {
+              this.steps = [];
+            }
+            map(e4) {
+              return this.steps.push(e4), this;
+            }
+            forEach(e4) {
+              return this.steps.push(((t4) => (e4(t4), t4))), this;
+            }
+            filter(e4) {
+              return this.steps.push(((t4) => e4(t4) ? t4 : a2)), this;
+            }
+            reduce(e4, t4) {
+              let s4 = t4;
+              return this.steps.push(((t5) => (s4 = e4(s4, t5), s4))), this;
+            }
+            latch(e4 = (e5, t4) => e5 === t4) {
+              let t4, s4 = true;
+              return this.steps.push(((r4) => {
+                const n3 = s4 || !e4(r4, t4);
+                return s4 = false, t4 = r4, n3 ? r4 : a2;
+              })), this;
+            }
+            evaluate(e4) {
+              for (const t4 of this.steps) if ((e4 = t4(e4)) === a2) break;
+              return e4;
+            }
+          }
+          e3.fromNodeEventEmitter = function(e4, t4, s4 = (e5) => e5) {
+            const r4 = (...e5) => n3.fire(s4(...e5)), n3 = new m({ onWillAddFirstListener: () => e4.on(t4, r4), onDidRemoveLastListener: () => e4.removeListener(t4, r4) });
+            return n3.event;
+          }, e3.fromDOMEventEmitter = function(e4, t4, s4 = (e5) => e5) {
+            const r4 = (...e5) => n3.fire(s4(...e5)), n3 = new m({ onWillAddFirstListener: () => e4.addEventListener(t4, r4), onDidRemoveLastListener: () => e4.removeEventListener(t4, r4) });
+            return n3.event;
+          }, e3.toPromise = function(e4) {
+            return new Promise(((s4) => t3(e4)(s4)));
+          }, e3.fromPromise = function(e4) {
+            const t4 = new m();
+            return e4.then(((e5) => {
+              t4.fire(e5);
+            }), (() => {
+              t4.fire(void 0);
+            })).finally((() => {
+              t4.dispose();
+            })), t4.event;
+          }, e3.forward = function(e4, t4) {
+            return e4(((e5) => t4.fire(e5)));
+          }, e3.runAndSubscribe = function(e4, t4, s4) {
+            return t4(s4), e4(((e5) => t4(e5)));
+          };
+          class c2 {
+            constructor(e4, t4) {
+              this._observable = e4, this._counter = 0, this._hasChanged = false;
+              const s4 = { onWillAddFirstListener: () => {
+                e4.addObserver(this);
+              }, onDidRemoveLastListener: () => {
+                e4.removeObserver(this);
+              } };
+              this.emitter = new m(s4), t4 && t4.add(this.emitter);
+            }
+            beginUpdate(e4) {
+              this._counter++;
+            }
+            handlePossibleChange(e4) {
+            }
+            handleChange(e4, t4) {
+              this._hasChanged = true;
+            }
+            endUpdate(e4) {
+              this._counter--, 0 === this._counter && (this._observable.reportChanges(), this._hasChanged && (this._hasChanged = false, this.emitter.fire(this._observable.get())));
+            }
+          }
+          e3.fromObservable = function(e4, t4) {
+            return new c2(e4, t4).emitter.event;
+          }, e3.fromObservableLight = function(e4) {
+            return (t4, s4, r4) => {
+              let n3 = 0, o3 = false;
+              const a3 = { beginUpdate() {
+                n3++;
+              }, endUpdate() {
+                n3--, 0 === n3 && (e4.reportChanges(), o3 && (o3 = false, t4.call(s4)));
+              }, handlePossibleChange() {
+              }, handleChange() {
+                o3 = true;
+              } };
+              e4.addObserver(a3), e4.reportChanges();
+              const l3 = { dispose() {
+                e4.removeObserver(a3);
+              } };
+              return r4 instanceof i.DisposableStore ? r4.add(l3) : Array.isArray(r4) && r4.push(l3), l3;
+            };
+          };
+        })(l || (t2.Event = l = {}));
+        class c {
+          static {
+            this.all = /* @__PURE__ */ new Set();
+          }
+          static {
+            this._idPool = 0;
+          }
+          constructor(e3) {
+            this.listenerCount = 0, this.invocationCount = 0, this.elapsedOverall = 0, this.durations = [], this.name = `${e3}_${c._idPool++}`, c.all.add(this);
+          }
+          start(e3) {
+            this._stopWatch = new a.StopWatch(), this.listenerCount = e3;
+          }
+          stop() {
+            if (this._stopWatch) {
+              const e3 = this._stopWatch.elapsed();
+              this.durations.push(e3), this.elapsedOverall += e3, this.invocationCount += 1, this._stopWatch = void 0;
+            }
+          }
+        }
+        t2.EventProfiling = c;
+        let h = -1;
+        class u {
+          static {
+            this._idPool = 1;
+          }
+          constructor(e3, t3, s3 = (u._idPool++).toString(16).padStart(3, "0")) {
+            this._errorHandler = e3, this.threshold = t3, this.name = s3, this._warnCountdown = 0;
+          }
+          dispose() {
+            this._stacks?.clear();
+          }
+          check(e3, t3) {
+            const s3 = this.threshold;
+            if (s3 <= 0 || t3 < s3) return;
+            this._stacks || (this._stacks = /* @__PURE__ */ new Map());
+            const r3 = this._stacks.get(e3.value) || 0;
+            if (this._stacks.set(e3.value, r3 + 1), this._warnCountdown -= 1, this._warnCountdown <= 0) {
+              this._warnCountdown = 0.5 * s3;
+              const [e4, r4] = this.getMostFrequentStack(), n2 = `[${this.name}] potential listener LEAK detected, having ${t3} listeners already. MOST frequent listener (${r4}):`;
+              console.warn(n2), console.warn(e4);
+              const i2 = new f(n2, e4);
+              this._errorHandler(i2);
+            }
+            return () => {
+              const t4 = this._stacks.get(e3.value) || 0;
+              this._stacks.set(e3.value, t4 - 1);
+            };
+          }
+          getMostFrequentStack() {
+            if (!this._stacks) return;
+            let e3, t3 = 0;
+            for (const [s3, r3] of this._stacks) (!e3 || t3 < r3) && (e3 = [s3, r3], t3 = r3);
+            return e3;
+          }
+        }
+        class d {
+          static create() {
+            const e3 = new Error();
+            return new d(e3.stack ?? "");
+          }
+          constructor(e3) {
+            this.value = e3;
+          }
+          print() {
+            console.warn(this.value.split("\n").slice(2).join("\n"));
+          }
+        }
+        class f extends Error {
+          constructor(e3, t3) {
+            super(e3), this.name = "ListenerLeakError", this.stack = t3;
+          }
+        }
+        t2.ListenerLeakError = f;
+        class p extends Error {
+          constructor(e3, t3) {
+            super(e3), this.name = "ListenerRefusalError", this.stack = t3;
+          }
+        }
+        t2.ListenerRefusalError = p;
+        let _ = 0;
+        class v {
+          constructor(e3) {
+            this.value = e3, this.id = _++;
+          }
+        }
+        class m {
+          constructor(e3) {
+            this._size = 0, this._options = e3, this._leakageMon = h > 0 || this._options?.leakWarningThreshold ? new u(e3?.onListenerError ?? r2.onUnexpectedError, this._options?.leakWarningThreshold ?? h) : void 0, this._perfMon = this._options?._profName ? new c(this._options._profName) : void 0, this._deliveryQueue = this._options?.deliveryQueue;
+          }
+          dispose() {
+            this._disposed || (this._disposed = true, this._deliveryQueue?.current === this && this._deliveryQueue.reset(), this._listeners && (this._listeners = void 0, this._size = 0), this._options?.onDidRemoveLastListener?.(), this._leakageMon?.dispose());
+          }
+          get event() {
+            return this._event ??= (e3, t3, s3) => {
+              if (this._leakageMon && this._size > this._leakageMon.threshold ** 2) {
+                const e4 = `[${this._leakageMon.name}] REFUSES to accept new listeners because it exceeded its threshold by far (${this._size} vs ${this._leakageMon.threshold})`;
+                console.warn(e4);
+                const t4 = this._leakageMon.getMostFrequentStack() ?? ["UNKNOWN stack", -1], s4 = new p(`${e4}. HINT: Stack shows most frequent listener (${t4[1]}-times)`, t4[0]);
+                return (this._options?.onListenerError || r2.onUnexpectedError)(s4), i.Disposable.None;
+              }
+              if (this._disposed) return i.Disposable.None;
+              t3 && (e3 = e3.bind(t3));
+              const n2 = new v(e3);
+              let o2;
+              this._leakageMon && this._size >= Math.ceil(0.2 * this._leakageMon.threshold) && (n2.stack = d.create(), o2 = this._leakageMon.check(n2.stack, this._size + 1)), this._listeners ? this._listeners instanceof v ? (this._deliveryQueue ??= new g(), this._listeners = [this._listeners, n2]) : this._listeners.push(n2) : (this._options?.onWillAddFirstListener?.(this), this._listeners = n2, this._options?.onDidAddFirstListener?.(this)), this._size++;
+              const a2 = (0, i.toDisposable)((() => {
+                o2?.(), this._removeListener(n2);
+              }));
+              return s3 instanceof i.DisposableStore ? s3.add(a2) : Array.isArray(s3) && s3.push(a2), a2;
+            }, this._event;
+          }
+          _removeListener(e3) {
+            if (this._options?.onWillRemoveListener?.(this), !this._listeners) return;
+            if (1 === this._size) return this._listeners = void 0, this._options?.onDidRemoveLastListener?.(this), void (this._size = 0);
+            const t3 = this._listeners, s3 = t3.indexOf(e3);
+            if (-1 === s3) throw console.log("disposed?", this._disposed), console.log("size?", this._size), console.log("arr?", JSON.stringify(this._listeners)), new Error("Attempted to dispose unknown listener");
+            this._size--, t3[s3] = void 0;
+            const r3 = this._deliveryQueue.current === this;
+            if (2 * this._size <= t3.length) {
+              let e4 = 0;
+              for (let s4 = 0; s4 < t3.length; s4++) t3[s4] ? t3[e4++] = t3[s4] : r3 && (this._deliveryQueue.end--, e4 < this._deliveryQueue.i && this._deliveryQueue.i--);
+              t3.length = e4;
+            }
+          }
+          _deliver(e3, t3) {
+            if (!e3) return;
+            const s3 = this._options?.onListenerError || r2.onUnexpectedError;
+            if (s3) try {
+              e3.value(t3);
+            } catch (e4) {
+              s3(e4);
+            }
+            else e3.value(t3);
+          }
+          _deliverQueue(e3) {
+            const t3 = e3.current._listeners;
+            for (; e3.i < e3.end; ) this._deliver(t3[e3.i++], e3.value);
+            e3.reset();
+          }
+          fire(e3) {
+            if (this._deliveryQueue?.current && (this._deliverQueue(this._deliveryQueue), this._perfMon?.stop()), this._perfMon?.start(this._size), this._listeners) if (this._listeners instanceof v) this._deliver(this._listeners, e3);
+            else {
+              const t3 = this._deliveryQueue;
+              t3.enqueue(this, e3, this._listeners.length), this._deliverQueue(t3);
+            }
+            this._perfMon?.stop();
+          }
+          hasListeners() {
+            return this._size > 0;
+          }
+        }
+        t2.Emitter = m, t2.createEventDeliveryQueue = () => new g();
+        class g {
+          constructor() {
+            this.i = -1, this.end = 0;
+          }
+          enqueue(e3, t3, s3) {
+            this.i = 0, this.end = s3, this.current = e3, this.value = t3;
+          }
+          reset() {
+            this.i = this.end, this.current = void 0, this.value = void 0;
+          }
+        }
+        t2.AsyncEmitter = class extends m {
+          async fireAsync(e3, t3, s3) {
+            if (this._listeners) for (this._asyncDeliveryQueue || (this._asyncDeliveryQueue = new o.LinkedList()), ((e4, t4) => {
+              if (e4 instanceof v) t4(e4);
+              else for (let s4 = 0; s4 < e4.length; s4++) {
+                const r3 = e4[s4];
+                r3 && t4(r3);
+              }
+            })(this._listeners, ((t4) => this._asyncDeliveryQueue.push([t4.value, e3]))); this._asyncDeliveryQueue.size > 0 && !t3.isCancellationRequested; ) {
+              const [e4, n2] = this._asyncDeliveryQueue.shift(), i2 = [], o2 = { ...n2, token: t3, waitUntil: (t4) => {
+                if (Object.isFrozen(i2)) throw new Error("waitUntil can NOT be called asynchronous");
+                s3 && (t4 = s3(t4, e4)), i2.push(t4);
+              } };
+              try {
+                e4(o2);
+              } catch (e5) {
+                (0, r2.onUnexpectedError)(e5);
+                continue;
+              }
+              Object.freeze(i2), await Promise.allSettled(i2).then(((e5) => {
+                for (const t4 of e5) "rejected" === t4.status && (0, r2.onUnexpectedError)(t4.reason);
+              }));
+            }
+          }
+        };
+        class y extends m {
+          get isPaused() {
+            return 0 !== this._isPaused;
+          }
+          constructor(e3) {
+            super(e3), this._isPaused = 0, this._eventQueue = new o.LinkedList(), this._mergeFn = e3?.merge;
+          }
+          pause() {
+            this._isPaused++;
+          }
+          resume() {
+            if (0 !== this._isPaused && 0 == --this._isPaused) if (this._mergeFn) {
+              if (this._eventQueue.size > 0) {
+                const e3 = Array.from(this._eventQueue);
+                this._eventQueue.clear(), super.fire(this._mergeFn(e3));
+              }
+            } else for (; !this._isPaused && 0 !== this._eventQueue.size; ) super.fire(this._eventQueue.shift());
+          }
+          fire(e3) {
+            this._size && (0 !== this._isPaused ? this._eventQueue.push(e3) : super.fire(e3));
+          }
+        }
+        t2.PauseableEmitter = y, t2.DebounceEmitter = class extends y {
+          constructor(e3) {
+            super(e3), this._delay = e3.delay ?? 100;
+          }
+          fire(e3) {
+            this._handle || (this.pause(), this._handle = setTimeout((() => {
+              this._handle = void 0, this.resume();
+            }), this._delay)), super.fire(e3);
+          }
+        }, t2.MicrotaskEmitter = class extends m {
+          constructor(e3) {
+            super(e3), this._queuedEvents = [], this._mergeFn = e3?.merge;
+          }
+          fire(e3) {
+            this.hasListeners() && (this._queuedEvents.push(e3), 1 === this._queuedEvents.length && queueMicrotask((() => {
+              this._mergeFn ? super.fire(this._mergeFn(this._queuedEvents)) : this._queuedEvents.forEach(((e4) => super.fire(e4))), this._queuedEvents = [];
+            })));
+          }
+        };
+        class b {
+          constructor() {
+            this.hasListeners = false, this.events = [], this.emitter = new m({ onWillAddFirstListener: () => this.onFirstListenerAdd(), onDidRemoveLastListener: () => this.onLastListenerRemove() });
+          }
+          get event() {
+            return this.emitter.event;
+          }
+          add(e3) {
+            const t3 = { event: e3, listener: null };
+            return this.events.push(t3), this.hasListeners && this.hook(t3), (0, i.toDisposable)((0, n.createSingleCallFunction)((() => {
+              this.hasListeners && this.unhook(t3);
+              const e4 = this.events.indexOf(t3);
+              this.events.splice(e4, 1);
+            })));
+          }
+          onFirstListenerAdd() {
+            this.hasListeners = true, this.events.forEach(((e3) => this.hook(e3)));
+          }
+          onLastListenerRemove() {
+            this.hasListeners = false, this.events.forEach(((e3) => this.unhook(e3)));
+          }
+          hook(e3) {
+            e3.listener = e3.event(((e4) => this.emitter.fire(e4)));
+          }
+          unhook(e3) {
+            e3.listener?.dispose(), e3.listener = null;
+          }
+          dispose() {
+            this.emitter.dispose();
+            for (const e3 of this.events) e3.listener?.dispose();
+            this.events = [];
+          }
+        }
+        t2.EventMultiplexer = b, t2.DynamicListEventMultiplexer = class {
+          constructor(e3, t3, s3, r3) {
+            this._store = new i.DisposableStore();
+            const n2 = this._store.add(new b()), o2 = this._store.add(new i.DisposableMap());
+            function a2(e4) {
+              o2.set(e4, n2.add(r3(e4)));
+            }
+            for (const t4 of e3) a2(t4);
+            this._store.add(t3(((e4) => {
+              a2(e4);
+            }))), this._store.add(s3(((e4) => {
+              o2.deleteAndDispose(e4);
+            }))), this.event = n2.event;
+          }
+          dispose() {
+            this._store.dispose();
+          }
+        }, t2.EventBufferer = class {
+          constructor() {
+            this.data = [];
+          }
+          wrapEvent(e3, t3, s3) {
+            return (r3, n2, i2) => e3(((e4) => {
+              const i3 = this.data[this.data.length - 1];
+              if (!t3) return void (i3 ? i3.buffers.push((() => r3.call(n2, e4))) : r3.call(n2, e4));
+              const o2 = i3;
+              o2 ? (o2.items ??= [], o2.items.push(e4), 0 === o2.buffers.length && i3.buffers.push((() => {
+                o2.reducedResult ??= s3 ? o2.items.reduce(t3, s3) : o2.items.reduce(t3), r3.call(n2, o2.reducedResult);
+              }))) : r3.call(n2, t3(s3, e4));
+            }), void 0, i2);
+          }
+          bufferEvents(e3) {
+            const t3 = { buffers: new Array() };
+            this.data.push(t3);
+            const s3 = e3();
+            return this.data.pop(), t3.buffers.forEach(((e4) => e4())), s3;
+          }
+        }, t2.Relay = class {
+          constructor() {
+            this.listening = false, this.inputEvent = l.None, this.inputEventListener = i.Disposable.None, this.emitter = new m({ onDidAddFirstListener: () => {
+              this.listening = true, this.inputEventListener = this.inputEvent(this.emitter.fire, this.emitter);
+            }, onDidRemoveLastListener: () => {
+              this.listening = false, this.inputEventListener.dispose();
+            } }), this.event = this.emitter.event;
+          }
+          set input(e3) {
+            this.inputEvent = e3, this.listening && (this.inputEventListener.dispose(), this.inputEventListener = e3(this.emitter.fire, this.emitter));
+          }
+          dispose() {
+            this.inputEventListener.dispose(), this.emitter.dispose();
+          }
+        }, t2.ValueWithChangeEvent = class {
+          static const(e3) {
+            return new E(e3);
+          }
+          constructor(e3) {
+            this._value = e3, this._onDidChange = new m(), this.onDidChange = this._onDidChange.event;
+          }
+          get value() {
+            return this._value;
+          }
+          set value(e3) {
+            e3 !== this._value && (this._value = e3, this._onDidChange.fire(void 0));
+          }
+        };
+        class E {
+          constructor(e3) {
+            this.value = e3, this.onDidChange = l.None;
+          }
+        }
+      }, 355: (e2, t2) => {
+        Object.defineProperty(t2, "__esModule", { value: true }), t2.createSingleCallFunction = function(e3, t3) {
+          const s2 = this;
+          let r2, n = false;
+          return function() {
+            if (n) return r2;
+            if (n = true, t3) try {
+              r2 = e3.apply(s2, arguments);
+            } finally {
+              t3();
+            }
+            else r2 = e3.apply(s2, arguments);
+            return r2;
+          };
+        };
+      }, 956: (e2, t2) => {
+        var s2;
+        Object.defineProperty(t2, "__esModule", { value: true }), t2.Iterable = void 0, (function(e3) {
+          function t3(e4) {
+            return e4 && "object" == typeof e4 && "function" == typeof e4[Symbol.iterator];
+          }
+          e3.is = t3;
+          const s3 = Object.freeze([]);
+          function* r2(e4) {
+            yield e4;
+          }
+          e3.empty = function() {
+            return s3;
+          }, e3.single = r2, e3.wrap = function(e4) {
+            return t3(e4) ? e4 : r2(e4);
+          }, e3.from = function(e4) {
+            return e4 || s3;
+          }, e3.reverse = function* (e4) {
+            for (let t4 = e4.length - 1; t4 >= 0; t4--) yield e4[t4];
+          }, e3.isEmpty = function(e4) {
+            return !e4 || true === e4[Symbol.iterator]().next().done;
+          }, e3.first = function(e4) {
+            return e4[Symbol.iterator]().next().value;
+          }, e3.some = function(e4, t4) {
+            let s4 = 0;
+            for (const r3 of e4) if (t4(r3, s4++)) return true;
+            return false;
+          }, e3.find = function(e4, t4) {
+            for (const s4 of e4) if (t4(s4)) return s4;
+          }, e3.filter = function* (e4, t4) {
+            for (const s4 of e4) t4(s4) && (yield s4);
+          }, e3.map = function* (e4, t4) {
+            let s4 = 0;
+            for (const r3 of e4) yield t4(r3, s4++);
+          }, e3.flatMap = function* (e4, t4) {
+            let s4 = 0;
+            for (const r3 of e4) yield* t4(r3, s4++);
+          }, e3.concat = function* (...e4) {
+            for (const t4 of e4) yield* t4;
+          }, e3.reduce = function(e4, t4, s4) {
+            let r3 = s4;
+            for (const s5 of e4) r3 = t4(r3, s5);
+            return r3;
+          }, e3.slice = function* (e4, t4, s4 = e4.length) {
+            for (t4 < 0 && (t4 += e4.length), s4 < 0 ? s4 += e4.length : s4 > e4.length && (s4 = e4.length); t4 < s4; t4++) yield e4[t4];
+          }, e3.consume = function(t4, s4 = Number.POSITIVE_INFINITY) {
+            const r3 = [];
+            if (0 === s4) return [r3, t4];
+            const n = t4[Symbol.iterator]();
+            for (let t5 = 0; t5 < s4; t5++) {
+              const t6 = n.next();
+              if (t6.done) return [r3, e3.empty()];
+              r3.push(t6.value);
+            }
+            return [r3, { [Symbol.iterator]: () => n }];
+          }, e3.asyncToArray = async function(e4) {
+            const t4 = [];
+            for await (const s4 of e4) t4.push(s4);
+            return Promise.resolve(t4);
+          };
+        })(s2 || (t2.Iterable = s2 = {}));
+      }, 540: (e2, t2, s2) => {
+        Object.defineProperty(t2, "__esModule", { value: true }), t2.DisposableMap = t2.ImmortalReference = t2.AsyncReferenceCollection = t2.ReferenceCollection = t2.SafeDisposable = t2.RefCountedDisposable = t2.MandatoryMutableDisposable = t2.MutableDisposable = t2.Disposable = t2.DisposableStore = t2.DisposableTracker = void 0, t2.setDisposableTracker = function(e3) {
+          l = e3;
+        }, t2.trackDisposable = h, t2.markAsDisposed = u, t2.markAsSingleton = function(e3) {
+          return l?.markAsSingleton(e3), e3;
+        }, t2.isDisposable = f, t2.dispose = p, t2.disposeIfDisposable = function(e3) {
+          for (const t3 of e3) f(t3) && t3.dispose();
+          return [];
+        }, t2.combinedDisposable = function(...e3) {
+          const t3 = _((() => p(e3)));
+          return (function(e4, t4) {
+            if (l) for (const s3 of e4) l.setParent(s3, t4);
+          })(e3, t3), t3;
+        }, t2.toDisposable = _, t2.disposeOnReturn = function(e3) {
+          const t3 = new v();
+          try {
+            e3(t3);
+          } finally {
+            t3.dispose();
+          }
+        };
+        const r2 = s2(732), n = s2(33), i = s2(714), o = s2(355), a = s2(956);
+        let l = null;
+        class c {
+          constructor() {
+            this.livingDisposables = /* @__PURE__ */ new Map();
+          }
+          static {
+            this.idx = 0;
+          }
+          getDisposableData(e3) {
+            let t3 = this.livingDisposables.get(e3);
+            return t3 || (t3 = { parent: null, source: null, isSingleton: false, value: e3, idx: c.idx++ }, this.livingDisposables.set(e3, t3)), t3;
+          }
+          trackDisposable(e3) {
+            const t3 = this.getDisposableData(e3);
+            t3.source || (t3.source = new Error().stack);
+          }
+          setParent(e3, t3) {
+            this.getDisposableData(e3).parent = t3;
+          }
+          markAsDisposed(e3) {
+            this.livingDisposables.delete(e3);
+          }
+          markAsSingleton(e3) {
+            this.getDisposableData(e3).isSingleton = true;
+          }
+          getRootParent(e3, t3) {
+            const s3 = t3.get(e3);
+            if (s3) return s3;
+            const r3 = e3.parent ? this.getRootParent(this.getDisposableData(e3.parent), t3) : e3;
+            return t3.set(e3, r3), r3;
+          }
+          getTrackedDisposables() {
+            const e3 = /* @__PURE__ */ new Map();
+            return [...this.livingDisposables.entries()].filter((([, t3]) => null !== t3.source && !this.getRootParent(t3, e3).isSingleton)).flatMap((([e4]) => e4));
+          }
+          computeLeakingDisposables(e3 = 10, t3) {
+            let s3;
+            if (t3) s3 = t3;
+            else {
+              const e4 = /* @__PURE__ */ new Map(), t4 = [...this.livingDisposables.values()].filter(((t5) => null !== t5.source && !this.getRootParent(t5, e4).isSingleton));
+              if (0 === t4.length) return;
+              const r3 = new Set(t4.map(((e5) => e5.value)));
+              if (s3 = t4.filter(((e5) => !(e5.parent && r3.has(e5.parent)))), 0 === s3.length) throw new Error("There are cyclic diposable chains!");
+            }
+            if (!s3) return;
+            function o2(e4) {
+              const t4 = e4.source.split("\n").map(((e5) => e5.trim().replace("at ", ""))).filter(((e5) => "" !== e5));
+              return (function(e5, t5) {
+                for (; e5.length > 0 && t5.some(((t6) => "string" == typeof t6 ? t6 === e5[0] : e5[0].match(t6))); ) e5.shift();
+              })(t4, ["Error", /^trackDisposable \(.*\)$/, /^DisposableTracker.trackDisposable \(.*\)$/]), t4.reverse();
+            }
+            const a2 = new i.SetMap();
+            for (const e4 of s3) {
+              const t4 = o2(e4);
+              for (let s4 = 0; s4 <= t4.length; s4++) a2.add(t4.slice(0, s4).join("\n"), e4);
+            }
+            s3.sort((0, r2.compareBy)(((e4) => e4.idx), r2.numberComparator));
+            let l2 = "", c2 = 0;
+            for (const t4 of s3.slice(0, e3)) {
+              c2++;
+              const e4 = o2(t4), r3 = [];
+              for (let t5 = 0; t5 < e4.length; t5++) {
+                let i2 = e4[t5];
+                i2 = `(shared with ${a2.get(e4.slice(0, t5 + 1).join("\n")).size}/${s3.length} leaks) at ${i2}`;
+                const l3 = a2.get(e4.slice(0, t5).join("\n")), c3 = (0, n.groupBy)([...l3].map(((e5) => o2(e5)[t5])), ((e5) => e5));
+                delete c3[e4[t5]];
+                for (const [e5, t6] of Object.entries(c3)) r3.unshift(`    - stacktraces of ${t6.length} other leaks continue with ${e5}`);
+                r3.unshift(i2);
+              }
+              l2 += `
+
+
+==================== Leaking disposable ${c2}/${s3.length}: ${t4.value.constructor.name} ====================
+${r3.join("\n")}
+============================================================
+
+`;
+            }
+            return s3.length > e3 && (l2 += `
+
+
+... and ${s3.length - e3} more leaking disposables
+
+`), { leaks: s3, details: l2 };
+          }
+        }
+        function h(e3) {
+          return l?.trackDisposable(e3), e3;
+        }
+        function u(e3) {
+          l?.markAsDisposed(e3);
+        }
+        function d(e3, t3) {
+          l?.setParent(e3, t3);
+        }
+        function f(e3) {
+          return "object" == typeof e3 && null !== e3 && "function" == typeof e3.dispose && 0 === e3.dispose.length;
+        }
+        function p(e3) {
+          if (a.Iterable.is(e3)) {
+            const t3 = [];
+            for (const s3 of e3) if (s3) try {
+              s3.dispose();
+            } catch (e4) {
+              t3.push(e4);
+            }
+            if (1 === t3.length) throw t3[0];
+            if (t3.length > 1) throw new AggregateError(t3, "Encountered errors while disposing of store");
+            return Array.isArray(e3) ? [] : e3;
+          }
+          if (e3) return e3.dispose(), e3;
+        }
+        function _(e3) {
+          const t3 = h({ dispose: (0, o.createSingleCallFunction)((() => {
+            u(t3), e3();
+          })) });
+          return t3;
+        }
+        t2.DisposableTracker = c;
+        class v {
+          static {
+            this.DISABLE_DISPOSED_WARNING = false;
+          }
+          constructor() {
+            this._toDispose = /* @__PURE__ */ new Set(), this._isDisposed = false, h(this);
+          }
+          dispose() {
+            this._isDisposed || (u(this), this._isDisposed = true, this.clear());
+          }
+          get isDisposed() {
+            return this._isDisposed;
+          }
+          clear() {
+            if (0 !== this._toDispose.size) try {
+              p(this._toDispose);
+            } finally {
+              this._toDispose.clear();
+            }
+          }
+          add(e3) {
+            if (!e3) return e3;
+            if (e3 === this) throw new Error("Cannot register a disposable on itself!");
+            return d(e3, this), this._isDisposed ? v.DISABLE_DISPOSED_WARNING || console.warn(new Error("Trying to add a disposable to a DisposableStore that has already been disposed of. The added object will be leaked!").stack) : this._toDispose.add(e3), e3;
+          }
+          delete(e3) {
+            if (e3) {
+              if (e3 === this) throw new Error("Cannot dispose a disposable on itself!");
+              this._toDispose.delete(e3), e3.dispose();
+            }
+          }
+          deleteAndLeak(e3) {
+            e3 && this._toDispose.has(e3) && (this._toDispose.delete(e3), d(e3, null));
+          }
+        }
+        t2.DisposableStore = v;
+        class m {
+          static {
+            this.None = Object.freeze({ dispose() {
+            } });
+          }
+          constructor() {
+            this._store = new v(), h(this), d(this._store, this);
+          }
+          dispose() {
+            u(this), this._store.dispose();
+          }
+          _register(e3) {
+            if (e3 === this) throw new Error("Cannot register a disposable on itself!");
+            return this._store.add(e3);
+          }
+        }
+        t2.Disposable = m;
+        class g {
+          constructor() {
+            this._isDisposed = false, h(this);
+          }
+          get value() {
+            return this._isDisposed ? void 0 : this._value;
+          }
+          set value(e3) {
+            this._isDisposed || e3 === this._value || (this._value?.dispose(), e3 && d(e3, this), this._value = e3);
+          }
+          clear() {
+            this.value = void 0;
+          }
+          dispose() {
+            this._isDisposed = true, u(this), this._value?.dispose(), this._value = void 0;
+          }
+          clearAndLeak() {
+            const e3 = this._value;
+            return this._value = void 0, e3 && d(e3, null), e3;
+          }
+        }
+        t2.MutableDisposable = g, t2.MandatoryMutableDisposable = class {
+          constructor(e3) {
+            this._disposable = new g(), this._isDisposed = false, this._disposable.value = e3;
+          }
+          get value() {
+            return this._disposable.value;
+          }
+          set value(e3) {
+            this._isDisposed || e3 === this._disposable.value || (this._disposable.value = e3);
+          }
+          dispose() {
+            this._isDisposed = true, this._disposable.dispose();
+          }
+        }, t2.RefCountedDisposable = class {
+          constructor(e3) {
+            this._disposable = e3, this._counter = 1;
+          }
+          acquire() {
+            return this._counter++, this;
+          }
+          release() {
+            return 0 == --this._counter && this._disposable.dispose(), this;
+          }
+        }, t2.SafeDisposable = class {
+          constructor() {
+            this.dispose = () => {
+            }, this.unset = () => {
+            }, this.isset = () => false, h(this);
+          }
+          set(e3) {
+            let t3 = e3;
+            return this.unset = () => t3 = void 0, this.isset = () => void 0 !== t3, this.dispose = () => {
+              t3 && (t3(), t3 = void 0, u(this));
+            }, this;
+          }
+        }, t2.ReferenceCollection = class {
+          constructor() {
+            this.references = /* @__PURE__ */ new Map();
+          }
+          acquire(e3, ...t3) {
+            let s3 = this.references.get(e3);
+            s3 || (s3 = { counter: 0, object: this.createReferencedObject(e3, ...t3) }, this.references.set(e3, s3));
+            const { object: r3 } = s3, n2 = (0, o.createSingleCallFunction)((() => {
+              0 == --s3.counter && (this.destroyReferencedObject(e3, s3.object), this.references.delete(e3));
+            }));
+            return s3.counter++, { object: r3, dispose: n2 };
+          }
+        }, t2.AsyncReferenceCollection = class {
+          constructor(e3) {
+            this.referenceCollection = e3;
+          }
+          async acquire(e3, ...t3) {
+            const s3 = this.referenceCollection.acquire(e3, ...t3);
+            try {
+              return { object: await s3.object, dispose: () => s3.dispose() };
+            } catch (e4) {
+              throw s3.dispose(), e4;
+            }
+          }
+        }, t2.ImmortalReference = class {
+          constructor(e3) {
+            this.object = e3;
+          }
+          dispose() {
+          }
+        };
+        class y {
+          constructor() {
+            this._store = /* @__PURE__ */ new Map(), this._isDisposed = false, h(this);
+          }
+          dispose() {
+            u(this), this._isDisposed = true, this.clearAndDisposeAll();
+          }
+          clearAndDisposeAll() {
+            if (this._store.size) try {
+              p(this._store.values());
+            } finally {
+              this._store.clear();
+            }
+          }
+          has(e3) {
+            return this._store.has(e3);
+          }
+          get size() {
+            return this._store.size;
+          }
+          get(e3) {
+            return this._store.get(e3);
+          }
+          set(e3, t3, s3 = false) {
+            this._isDisposed && console.warn(new Error("Trying to add a disposable to a DisposableMap that has already been disposed of. The added object will be leaked!").stack), s3 || this._store.get(e3)?.dispose(), this._store.set(e3, t3);
+          }
+          deleteAndDispose(e3) {
+            this._store.get(e3)?.dispose(), this._store.delete(e3);
+          }
+          deleteAndLeak(e3) {
+            const t3 = this._store.get(e3);
+            return this._store.delete(e3), t3;
+          }
+          keys() {
+            return this._store.keys();
+          }
+          values() {
+            return this._store.values();
+          }
+          [Symbol.iterator]() {
+            return this._store[Symbol.iterator]();
+          }
+        }
+        t2.DisposableMap = y;
+      }, 711: (e2, t2) => {
+        Object.defineProperty(t2, "__esModule", { value: true }), t2.LinkedList = void 0;
+        class s2 {
+          static {
+            this.Undefined = new s2(void 0);
+          }
+          constructor(e3) {
+            this.element = e3, this.next = s2.Undefined, this.prev = s2.Undefined;
+          }
+        }
+        class r2 {
+          constructor() {
+            this._first = s2.Undefined, this._last = s2.Undefined, this._size = 0;
+          }
+          get size() {
+            return this._size;
+          }
+          isEmpty() {
+            return this._first === s2.Undefined;
+          }
+          clear() {
+            let e3 = this._first;
+            for (; e3 !== s2.Undefined; ) {
+              const t3 = e3.next;
+              e3.prev = s2.Undefined, e3.next = s2.Undefined, e3 = t3;
+            }
+            this._first = s2.Undefined, this._last = s2.Undefined, this._size = 0;
+          }
+          unshift(e3) {
+            return this._insert(e3, false);
+          }
+          push(e3) {
+            return this._insert(e3, true);
+          }
+          _insert(e3, t3) {
+            const r3 = new s2(e3);
+            if (this._first === s2.Undefined) this._first = r3, this._last = r3;
+            else if (t3) {
+              const e4 = this._last;
+              this._last = r3, r3.prev = e4, e4.next = r3;
+            } else {
+              const e4 = this._first;
+              this._first = r3, r3.next = e4, e4.prev = r3;
+            }
+            this._size += 1;
+            let n = false;
+            return () => {
+              n || (n = true, this._remove(r3));
+            };
+          }
+          shift() {
+            if (this._first !== s2.Undefined) {
+              const e3 = this._first.element;
+              return this._remove(this._first), e3;
+            }
+          }
+          pop() {
+            if (this._last !== s2.Undefined) {
+              const e3 = this._last.element;
+              return this._remove(this._last), e3;
+            }
+          }
+          _remove(e3) {
+            if (e3.prev !== s2.Undefined && e3.next !== s2.Undefined) {
+              const t3 = e3.prev;
+              t3.next = e3.next, e3.next.prev = t3;
+            } else e3.prev === s2.Undefined && e3.next === s2.Undefined ? (this._first = s2.Undefined, this._last = s2.Undefined) : e3.next === s2.Undefined ? (this._last = this._last.prev, this._last.next = s2.Undefined) : e3.prev === s2.Undefined && (this._first = this._first.next, this._first.prev = s2.Undefined);
+            this._size -= 1;
+          }
+          *[Symbol.iterator]() {
+            let e3 = this._first;
+            for (; e3 !== s2.Undefined; ) yield e3.element, e3 = e3.next;
+          }
+        }
+        t2.LinkedList = r2;
+      }, 714: (e2, t2) => {
+        var s2;
+        Object.defineProperty(t2, "__esModule", { value: true }), t2.SetMap = t2.BidirectionalMap = t2.CounterSet = t2.Touch = void 0, t2.getOrSet = function(e3, t3, s3) {
+          let r2 = e3.get(t3);
+          return void 0 === r2 && (r2 = s3, e3.set(t3, r2)), r2;
+        }, t2.mapToString = function(e3) {
+          const t3 = [];
+          return e3.forEach(((e4, s3) => {
+            t3.push(`${s3} => ${e4}`);
+          })), `Map(${e3.size}) {${t3.join(", ")}}`;
+        }, t2.setToString = function(e3) {
+          const t3 = [];
+          return e3.forEach(((e4) => {
+            t3.push(e4);
+          })), `Set(${e3.size}) {${t3.join(", ")}}`;
+        }, t2.mapsStrictEqualIgnoreOrder = function(e3, t3) {
+          if (e3 === t3) return true;
+          if (e3.size !== t3.size) return false;
+          for (const [s3, r2] of e3) if (!t3.has(s3) || t3.get(s3) !== r2) return false;
+          for (const [s3] of t3) if (!e3.has(s3)) return false;
+          return true;
+        }, (function(e3) {
+          e3[e3.None = 0] = "None", e3[e3.AsOld = 1] = "AsOld", e3[e3.AsNew = 2] = "AsNew";
+        })(s2 || (t2.Touch = s2 = {})), t2.CounterSet = class {
+          constructor() {
+            this.map = /* @__PURE__ */ new Map();
+          }
+          add(e3) {
+            return this.map.set(e3, (this.map.get(e3) || 0) + 1), this;
+          }
+          delete(e3) {
+            let t3 = this.map.get(e3) || 0;
+            return 0 !== t3 && (t3--, 0 === t3 ? this.map.delete(e3) : this.map.set(e3, t3), true);
+          }
+          has(e3) {
+            return this.map.has(e3);
+          }
+        }, t2.BidirectionalMap = class {
+          constructor(e3) {
+            if (this._m1 = /* @__PURE__ */ new Map(), this._m2 = /* @__PURE__ */ new Map(), e3) for (const [t3, s3] of e3) this.set(t3, s3);
+          }
+          clear() {
+            this._m1.clear(), this._m2.clear();
+          }
+          set(e3, t3) {
+            this._m1.set(e3, t3), this._m2.set(t3, e3);
+          }
+          get(e3) {
+            return this._m1.get(e3);
+          }
+          getKey(e3) {
+            return this._m2.get(e3);
+          }
+          delete(e3) {
+            const t3 = this._m1.get(e3);
+            return void 0 !== t3 && (this._m1.delete(e3), this._m2.delete(t3), true);
+          }
+          forEach(e3, t3) {
+            this._m1.forEach(((s3, r2) => {
+              e3.call(t3, s3, r2, this);
+            }));
+          }
+          keys() {
+            return this._m1.keys();
+          }
+          values() {
+            return this._m1.values();
+          }
+        }, t2.SetMap = class {
+          constructor() {
+            this.map = /* @__PURE__ */ new Map();
+          }
+          add(e3, t3) {
+            let s3 = this.map.get(e3);
+            s3 || (s3 = /* @__PURE__ */ new Set(), this.map.set(e3, s3)), s3.add(t3);
+          }
+          delete(e3, t3) {
+            const s3 = this.map.get(e3);
+            s3 && (s3.delete(t3), 0 === s3.size && this.map.delete(e3));
+          }
+          forEach(e3, t3) {
+            const s3 = this.map.get(e3);
+            s3 && s3.forEach(t3);
+          }
+          get(e3) {
+            return this.map.get(e3) || /* @__PURE__ */ new Set();
+          }
+        };
+      }, 79: (e2, t2) => {
+        Object.defineProperty(t2, "__esModule", { value: true }), t2.StopWatch = void 0;
+        const s2 = globalThis.performance && "function" == typeof globalThis.performance.now;
+        class r2 {
+          static create(e3) {
+            return new r2(e3);
+          }
+          constructor(e3) {
+            this._now = s2 && false === e3 ? Date.now : globalThis.performance.now.bind(globalThis.performance), this._startTime = this._now(), this._stopTime = -1;
+          }
+          stop() {
+            this._stopTime = this._now();
+          }
+          reset() {
+            this._startTime = this._now(), this._stopTime = -1;
+          }
+          elapsed() {
+            return -1 !== this._stopTime ? this._stopTime - this._startTime : this._now() - this._startTime;
+          }
+        }
+        t2.StopWatch = r2;
+      } }, t = {};
+      function s(r2) {
+        var n = t[r2];
+        if (void 0 !== n) return n.exports;
+        var i = t[r2] = { exports: {} };
+        return e[r2](i, i.exports, s), i.exports;
+      }
+      var r = {};
+      return (() => {
+        var e2 = r;
+        Object.defineProperty(e2, "__esModule", { value: true }), e2.Unicode11Addon = void 0;
+        const t2 = s(384);
+        e2.Unicode11Addon = class {
+          activate(e3) {
+            e3.unicode.register(new t2.UnicodeV11());
+          }
+          dispose() {
+          }
+        };
+      })(), r;
+    })()));
+  }
+});
+
 // src/pty-process.js
 var require_pty_process = __commonJS({
   "src/pty-process.js"(exports2, module2) {
@@ -12064,6 +13917,7 @@ var require_terminal_service = __commonJS({
         }
         const { Terminal } = require_xterm();
         const { FitAddon } = require_addon_fit();
+        const { Unicode11Addon } = require_addon_unicode11();
         const { PtyProcess } = require_pty_process();
         const css = require_xterm2();
         const doc = container.ownerDocument;
@@ -12095,6 +13949,8 @@ var require_terminal_service = __commonJS({
         });
         const fitAddon = new FitAddon();
         terminal.loadAddon(fitAddon);
+        terminal.loadAddon(new Unicode11Addon());
+        terminal.unicode.activeVersion = "11";
         terminal.open(mount);
         fitAddon.fit();
         let alive = true, backend;
@@ -13069,6 +14925,7 @@ var BronTerminalView = class extends ItemView {
     this.input.placeholder = provider === "shell" ? "Enter a command, such as claude -c or codex resume\u2026" : "Message " + PROVIDERS[provider].label + "\u2026";
     if (this.renderedProvider !== provider) {
       this.renderedProvider = provider;
+      this.terminalInput?.reset();
       this.leaf.updateHeader();
     }
     const entering = this.card.dataset.native !== "true" && state?.native;
