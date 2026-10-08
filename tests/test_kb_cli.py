@@ -64,7 +64,8 @@ def add_all(env, capsys):
     reading report (the wiki run's ticket carries it)."""
     code, out = run(env, capsys, "add", acme_folder(env))
     assert code == 0 and out.strip() == ("Reading 3 documents into the wiki in the background (about 3 minutes); "
-                                         "a Mac notification will say when it's done, and I'll tell you in your next message."), out
+                                         "a Mac notification will say when it's done, "
+                                         "and I'll tell you in your next message."), out
     jobs.run(env.vault, env.spawned[-1], embedder=fake_embed)  # what the detached `bron kb run-job` does
     return jobs.load(env.vault, env.spawned[-1]).report
 
@@ -90,7 +91,8 @@ def test_a_folder_is_read_and_written_in_the_background_and_a_failure_is_told_on
         make_text_pdf(folder / f"report{i}.pdf", [f"Quarterly report number {i}, with revenue and costs."])
     code, out = run(env, capsys, "add", str(folder))
     assert code == 0 and out.strip() == ("Reading 6 documents into the wiki in the background (about 6 minutes); "
-                                         "a Mac notification will say when it's done, and I'll tell you in your next message.")
+                                         "a Mac notification will say when it's done, "
+                                         "and I'll tell you in your next message.")
     assert len(env.spawned) == 1 and store.all_docs(env.vault) == []
     code, out = run(env, capsys, "status")
     assert "Waiting to read 6 documents" in out
@@ -394,7 +396,8 @@ def test_a_small_request_waits_behind_a_running_job(env, capsys, tmp_path, monke
     one = make_text_pdf(tmp_path / "one.pdf", [SPA_TEXT])
     code, out = run(env, capsys, "add", str(one))
     assert code == 0 and out.strip() == ("Reading 1 document into the wiki in the background (about 1 minute); "
-                                         "a Mac notification will say when it's done, and I'll tell you in your next message.")
+                                         "a Mac notification will say when it's done, "
+                                         "and I'll tell you in your next message.")
     assert len(env.spawned) == 1 and store.all_docs(env.vault) == []
 
 
@@ -550,7 +553,8 @@ def test_a_long_read_goes_to_the_background(env, capsys, tmp_path, monkeypatch):
     monkeypatch.setattr(ingest, "looks_scanned", lambda item: True)
     code, out = run(env, capsys, "add", str(one))
     assert out.strip() == ("Reading 1 document into the wiki in the background (about 2 minutes); "
-                           "a Mac notification will say when it's done, and I'll tell you in your next message.")
+                           "a Mac notification will say when it's done, "
+                           "and I'll tell you in your next message.")
     jobs.cancel(env.vault)  # the first one is out of the way
     monkeypatch.setattr(ingest, "page_count", lambda item: 300)  # 300 scanned pages: about 5 minutes, still here
     code, out = run(env, capsys, "add", str(one))

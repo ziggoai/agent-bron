@@ -33,7 +33,8 @@ def test_up_to_three_documents_are_read_in_the_conversation(env, capsys, tmp_pat
 def test_four_documents_or_a_folder_go_to_the_background_with_a_wiki_run(env, capsys, tmp_path):
     code, out = run(env, capsys, "add", *map(str, pdfs(tmp_path, 4)))
     assert out.strip() == ("Reading 4 documents into the wiki in the background (about 4 minutes); "
-                           "a Mac notification will say when it's done, and I'll tell you in your next message.")
+                           "a Mac notification will say when it's done, "
+                           "and I'll tell you in your next message.")
     assert jobs.load(env.vault, env.spawned[0]).wiki is True and env.ensured == []
     jobs.cancel(env.vault)  # the first one is out of the way
     folder = tmp_path / "Receipts"
@@ -41,7 +42,8 @@ def test_four_documents_or_a_folder_go_to_the_background_with_a_wiki_run(env, ca
     make_text_pdf(folder / "r.pdf", [SPA_TEXT])
     code, out = run(env, capsys, "add", str(folder))
     assert out.strip() == ("Reading 1 document into the wiki in the background (about 1 minute); "
-                           "a Mac notification will say when it's done, and I'll tell you in your next message.")
+                           "a Mac notification will say when it's done, "
+                           "and I'll tell you in your next message.")
     job = jobs.load(env.vault, env.spawned[1])
     assert job.wiki is True and job.label == f"the {tmp_path.name}/Receipts folder"
 
@@ -175,3 +177,25 @@ def test_ticket_titles_name_the_parent_folder(env, capsys, tmp_path):
     assert sources.folder_label(web, web.items) == ""
     assert wiki_run.title("the Acme Ltda/Contracts folder", 3, 2, 4) == \
         "Read the Acme Ltda/Contracts folder into the wiki (part 2 of 4)"
+
+
+@pytest.mark.parametrize("claudecode", [True, False])
+def test_a_ticket_run_is_told_its_own_ticket_reports(monkeypatch, claudecode):
+    monkeypatch.setenv("BRON_TICKET", "T-1")
+    if claudecode:
+        monkeypatch.setenv("CLAUDECODE", "1")
+    else:
+        monkeypatch.delenv("CLAUDECODE", raising=False)
+    line = kb_cli._background_line("12 documents", "about 9 min")
+    assert "its own ticket reports" in line and "notification" not in line and "I'll report" not in line
+
+
+def test_a_folder_under_the_home_folder_is_named_by_itself(env, monkeypatch, tmp_path):
+    from bron.kb import sources
+
+    monkeypatch.setattr(sources.Path, "home", classmethod(lambda cls: tmp_path))
+    folder = tmp_path / "Receipts"
+    folder.mkdir()
+    make_text_pdf(folder / "r.pdf", [SPA_TEXT])
+    found = sources.resolve_targets(env.vault, [str(folder)])
+    assert sources.folder_label(found, found.items) == "the Receipts folder"

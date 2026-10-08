@@ -1,6 +1,7 @@
 """`bron kb …`: read what the user points to, search it, and look after what was read."""
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -17,6 +18,8 @@ SECONDS_PER_PAGE = 0.2  # a mix of text and scanned pages, for estimates of what
 BACKGROUND = "Reading {count} into the wiki in the background ({duration}); I'll report when it's done."
 BACKGROUND_CODEX = ("Reading {count} into the wiki in the background ({duration}); a Mac notification will say when "
                     "it's done, and I'll tell you in your next message.")
+BACKGROUND_TICKET = ("Reading {count} into the wiki in the background ({duration}); it starts after this run, and its "
+                     "own ticket reports when it's done.")
 BEHIND = "A folder is already being written into the wiki; these start right after it and should be done in {duration}."
 NEXT = "Next: load the read-documents skill, write their wiki pages, then run `.bron/bin/bron wiki done`."
 SHOW_PAGES = 20
@@ -118,7 +121,6 @@ def handle(args, vault) -> int:
 
 def _quiet_stdout() -> None:
     """After a closed pipe, Python's last flush of stdout would fail again: point it at nothing."""
-    import os
     import sys
 
     try:
@@ -207,11 +209,18 @@ def _ahead(vault) -> tuple[int, bool]:
     return count, bool(count) or bool(reading) or jobs.wiki_active(vault)
 
 
-def _background_line(count: str, duration: str) -> str:
-    """Claude Code's agent is woken when the background command ends; Codex's user gets a Mac notification."""
-    import os
+def _who_hears() -> str:
+    """Who the background job's end reaches: "claude" (a Claude Code conversation: the agent is woken), "other" (a Codex
+    conversation: a Mac notification and the next message), or "ticket" (a background run: nobody is woken and there
+    is no next message; the run's own ticket reports)."""
+    if os.environ.get("BRON_TICKET"):
+        return "ticket"
+    return "claude" if os.environ.get("CLAUDECODE") else "other"
 
-    return (BACKGROUND if os.environ.get("CLAUDECODE") else BACKGROUND_CODEX).format(count=count, duration=duration)
+
+def _background_line(count: str, duration: str) -> str:
+    text = {"claude": BACKGROUND, "other": BACKGROUND_CODEX, "ticket": BACKGROUND_TICKET}[_who_hears()]
+    return text.format(count=count, duration=duration)
 
 
 def _behind_line(duration: str) -> str:
@@ -237,8 +246,6 @@ def _wait_hint(job_id: str) -> None:
     """In a Claude Code conversation a background command wakes the agent when it ends, so `kb wait` lets it tell the
     user unasked. Codex has no such command: the Mac notification and the next message's notice tell them. The wait is
     for this conversation's job only: with two conversations reading, each reports its own."""
-    import os
-
     if os.environ.get("CLAUDECODE") and not os.environ.get("BRON_TICKET"):
         print(WAIT_HINT.format(job=job_id))
 
