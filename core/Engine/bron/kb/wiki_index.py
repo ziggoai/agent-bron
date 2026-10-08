@@ -1,5 +1,5 @@
 """Wiki pages in the search database: their words and meaning, refreshed from the files' modification times on every
-search (a quick look at Knowledge/**/*.md) and by `bron wiki done`."""
+search (a quick look at Knowledge/**/*.md) and by `bron wiki done`. Only `wiki done` writes index.md."""
 from __future__ import annotations
 
 import sqlite3
@@ -17,6 +17,7 @@ from .store import KbError
 PAGES = 3  # wiki pages a search shows
 TOP = 50
 _MATRIX: dict = {}  # one page-vector matrix per process, reloaded when the pages in the index change
+_ROWS: dict = {}  # (page, window) -> row of page_fts, kept like the matrix
 EXCERPT = 400
 
 
@@ -32,12 +33,10 @@ class PageHit:
 
 def _stats(vault: Vault) -> dict[str, tuple[float, int, Path]]:
     out: dict[str, tuple[float, int, Path]] = {}
-    for path in wiki.page_paths(vault):
-        try:
-            st = path.stat()
-        except OSError:
-            continue
-        out[path.relative_to(vault.root).as_posix()] = (st.st_mtime, st.st_size, path)
+    start = len(str(vault.root)) + 1  # a cheap relative path: Path.relative_to costs a lot over a thousand pages
+    for path, st in wiki.scan_pages(vault):
+        if st is not None:
+            out[str(path)[start:].replace("\\", "/")] = (st.st_mtime, st.st_size, path)
     return out
 
 
@@ -95,10 +94,12 @@ def _put_broken(con: sqlite3.Connection, page: wiki.Page) -> None:
 
 def refresh(vault: Vault, con: sqlite3.Connection, embedder) -> bool:
     """Bring the pages in the index up to date: new and changed pages, removed ones, and vectors still missing. Document
-    pages are recorded as their documents' pages and their labels go into the search filters; index.md is rewritten
-    when pages changed. True when anything changed."""
+    pages are recorded as their documents' pages and their labels go into the search filters. index.md is not touched
+    (`wiki done` writes it). True when anything changed."""
     current = _stats(vault)
-    known = {r[0]: (r[1], r[2], r[3], r[4] or "") for r in con.execute("SELECT path, mtime, size, vectors, model FROM pages")}
+    rows = con.execute("SELECT path, mtime, size, vectors, model, doc_id FROM pages").fetchall()
+    known = {r[0]: (r[1], r[2], r[3], r[4] or "") for r in rows}
+    stored_ids = {r[0]: r[5] or "" for r in rows}
     model = index._model_name(embedder) if embedder is not None else ""
     removed = sorted(set(known) - set(current))
     changed = [rel for rel, (mtime, size, _) in current.items() if rel not in known or known[rel][:2] != (mtime, size)]
@@ -112,7 +113,7 @@ def refresh(vault: Vault, con: sqlite3.Connection, embedder) -> bool:
         with con:
             _delete(con, rel)
             _bump(con)
-    pages =[wiki.read_page(vault, current[rel][2]) for rel in changed]
+    pages = [wiki.read_page(vault, current[rel][2]) for rel in changed]
     for page in pages:
         if page.error:
             _put_broken(con, page)
@@ -123,13 +124,13 @@ def refresh(vault: Vault, con: sqlite3.Connection, embedder) -> bool:
         if not page.error:
             _put(con, page, embedder, only_with_vectors=True)
     good = [p for p in pages if not p.error]
-    _, touched = wiki.link_documents(vault, good, removed)
+    # every stored document is looked through only when pages went away or a page names other documents than the ones recorded
+    sweep = bool(removed) or any(",".join(p.doc_ids) != stored_ids.get(p.rel, "") for p in good)
+    _, touched = wiki.link_documents(vault, good, removed, sweep=sweep)
     for doc_id in touched | {i for p in good for i in p.doc_ids}:
         doc = store.load(vault, doc_id)
         if doc is not None and doc.status == "read":
             index.set_labels(con, doc)
-    if removed or changed:
-        wiki.write_index(vault)
     return True
 
 
@@ -143,11 +144,26 @@ def _keyword(con: sqlite3.Connection, query: str) -> list[tuple[str, int]]:
     return [(path, int(w)) for path, w in con.execute(sql, [" OR ".join(terms)])]
 
 
+def _counter_key(vault: Vault, con: sqlite3.Connection) -> tuple:
+    counter = con.execute("SELECT val FROM meta WHERE key = 'pages_counter'").fetchone()
+    return counter[0] if counter else 0, index.db_path(vault).stat().st_ino
+
+
+def _row_ids(vault: Vault, con: sqlite3.Connection) -> dict[tuple[str, int], int]:
+    """The row of every (page, window) in page_fts (kept until the pages in the index change)."""
+    key = _counter_key(vault, con)
+    cached = _ROWS.get(str(index.db_path(vault)))
+    if cached and cached[0] == key:
+        return cached[1]
+    rows = {(path, int(w)): rowid for rowid, path, w in con.execute("SELECT rowid, path, w FROM page_fts")}
+    _ROWS[str(index.db_path(vault))] = (key, rows)
+    return rows
+
+
 def _load_matrix(vault: Vault, con: sqlite3.Connection, model: str):
     """The vectors of the pages made by this model, as one matrix (kept until the pages in the index change)."""
     path = index.db_path(vault)
-    counter = con.execute("SELECT val FROM meta WHERE key = 'pages_counter'").fetchone()
-    key = (counter[0] if counter else 0, path.stat().st_ino, model)
+    key = (*_counter_key(vault, con), model)
     cached = _MATRIX.get(str(path))
     if cached and cached[0] == key:
         return cached[1]
@@ -195,10 +211,14 @@ def search_pages(vault: Vault, con: sqlite3.Connection, query: str, embedder, *,
             best[path] = (w, score)
             if len(best) >= limit:
                 break
+    row_ids = _row_ids(vault, con)
+    wanted = {path: row_ids.get((path, w)) for path, (w, _) in best.items()}
+    ids = [r for r in wanted.values() if r is not None]
+    excerpts = dict(con.execute(f"SELECT rowid, excerpt FROM page_fts WHERE rowid IN ({','.join('?' * len(ids))})", ids)) \
+        if ids else {}
     hits: list[PageHit] = []
     for path, (w, score) in best.items():
-        found = con.execute("SELECT excerpt FROM page_fts WHERE path = ? AND w = ?", (path, w)).fetchone()
-        text = found[0] if found else ""
+        text = excerpts.get(wanted[path], "")
         excerpt = text if len(text) <= EXCERPT else text[:EXCERPT].rstrip() + "…"
         _, title, kind, summary, _ = rows[path]
         hits.append(PageHit(path, title, kind, summary, excerpt, score))

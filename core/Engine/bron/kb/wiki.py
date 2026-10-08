@@ -99,20 +99,42 @@ class Page:
         return [name for name in found if name]
 
 
-def page_paths(vault: Vault) -> list[Path]:
+def scan_pages(vault: Vault) -> list[tuple[Path, os.stat_result | None]]:
+    """Every page file with its stat (None when it can't be read), in path order: one walk, no extra stat calls."""
     root = vault.knowledge_dir
     if not root.is_dir():
         return []
-    out: list[Path] = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        here = Path(dirpath)
-        top = here == root
-        dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and not (top and d in schema.NOT_PAGE_FOLDERS))
-        for name in filenames:
-            if name.startswith(".") or not name.endswith(".md") or (top and name in RESERVED):
+    out: list[tuple[Path, os.stat_result | None]] = []
+
+    def walk(folder: Path, top: bool) -> None:
+        try:
+            entries = sorted(os.scandir(folder), key=lambda e: e.name)  # folder by folder: the order of sorted paths
+        except OSError:
+            return
+        for entry in entries:
+            name = entry.name
+            if name.startswith("."):
                 continue
-            out.append(here / name)
-    return sorted(out)
+            try:
+                is_dir = entry.is_dir(follow_symlinks=False)
+            except OSError:
+                continue
+            if is_dir:
+                if not (top and name in schema.NOT_PAGE_FOLDERS):
+                    walk(Path(entry.path), False)
+            elif name.endswith(".md") and not (top and name in RESERVED):
+                try:
+                    stat = entry.stat()
+                except OSError:
+                    stat = None
+                out.append((Path(entry.path), stat))
+
+    walk(root, True)
+    return out
+
+
+def page_paths(vault: Vault) -> list[Path]:
+    return [path for path, _ in scan_pages(vault)]
 
 
 def read_page(vault: Vault, path: Path) -> Page:
@@ -144,10 +166,11 @@ def page_labels(page: Page) -> dict:
             "date": when if _DATE.fullmatch(when) else "", "title": page.title}
 
 
-def link_documents(vault: Vault, pages: list[Page], removed=()) -> tuple[list[str], set[str]]:
+def link_documents(vault: Vault, pages: list[Page], removed=(), *, sweep: bool = True) -> tuple[list[str], set[str]]:
     """Record each document page among `pages` as its document's page, with the labels its properties give; forget the
     record of pages that were removed or no longer name their document. Returns (plain lines about pages whose doc Bron
-    doesn't have, ids of the documents whose record changed)."""
+    doesn't have, ids of the documents whose record changed). `sweep=False` skips looking through every stored document
+    for records to forget: right when no page was removed or changed which documents it names."""
     unknown: list[str] = []
     touched: set[str] = set()
     claimed: dict[str, Page] = {}  # an id named by two pages stays with the first (wiki check reports the pair)
@@ -156,7 +179,7 @@ def link_documents(vault: Vault, pages: list[Page], removed=()) -> tuple[list[st
             for doc_id in p.doc_ids:
                 claimed.setdefault(doc_id, p)
     looked_at = set(removed) | {p.rel for p in pages if not p.error}
-    for doc in store.all_docs(vault):
+    for doc in (store.all_docs(vault) if sweep else ()):
         if doc.page in looked_at and doc.doc_id not in claimed:
             store.clear_page(vault, doc.doc_id)
             touched.add(doc.doc_id)

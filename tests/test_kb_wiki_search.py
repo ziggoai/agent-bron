@@ -3,7 +3,7 @@ import pytest
 
 from bron import cli as bron_cli
 from bron.kb import cli as kb_cli
-from bron.kb import embed, index, search, service, store, tools, wiki_index
+from bron.kb import embed, index, search, service, store, tools, wiki_done, wiki_index
 from bron.kb.store import KbError
 from kbkit import fake_embed, later, stored_doc, write_page
 
@@ -88,9 +88,9 @@ def test_filters_narrow_document_pages_but_not_other_pages(vault):
     assert found.hits == [] and "Office lease (2025-03-01)" not in titles(found) and "Harbor Bakery" in titles(found)
 
 
-def test_a_new_page_rewrites_index_md_on_the_next_search(vault):
+def test_a_new_page_goes_into_index_md_with_wiki_done(vault):
     lease(vault)
-    find(vault, "rent")
+    wiki_done.done(vault)
     text = (vault.knowledge_dir / "index.md").read_text(encoding="utf-8")
     assert "- [[Harbor Bakery]] — A bakery that rents a shop (1 source, updated " in text
 
@@ -262,3 +262,37 @@ def test_a_page_for_several_documents_is_found_through_its_second_document(vault
     assert [h.doc_id for h in found.hits] == [b.doc_id]  # the filter leaves only the second document
     assert titles(found) == ["Supplier forms"]
     assert "Page: [[Supplier forms]]" in search.render_all(found)
+
+
+def org(vault, name, body):
+    return write_page(vault, f"Organisations/{name}.md", body, type="organisation", summary=f"{name} summary")
+
+
+def test_search_sees_an_edit_without_wiki_done(vault):
+    org(vault, "Acme Ltda", "Rents a shop.\n")
+    find(vault, "shop")
+    path = vault.knowledge_dir / "Organisations/Acme Ltda.md"
+    later(path)
+    path.write_text(path.read_text(encoding="utf-8").replace("Rents a shop", "Owns a bakery"), encoding="utf-8")
+    assert titles(find(vault, "bakery", pages_only=True))[:1] == ["Acme Ltda"]
+
+
+def test_a_search_does_not_rewrite_index_md(vault):
+    org(vault, "Acme Ltda", "Rents a shop.\n")
+    wiki_done.done(vault)
+    index_md = vault.knowledge_dir / "index.md"
+    before = index_md.read_text(encoding="utf-8")
+    org(vault, "Beta Ltda", "Sells bread.\n")
+    assert titles(find(vault, "bread", pages_only=True))[:1] == ["Beta Ltda"]
+    assert index_md.read_text(encoding="utf-8") == before  # `wiki done` writes it
+    wiki_done.done(vault)
+    assert "Beta Ltda" in index_md.read_text(encoding="utf-8")
+
+
+def test_an_edit_that_keeps_the_same_documents_still_updates_their_labels(vault):
+    doc = lease(vault)
+    find(vault, "rent")
+    page = vault.knowledge_dir / LEASE_PAGE
+    later(page)
+    page.write_text(page.read_text(encoding="utf-8").replace("doc_type: contract", "doc_type: invoice"), encoding="utf-8")
+    assert [h.doc_id for h in find(vault, "rent", doc_type="invoice").hits] == [doc.doc_id]
