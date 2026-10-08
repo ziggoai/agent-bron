@@ -2,6 +2,9 @@
 
 What changed in each version of Bron, newest first. Bron shows the new sections when you ask it to update itself.
 
+## 0.8.7
+- New vaults start Bron on `gpt-6-astra` in Codex, as it starts on Opus 5.5 in Claude Code, instead of whatever model Codex is set to. An existing vault keeps its setting; to change it, ask Bron or run `.bron/bin/bron agent set Bron --model codex=gpt-6-astra`.
+
 ## 0.8.6
 - A background run that finished its work no longer stops as "blocked" when a command on its own scratch files was refused, so Bron doesn't run the batch a second time. Scratch files stay in `.bron/tmp/`, and Bron clears the ones older than a day after each run instead of asking you to approve each delete. Reader helpers keep document text inside the vault too.
 - Bron closes each batch's ticket once its wiki pages are written, so there are no reading tickets left for you to close. When a ticket changes twice before you hear about it, you get one update with its latest status.

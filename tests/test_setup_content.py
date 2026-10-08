@@ -33,7 +33,7 @@ def test_the_first_run_briefing_points_to_onboarding(vault):
 
 
 def test_bron_starts_on_opus_in_claude_code(vault):
-    assert fm.read(vault.agents_dir / "Bron" / "Agent.md").meta["models"] == {"claude": "opus-5.5", "codex": "default"}
+    assert fm.read(vault.agents_dir / "Bron" / "Agent.md").meta["models"] == {"claude": "opus-5.5", "codex": "gpt-6-astra"}
 
 
 def test_onboarding_main_app_step_uses_preview_and_waits(vault):

@@ -4,7 +4,7 @@ role: Chief of Staff
 reports_to: you
 models:
   claude: opus-5.5
-  codex: default
+  codex: gpt-6-astra
 runs_in: any
 helpers: [reader, researcher, reviewer]
 connections: [all]

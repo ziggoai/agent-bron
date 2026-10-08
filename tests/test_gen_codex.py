@@ -18,7 +18,7 @@ def config(vault):
 def test_config_carries_bron_instructions_and_memory_off(vault):
     cfg = config(vault)
     assert cfg["developer_instructions"].startswith("# You are Bron\n")
-    assert "model" not in cfg
+    assert cfg["model"] == "gpt-6-astra"
     assert cfg["features"]["memories"] is False
     assert "mcp_servers" not in cfg
 

@@ -15,7 +15,7 @@ aliases:
 
 Every agent's `Agent.md` names one model per CLI under `models:`.
 
-- `default` means "use whatever model that CLI is set to". Bron uses this unless you ask for something else.
+- `default` means "use whatever model that CLI is set to". New agents get it unless you ask for something else; the Bron agent a new vault starts with uses `opus-5.5` in Claude Code and `gpt-6-astra` in Codex.
 - A friendly name from the list above, such as `opus-5.5`, is translated to the CLI's model ID. Capitals and spaces don't matter: "Opus 5.5" works too.
 - Anything else is passed to the CLI exactly as written, so a full model ID always works.
 
