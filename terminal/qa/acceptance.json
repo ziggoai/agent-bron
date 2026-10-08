@@ -52,5 +52,24 @@
     "path": "dist/bron-terminal-0.6.0-macos.zip",
     "sha256": "1194cd751cb36f1aef01931cf27534ef763efea349a22fdeb7cd1294f66ad789"
   },
-  "current_project_install": "updated on disk; existing live session preserved until reload"
+  "current_project_install": "updated on disk; existing live session preserved until reload",
+  "rechecks": [
+    {
+      "date": "2026-10-08",
+      "codex": "0.161.0",
+      "claude_code": "2.1.294",
+      "terminal_code_changed": false,
+      "live_passed": [
+        "Codex multiline Unicode message",
+        "model picker cancellation preserves unsent draft",
+        "codex resume --last",
+        "codex resume picker",
+        "/quit from composer"
+      ],
+      "known_issues": [
+        "composer stays blocked after an unconfirmed Enter, across a Codex exit and a new session in the same tab",
+        "emoji width mismatch (xterm 1 column, Codex 2) can leave a stale character on Codex's input line after the model picker closes; the text sent is correct"
+      ]
+    }
+  ]
 }

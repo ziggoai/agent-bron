@@ -30,6 +30,21 @@ Live checks in the clean vault cover:
 - Opening and cancelling the Codex model picker with an unsent draft retained and resynchronized.
 - Plugin reload and startup from the packaged payload with Termy absent.
 
+## Recheck with Codex 0.161.0
+
+Rechecked on 2026-10-08 with Codex 0.161.0 and Claude Code 2.1.294 in a fresh `scripts/dev-vault.sh` vault. The terminal code was unchanged. The following Codex checks passed:
+
+- A multiline draft with accented text, emoji, and CJK characters reached Codex unchanged and was answered. The composer was then empty.
+- With an unsent draft in the composer, opening and cancelling the model picker kept the draft. Codex then received it exactly as typed.
+- `codex resume --last` restored the saved test conversation.
+- `codex resume` opened its native picker, and Escape opened a new session.
+- `/quit` typed in the composer exited Codex.
+
+Found during the recheck; neither is specific to 0.161.0:
+
+- After an Enter is not confirmed, the composer stays blocked even if Codex exits and a new session starts in the same tab. Once the error message clears, typing and Enter do nothing. Escape, Ctrl+C, or editing in terminal controls clears the block. Codex drops an Enter that arrives within about 30 ms of the typed text, which happens only with scripted input. From 30 ms on, every Enter was accepted.
+- After an emoji, a stale character can stay visible in Codex's input line once the model picker closes. The text Codex receives is correct. The cause is that xterm counts emoji as one column wide and Codex counts them as two.
+
 ## Release boundaries
 
 This is a macOS payload. Both helper architectures are built and signed locally; Intel hardware has not been exercised in this run. Linux and Windows are not supported by the packaged backend. The supplied helper is ad-hoc signed, not Developer ID signed or notarized. No valid code-signing identity is installed on this machine. Public shipment remains blocked on the `npm run release:public` signing and Apple notarization step.
