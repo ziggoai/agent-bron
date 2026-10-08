@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -17,9 +17,25 @@ from .store import KbError
 
 RRF_K = 60
 TOP = 50
-TEXT_LIMIT = 1200
+PER_DOC = 2  # passages shown from one document at most
+TEXT_LIMIT = 600  # characters shown of a passage: its best part
+WINDOW_WORDS = 100
+SAME_MIN = 200  # passages this long with the same text are shown once, naming the other documents
 _WORD = re.compile(r"\w+")
 _NUMBER_RUN = re.compile(r"\d+(?:[.,]\d+)+")
+
+# Function words (English, Portuguese, Spanish) left out of the keyword ranking. Not "i": it's a roman numeral too.
+STOPWORDS = frozenset(fold(w) for w in """
+    a an the and or but nor of to in on at by for from with without into onto about as than then that this these those
+    there here is are was were be been being am do does did has have had it its he she they them their his her we our
+    you your me my who whom whose what which when where why how all any each if so not no can could will would should
+    o os as um uma uns umas de do da dos das em no na nos nas num numa por pelo pela pelos pelas para com sem sob sobre
+    entre até e ou mas nem que se ao aos à às quem qual quais cujo cuja onde quando como porque este esta estes estas
+    esse essa esses essas isto isso aquele aquela aquilo ele ela eles elas seu sua seus suas lhe lhes meu minha é são
+    foi ser ter tem há não
+    el la los las unos unas del al y u pero sus lo le les cuando donde quien cual cuales estos ese esos esas es son
+    fue si sí más
+""".split())
 
 # One vector matrix per process, reloaded when the index file changes.
 _MATRIX: dict = {}
@@ -36,6 +52,8 @@ class Hit:
     text: str
     score: float
     wiki_page: str = ""  # the title of the document's wiki page, when it has one
+    also_in: list[str] = field(default_factory=list)  # other documents with this same passage
+    query: str = ""  # the question, to show the passage's best part
 
 
 def _filtered(con, company, doc_type, after, before) -> set[str]:
@@ -67,11 +85,20 @@ def _query_terms(query: str) -> list[str]:
     return ['"' + w.replace('"', "") + '"' for w in raw if w and not (w in seen or seen.add(w))]
 
 
-def _keyword(con, query: str, allowed: set[str] | None) -> list[tuple[str, int]]:
-    terms = _query_terms(query)
-    if not terms:
-        return []
-    match = " OR ".join(terms)
+def _phrases(query: str) -> list[str]:
+    """FTS phrases for the question's numeric runs: with the word before ("section 10 9"), then alone ("10 9")."""
+    folded = fold(query)
+    out = []
+    for m in _NUMBER_RUN.finditer(folded):
+        run = " ".join(re.findall(r"\d+", m.group(0)))
+        before = _WORD.findall(folded[: m.start()])
+        if before:
+            out.append(f'"{before[-1]} {run}"')
+        out.append(f'"{run}"')
+    return list(dict.fromkeys(out))
+
+
+def _matches(con, match: str, allowed: set[str] | None) -> list[tuple[str, int]]:
     sql = "SELECT doc_id, n FROM fts WHERE fts MATCH ?"
     args: list = [match]
     if allowed is not None:
@@ -79,6 +106,23 @@ def _keyword(con, query: str, allowed: set[str] | None) -> list[tuple[str, int]]
         args.append(json.dumps(sorted(allowed)))
     sql += f" ORDER BY bm25(fts) LIMIT {TOP}"
     return [(d, int(n)) for d, n in con.execute(sql, args)]
+
+
+def _keyword(con, query: str, allowed: set[str] | None) -> list[tuple[str, int]]:
+    terms = _query_terms(query)
+    terms = [t for t in terms if t[1:-1] not in STOPWORDS] or terms  # only stopwords: search those
+    if not terms:
+        return []
+    return _matches(con, " OR ".join(terms), allowed)
+
+
+def _phrase(con, query: str, allowed: set[str] | None) -> list[tuple[str, int]]:
+    """Passages with the question's numbers as written ("Section 10.9"): the most specific phrase first."""
+    found: dict[tuple[str, int], None] = {}
+    for phrase in _phrases(query):
+        for key in _matches(con, phrase, allowed):
+            found.setdefault(key, None)
+    return list(found)[:TOP]
 
 
 def _read_vectors(con) -> list[tuple[str, int, bytes]]:
@@ -197,11 +241,14 @@ def _find(vault, query, embedder, company, doc_type, after, before, limit, pages
             return Results(pages, [])
         keyword = _keyword(con, query, allowed)
         meaning = _meaning(vault, con, query, allowed, embedder)
+        phrase = _phrase(con, query, allowed)  # empty without numbers in the question
     finally:
         con.close()
     hits: list[Hit] = []
     docs: dict[str, tuple] = {}
-    for (doc_id, n), score in _fuse(keyword, meaning):
+    shown: dict[str, int] = {}  # passages shown per document
+    same: dict[str, Hit] = {}  # a long passage's text (spaces evened out) -> the hit showing it
+    for (doc_id, n), score in _fuse(keyword, meaning, phrase):
         if doc_id not in docs:
             doc = store.load(vault, doc_id)
             docs[doc_id] = (doc, store.passages(vault, doc_id)) if doc else (None, [])
@@ -209,8 +256,23 @@ def _find(vault, query, embedder, company, doc_type, after, before, limit, pages
         if doc is None or doc.status != "read" or n >= len(passages):
             continue  # the index is out of step with the store (or the last reading failed); skip
         p = passages[n]
-        hits.append(Hit(doc_id, doc.name, store.effective_labels(doc), p.get("page") or 0, str(p.get("section") or ""),
-                        doc.source, str(p.get("text", "")), score, Path(doc.page).stem if doc.page else ""))
+        text = str(p.get("text", ""))
+        labels = store.effective_labels(doc)
+        flat = " ".join(text.split())
+        first = same.get(flat) if len(flat) >= SAME_MIN else None
+        if first is not None:  # a copy: named under the hit already shown
+            name = labels.get("title") or doc.name
+            if first.doc_id != doc_id and name not in first.also_in:
+                first.also_in.append(name)
+            continue
+        if shown.get(doc_id, 0) >= PER_DOC:
+            continue
+        shown[doc_id] = shown.get(doc_id, 0) + 1
+        hit = Hit(doc_id, doc.name, labels, p.get("page") or 0, str(p.get("section") or ""), doc.source, text, score,
+                  Path(doc.page).stem if doc.page else "", query=query)
+        hits.append(hit)
+        if len(flat) >= SAME_MIN:
+            same[flat] = hit
         if len(hits) >= limit:
             break
     return Results(pages, hits)
@@ -229,6 +291,33 @@ def search(vault: Vault, query: str, *, embedder, company: str = "", doc_type: s
                 limit=limit).hits
 
 
+def _excerpt(text: str, query: str) -> str:
+    """The part of a passage with the most of the question's words: windows of up to WINDOW_WORDS words and TEXT_LIMIT
+    characters, the best by folded words in common (ties: the first), with "…" where it's cut."""
+    spans = [m.span() for m in re.finditer(r"\S+", text)]
+    if not spans:
+        return ""
+    want = set(_WORD.findall(fold(query)))
+    want = (want - STOPWORDS) or want
+    best, best_score, i = (0, 1), -1, 0
+    while True:
+        j = i + 1
+        while j < len(spans) and j - i < WINDOW_WORDS and spans[j][1] - spans[i][0] <= TEXT_LIMIT:
+            j += 1
+        score = len(want & set(_WORD.findall(fold(text[spans[i][0]:spans[j - 1][1]]))))
+        if score > best_score:
+            best, best_score = (i, j), score
+        if j >= len(spans):
+            break
+        i += max(1, (j - i) * 4 // 5)
+    i, j = best
+    part = text[spans[i][0]:spans[j - 1][1]]
+    cut = j < len(spans)
+    if len(part) > TEXT_LIMIT:  # one very long word
+        part, cut = part[:TEXT_LIMIT].rstrip(), True
+    return ("…" if i else "") + part + ("…" if cut else "")
+
+
 def render(hits: list[Hit]) -> str:
     blocks = []
     for i, h in enumerate(hits, start=1):
@@ -239,9 +328,9 @@ def render(hits: list[Hit]) -> str:
         if h.section:
             parts.append(h.section)
         head = " · ".join(str(p) for p in parts if p)
-        text = h.text if len(h.text) <= TEXT_LIMIT else h.text[:TEXT_LIMIT].rstrip() + "…"
+        also = f"\nAlso in: {', '.join(h.also_in)}" if h.also_in else ""
         page_line = f"\nPage: [[{h.wiki_page}]]" if h.wiki_page else ""
-        blocks.append(f"{i}. {head}\n{h.source}{page_line}\n{text}")
+        blocks.append(f"{i}. {head}\n{h.source}{also}{page_line}\n{_excerpt(h.text, h.query)}")
     return "\n\n".join(blocks)
 
 

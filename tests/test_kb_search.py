@@ -6,7 +6,12 @@ import pytest
 from bron.kb import embed, index, search, store
 from bron.kb.passages import split
 from bron.kb.store import Doc, KbError
-from kbkit import fake_embed
+from kbkit import fake_embed, stored_doc
+
+
+@pytest.fixture
+def embedder():
+    return fake_embed
 
 
 def add(vault, ident, texts, *, company="Acme", doc_type="contract", date="2025-01-10", fund="", name=None, embedder=fake_embed,
@@ -194,7 +199,7 @@ def test_render(vault):
     out = search.render(search.search(vault, "x" * 2000, embedder=fake_embed))
     lines = out.splitlines()
     assert lines[0] == "1. Term sheet · Acme · contract · 2025-01-10 · p. 1"
-    assert lines[1] == "/drive/a.pdf" and len(lines[2]) <= 1201
+    assert lines[1] == "/drive/a.pdf" and len(lines[2]) <= search.TEXT_LIMIT + 1
 
 
 def test_embedder_is_lazy_and_constants(tmp_path):
@@ -402,3 +407,55 @@ def test_embedder_load_failure_message(tmp_path, monkeypatch):
     with pytest.raises(KbError) as err:
         embed.Embedder(tmp_path / "m").embed(["x"])
     assert "meaning-search model couldn't be loaded" in str(err.value) and "Keyword search still works" in str(err.value)
+
+
+def test_clause_number_ranks_first(vault, embedder):
+    stored_doc(vault, "agreement.pdf", ["Section 10.9 Other agreements. The company may sign letters."], index_it=True)
+    for i in range(12):
+        stored_doc(vault, f"note{i}.pdf", [f"The section of the other company and the letters {i}."], index_it=True)
+    hits = search.search(vault, "Section 10.9", embedder=embedder)
+    assert hits[0].name == "agreement.pdf"
+
+
+def test_numbers_are_searched_with_the_word_before_them(vault, embedder):
+    assert search._phrases("Section 10.9 and 4.2") == ['"section 10 9"', '"10 9"', '"and 4 2"', '"4 2"']
+    assert search._phrases("2.999.999,10") == ['"2 999 999 10"'] and search._phrases("section 10") == []
+    right = stored_doc(vault, "agreement.pdf", ["Section 10.9 Other agreements."], index_it=True)
+    for i in range(3):
+        stored_doc(vault, f"note{i}.pdf", [f"Section {i}: the company sold 10.9 letters."], index_it=True)
+    con = index.open(vault)
+    got = search._phrase(con, "Section 10.9", None)
+    con.close()
+    assert got[0][0] == right.doc_id and len(got) == 4  # the exact phrase first, then the number alone
+
+
+def test_only_stopwords_still_searches(vault, embedder):
+    stored_doc(vault, "a.pdf", ["the of and"], index_it=True)
+    assert search.search(vault, "the of and", embedder=embedder)  # falls back to the words themselves
+
+
+def test_at_most_two_passages_per_document(vault, embedder):
+    # long pages, so each is a passage of its own
+    stored_doc(vault, "big.pdf", [f"Lease rent schedule part {i}. " + "Other terms apply here. " * 80 for i in range(10)],
+               index_it=True)
+    stored_doc(vault, "small.pdf", ["Lease rent once"], index_it=True)
+    names = [h.name for h in search.search(vault, "lease rent", embedder=embedder)]
+    assert names.count("big.pdf") <= 2 and "small.pdf" in names
+
+
+def test_identical_passages_collapse(vault, embedder):
+    text = "Clause 4. The tenant pays rent monthly in advance to the landlord. " * 4
+    stored_doc(vault, "lease v1.pdf", [text], index_it=True)
+    stored_doc(vault, "lease v2.pdf", [text], index_it=True)
+    hits = search.search(vault, "tenant pays rent monthly", embedder=embedder)
+    assert len([h for h in hits if h.text == hits[0].text]) == 1
+    assert hits[0].also_in  # the other copy is named
+    assert "Also in:" in search.render(hits)
+
+
+def test_results_show_the_best_part_of_a_long_passage(vault, embedder):
+    stored_doc(vault, "long.pdf", ["filler " * 150 + "the deposit is three months of rent " + "filler " * 150],
+               index_it=True)
+    hit = search.search(vault, "deposit three months", embedder=embedder)[0]
+    shown = search.render([hit])
+    assert "deposit is three months" in shown and len(shown) < 900
