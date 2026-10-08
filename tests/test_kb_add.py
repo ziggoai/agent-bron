@@ -4,7 +4,7 @@ import re
 import pytest
 
 from bron.kb import cli as kb_cli
-from bron.kb import jobs, store, tools, wiki
+from bron.kb import jobs, store, tools, wiki, wiki_run
 from kbkit import fake_embed, make_text_pdf, stored_doc, write_page
 from test_kb_cli import SPA_TEXT, env, run  # noqa: F401 - env is a fixture
 
@@ -33,7 +33,7 @@ def test_up_to_three_documents_are_read_in_the_conversation(env, capsys, tmp_pat
 def test_four_documents_or_a_folder_go_to_the_background_with_a_wiki_run(env, capsys, tmp_path):
     code, out = run(env, capsys, "add", *map(str, pdfs(tmp_path, 4)))
     assert out.strip() == ("Reading 4 documents into the wiki in the background (about 4 minutes); "
-                           "I'll report when it's done.")
+                           "a Mac notification will say when it's done, and I'll tell you in your next message.")
     assert jobs.load(env.vault, env.spawned[0]).wiki is True and env.ensured == []
     jobs.cancel(env.vault)  # the first one is out of the way
     folder = tmp_path / "Receipts"
@@ -41,9 +41,9 @@ def test_four_documents_or_a_folder_go_to_the_background_with_a_wiki_run(env, ca
     make_text_pdf(folder / "r.pdf", [SPA_TEXT])
     code, out = run(env, capsys, "add", str(folder))
     assert out.strip() == ("Reading 1 document into the wiki in the background (about 1 minute); "
-                           "I'll report when it's done.")
+                           "a Mac notification will say when it's done, and I'll tell you in your next message.")
     job = jobs.load(env.vault, env.spawned[1])
-    assert job.wiki is True and job.label == "the Receipts folder"
+    assert job.wiki is True and job.label == f"the {tmp_path.name}/Receipts folder"
 
 
 def test_the_inbox_counts_its_documents_not_as_a_folder(env, capsys):
@@ -59,7 +59,7 @@ def test_documents_read_while_a_folder_is_written_wait_behind_it(env, capsys, tm
     code, out = run(env, capsys, "add", *map(str, pdfs(tmp_path, 2)))
     lines = out.strip().splitlines()
     assert code == 0 and lines[0].startswith("Read doc0.pdf") and kb_cli.NEXT not in out
-    assert lines[-1] == "A folder is being written into the wiki; I'll add these after it (about 2 minutes)."
+    assert lines[-1] == "A folder is already being written into the wiki; these start right after it and should be done in about 2 minutes."
     job = jobs.load(env.vault, env.spawned[0])
     assert job.wiki_status == "waiting" and sorted(job.wiki_docs) == sorted(d.doc_id for d in store.all_docs(env.vault))
 
@@ -124,7 +124,7 @@ def test_a_file_added_while_a_folder_is_being_read_waits_behind_it(env, capsys, 
                     "--name", "IC memo")
     lines = out.strip().splitlines()
     assert code == 0 and lines[0].startswith("Read IC memo (") and kb_cli.NEXT not in out
-    assert lines[-1] == "A folder is being written into the wiki; I'll add these after it (about 2 minutes)."
+    assert lines[-1] == "A folder is already being written into the wiki; these start right after it and should be done in about 2 minutes."
     assert jobs.load(env.vault, env.spawned[1]).wiki_status == "waiting"
 
 
@@ -137,4 +137,41 @@ def test_a_second_background_add_waits_behind_the_first_folder(env, capsys, tmp_
     second.mkdir()
     make_text_pdf(second / "b.pdf", [SPA_TEXT + " Other."])
     code, out = run(env, capsys, "add", str(second))
-    assert out.strip() == "A folder is being written into the wiki; I'll add these after it (about 2 minutes)."
+    assert out.strip() == "A folder is already being written into the wiki; these start right after it and should be done in about 2 minutes."
+
+
+def test_codex_is_told_a_notification_will_come(monkeypatch):
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    line = kb_cli._background_line("12 documents", "about 9 min")
+    assert "notification" in line and "I'll report" not in line
+
+
+def test_claude_code_still_reports(monkeypatch):
+    monkeypatch.setenv("CLAUDECODE", "1")
+    assert kb_cli._background_line("12 documents", "about 9 min").endswith("I'll report when it's done.")
+
+
+def test_behind_says_it_starts_right_after(monkeypatch):
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    line = kb_cli._behind_line("about 12 min")
+    assert "right after" in line and "done in about 12 min" in line
+
+
+def test_ticket_titles_name_the_parent_folder(env, capsys, tmp_path):
+    from bron.kb import sources
+
+    client = tmp_path / "Acme Ltda"
+    for sub in ("Contracts", "Invoices"):
+        (client / sub).mkdir(parents=True)
+        make_text_pdf(client / sub / f"{sub}.pdf", [SPA_TEXT])
+    run(env, capsys, "add", str(client / "Contracts"))
+    assert jobs.load(env.vault, env.spawned[-1]).label == "the Acme Ltda/Contracts folder"
+    both = sources.resolve_targets(env.vault, [str(client / "Contracts"), str(client / "Invoices")])
+    assert sources.folder_label(both, both.items) == "the Acme Ltda folder"
+    loose = sources.resolve_targets(env.vault, [str(client / "Contracts" / "Contracts.pdf"),
+                                                str(client / "Invoices" / "Invoices.pdf")])
+    assert sources.folder_label(loose, loose.items) == "the Acme Ltda folder"
+    web = sources.resolve_targets(env.vault, [str(client / "Contracts" / "Contracts.pdf"), "https://example.com/a"])
+    assert sources.folder_label(web, web.items) == ""
+    assert wiki_run.title("the Acme Ltda/Contracts folder", 3, 2, 4) == \
+        "Read the Acme Ltda/Contracts folder into the wiki (part 2 of 4)"

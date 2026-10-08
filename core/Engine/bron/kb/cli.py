@@ -15,7 +15,9 @@ TEXT_SECONDS_PER_PAGE = 0.05
 SCAN_SECONDS_PER_PAGE = 1.0  # Mac text recognition
 SECONDS_PER_PAGE = 0.2  # a mix of text and scanned pages, for estimates of what isn't opened
 BACKGROUND = "Reading {count} into the wiki in the background ({duration}); I'll report when it's done."
-BEHIND = "A folder is being written into the wiki; I'll add these after it ({duration})."
+BACKGROUND_CODEX = ("Reading {count} into the wiki in the background ({duration}); a Mac notification will say when "
+                    "it's done, and I'll tell you in your next message.")
+BEHIND = "A folder is already being written into the wiki; these start right after it and should be done in {duration}."
 NEXT = "Next: load the read-documents skill, write their wiki pages, then run `.bron/bin/bron wiki done`."
 SHOW_PAGES = 20
 SHOW_CHARS = 20_000  # one `show` stays well under what Claude Code and Codex print of a command in full (about 30,000)
@@ -205,6 +207,17 @@ def _ahead(vault) -> tuple[int, bool]:
     return count, bool(count) or bool(reading) or jobs.wiki_active(vault)
 
 
+def _background_line(count: str, duration: str) -> str:
+    """Claude Code's agent is woken when the background command ends; Codex's user gets a Mac notification."""
+    import os
+
+    return (BACKGROUND if os.environ.get("CLAUDECODE") else BACKGROUND_CODEX).format(count=count, duration=duration)
+
+
+def _behind_line(duration: str) -> str:
+    return BEHIND.format(duration=duration)
+
+
 def _queue(vault, items, failed, *, again: bool, label: str, pages: int) -> int:
     """Read in the background, then write the wiki pages in the same background job."""
     from . import jobs, wiki_run
@@ -215,8 +228,7 @@ def _queue(vault, items, failed, *, again: bool, label: str, pages: int) -> int:
         print("Bron couldn't start reading in the background (.bron/bin/bron is missing). Run `.bron/bin/bron check`.")
         return 1
     duration = _duration(pages * SECONDS_PER_PAGE + (ahead + len(items)) * wiki_run.SECONDS_PER_DOC)
-    print(BEHIND.format(duration=duration) if behind
-          else BACKGROUND.format(count=_plural(len(items), "document"), duration=duration))
+    print(_behind_line(duration) if behind else _background_line(_plural(len(items), "document"), duration))
     _wait_hint(job.job_id)
     return 0
 
@@ -243,7 +255,7 @@ def _report(vault, docs, notes) -> int:
         if behind:
             job = jobs.create_wiki(vault, todo)
             jobs.spawn(vault, job.job_id)  # if it can't start now, the next session or `bron kb status` starts it
-            print(BEHIND.format(duration=_duration((ahead + len(todo)) * wiki_run.SECONDS_PER_DOC)))
+            print(_behind_line(_duration((ahead + len(todo)) * wiki_run.SECONDS_PER_DOC)))
             _wait_hint(job.job_id)
         else:
             print(NEXT)
@@ -314,7 +326,7 @@ def _add(args, vault) -> int:
         print(_ask_first(vault, len(items), pages))
         return 0
     if not few or seconds > FOREGROUND_SECONDS or jobs.runner_active(vault):  # never two readers at once
-        label = f"the {found.folders[0]} folder" if len(found.folders) == 1 else ""
+        label = sources.folder_label(found, items)
         return _queue(vault, items, found.failed, again=args.again, label=label, pages=pages)
     cfg, embedder = load(vault), _embedder(vault)
     docs = [ingest.read_item(vault, cfg, item, embedder=embedder, again=args.again) for item in items]

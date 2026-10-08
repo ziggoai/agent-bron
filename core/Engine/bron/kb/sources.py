@@ -9,7 +9,7 @@ import ctypes.util
 import os
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import statefile
@@ -262,6 +262,7 @@ class Resolved:
     items: list[Item]
     failed: list[str]
     folders: list[str]  # the names of the folders asked for (a folder is read in the background)
+    folder_paths: list[Path] = field(default_factory=list)  # where those folders are (a shared one: its inner folder)
 
 
 def _folder_name(path: Path) -> str:
@@ -274,6 +275,35 @@ def _folder_name(path: Path) -> str:
         if len(inside) == 1:
             return inside[0].name
     return path.name
+
+
+def _own_path(path: Path) -> Path:
+    """The folder itself; a shared folder's id folder stands for the one folder inside it."""
+    name = _folder_name(path)
+    return path / name if name != path.name else path
+
+
+def _is_generic(path: Path) -> bool:
+    """A place that says nothing about the documents: the disk's top, the home folder, a Drive's top."""
+    return (path.parent == path or path == Path.home() or path.parent == Path.home()
+            or path.name in ("My Drive", "Shared drives", SHORTCUTS) or path.parent.name == "CloudStorage")
+
+
+def folder_label(found: "Resolved", items: list[Item]) -> str:
+    """How a background reading is named in its ticket: "the Acme Ltda/Contracts folder" for one folder; for several
+    folders or loose files, the deepest folder they share ("the Acme Ltda folder"); empty when nothing is shared."""
+    paths = found.folder_paths
+    if len(paths) == 1 and len(found.folders) == 1:
+        own = _own_path(paths[0])
+        return f"the {own.parent.name}/{own.name} folder" if not _is_generic(own.parent) else f"the {own.name} folder"
+    places = [Path(i.path) for i in items if i.kind in ("file", "drive") and i.path]
+    if not places or len(places) != len(items):
+        return ""
+    try:
+        common = Path(os.path.commonpath([str(p.parent) for p in places]))
+    except ValueError:
+        return ""
+    return "" if _is_generic(common) else f"the {common.name} folder"
 
 
 def resolve(vault: Vault, targets: list[str], *, inbox: bool = False) -> tuple[list[Item], list[str]]:
@@ -291,6 +321,7 @@ def resolve_targets(vault: Vault, targets: list[str], *, inbox: bool = False) ->
     items: list[Item] = []
     failed: list[str] = []
     folders: list[str] = []
+    folder_paths: list[Path] = []
     for target in targets:
         if _is_drive_link(target):
             did = drive_id(target)
@@ -301,6 +332,7 @@ def resolve_targets(vault: Vault, targets: list[str], *, inbox: bool = False) ->
                               "Open Google Drive for desktop and make sure the file is available.")
             elif path.is_dir():
                 folders.append(_folder_name(path))
+                folder_paths.append(path)
                 items += [_item_for_file(f) for f in _files_under(path)]
             else:
                 items.append(_item_for_file(path, from_drive_id=did))
@@ -314,6 +346,7 @@ def resolve_targets(vault: Vault, targets: list[str], *, inbox: bool = False) ->
             keep = is_under(path, inbox_dir(vault))
             if path.is_dir():
                 folders.append(path.name)
+                folder_paths.append(path)
                 items += [_item_for_file(f, keep=keep) for f in _files_under(path)]
             elif path.is_file():
                 items.append(_item_for_file(path, keep=keep))
@@ -323,4 +356,4 @@ def resolve_targets(vault: Vault, targets: list[str], *, inbox: bool = False) ->
         folder = inbox_dir(vault)
         if folder.is_dir():
             items += [_item_for_file(f, keep=True) for f in _files_under(folder)]
-    return Resolved(items, failed, folders)
+    return Resolved(items, failed, folders, folder_paths)
