@@ -242,6 +242,15 @@ def test_worth_a_look(vault):
 
 def test_numbers_that_are_fine(vault):
     org(vault, "Acme Ltda", "Founded 2019; reg. no. 12-3456789; price $0.2870586; Section 10.9; "
-                            "call +55 11 912345678; 12,192,630 shares; 2025-03-01.\n")
+                            "call +55 11 912345678; 12,192,630 shares; 2025-03-01.\n"
+                            "Invoice No: 12345678\nCNPJ 12345678000199\nInvoice 2025001234 paid\nphone 11912345678\n"
+                            "Ref: 20250301\nSee site.com/x?ref=1234567 and https://a.com/9876543210\n"
+                            "version 2025.0312.1\n")
     write_page(vault, "Documents/Ledger.md", "Total 12192630 (p. 1)\n", type="document", summary="Ledger")
     assert [p for p in wiki_check.review(vault) if p.code == "raw-number"] == []
+
+
+def test_timelines_that_are_fine(vault):
+    org(vault, "Acme Ltda", "## Timeline\n- 2025-03: month only\n- 2025-03-01: a\n- 2024: year only\n"
+                            "- 2025-04-01: b\n\n## Notes\n- 2020-01-01: not part of it\n")
+    assert [p for p in wiki_check.review(vault) if p.code == "timeline-order"] == []

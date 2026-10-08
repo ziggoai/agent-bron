@@ -18,7 +18,8 @@ MAX_DOCUMENT_CHARS = 30_000  # a document page follows one long document
 TIDY_TO = 15_000  # what a page over the limit is told to shrink to: well under it, so it doesn't come straight back
 SUMMARY_MAX = 300  # a summary is one line: index.md and search show it
 SUFFIXES = {"ltda", "llc", "inc", "sa", "lp"}  # folded away when looking for duplicates ("Acme Ltda." = "Acme")
-ORDER = ("bad-properties", "broken-link", "missing-properties", "long-summary", "unknown-doc", "doc-on-two-pages", "no-page-yet",
+ORDER = ("bad-properties", "broken-link", "missing-properties", "long-summary", "unknown-doc",
+         "doc-on-two-pages", "no-page-yet",
          "duplicate", "same-name", "orphan", "too-long")
 TITLES = {
     "bad-properties": "Pages whose properties can't be read",
@@ -43,10 +44,12 @@ REVIEW_TITLES = {
 }
 NOT_CHECKED = re.compile(r"\b(not (yet )?(checked|compared|verified|confirmed)|to (be )?confirm(ed)?"
                          r"|pending (check|confirmation))\b", re.IGNORECASE)
-BLANKED = re.compile(r"\[\[.*?\]\]|`[^`\n]*`|\d{4}-\d{2}-\d{2}|\+\d[\d\s().-]{6,}\d")
-WHOLE_NUMBER = re.compile(r"(?<![\w.,/-])\d{7,}(?![\w,/-]|\.\d)")
+BLANKED = re.compile(r"\[\[.*?\]\]|`[^`\n]*`|https?://\S+|[?&]\w+=\S+|\d{4}-\d{2}-\d{2}|\+\d[\d\s().-]{6,}\d")
+# 7 to 10 digits: longer runs are accounts, phones and tax ids
+WHOLE_NUMBER = re.compile(r"(?<![\w.,/-])\d{7,10}(?![\w,/-]|\.\d|\d)")
 LONG_DECIMAL = re.compile(r"(?<![\w.,/-])\d{4,}\.\d{3,}(?!\w)")
-IDENTIFIER = re.compile(r"(no\.|number|#|\bid)\W{0,3}$", re.IGNORECASE)
+IDENTIFIER = re.compile(r"(\bno\b\.?|number|#|\bid|ref|reference|invoice|tax|account|order|ticket|policy|reg|registration"
+                        r"|code|version|cnpj|cpf)\W{0,3}$", re.IGNORECASE)
 DATED_LINE = re.compile(r"^\s*[-*]\s*\[?(\d{4}-\d{2}-\d{2})\b")
 
 
@@ -211,6 +214,14 @@ def render(problems: list[Problem], *, everything: bool) -> str:
     return "\n".join(lines)
 
 
+def _is_date(digits: str) -> bool:
+    """Eight digits that read as YYYYMMDD (20250301)."""
+    if len(digits) != 8:
+        return False
+    year, month, day = int(digits[:4]), int(digits[4:6]), int(digits[6:])
+    return 1900 <= year <= 2100 and 1 <= month <= 12 and 1 <= day <= 31
+
+
 def _raw_numbers(body: str) -> list[str]:
     """Numbers written the way a spreadsheet stores them (12192630, 19389341.05263158), not identifiers or prices."""
     found: list[str] = []
@@ -218,7 +229,8 @@ def _raw_numbers(body: str) -> list[str]:
         blank = BLANKED.sub(lambda m: " " * len(m.group()), line)
         for pattern in (WHOLE_NUMBER, LONG_DECIMAL):
             for m in pattern.finditer(blank):
-                if not IDENTIFIER.search(blank[max(0, m.start() - 12):m.start()]) and m.group() not in found:
+                before = blank[max(0, m.start() - 12):m.start()]
+                if m.group() not in found and not IDENTIFIER.search(before) and not _is_date(m.group()):
                     found.append(m.group())
     return found
 
@@ -247,7 +259,7 @@ def review(vault: Vault, *, only: set[str] | None = None, pages: list[wiki.Page]
         if page.error or page.is_document or (only is not None and page.rel not in only):
             continue
         for line in page.body.splitlines():
-            if m := NOT_CHECKED.search(line):
+            if NOT_CHECKED.search(line) and sum(p.code == "not-checked" and p.where == page.rel for p in out) < 3:
                 snippet = line.strip()
                 snippet = snippet if len(snippet) <= 80 else snippet[:79].rstrip() + "…"
                 out.append(Problem("not-checked", page.rel, f"{page.title}: says something isn't checked yet "
