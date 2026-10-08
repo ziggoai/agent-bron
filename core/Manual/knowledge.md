@@ -43,7 +43,7 @@ This follows Andrej Karpathy's "LLM wiki" idea: knowledge is compiled once and k
 ```
 Knowledge/
   Schema.md      the rules (yours to edit)
-  index.md       every page, by type (written by Bron)
+  index.md       every page, by type (written by Bron when `bron wiki done` runs)
   log.md         what happened, newest last (written by Bron)
   Documents/     one page per document
   Organisations/
@@ -74,6 +74,7 @@ Knowledge/
 ## Checking the wiki
 
 - The health check counts wiki problems (if the check itself fails, it says "The wiki couldn't be checked; run `bron wiki check` for details."): links to pages that don't exist (a link like `[[Organisations/Acme Ltda]]` counts when that path exists, as in Obsidian), pages nothing links to, pages missing `type` or `summary`, documents read without a page, pages whose document was forgotten, a document named by two pages, probable duplicates (Acme, Acme Ltda.), a name two pages answer to (a document page whose alias is another page's title), and pages over 20,000 characters (document pages 30,000). `.bron/bin/bron wiki check` shows them; `--all` lists every one.
+- The check also tells a page over about 15,000 characters to tidy (long lists move to their own topic page) and flags a summary over 300 characters. `wiki check --all` and `wiki done` add a "worth a look" list: things that may be fine but are worth a glance, such as a note saying something isn't checked yet, numbers pasted in spreadsheet form, or a timeline out of order. It never stops `wiki done`.
 - After each folder, the agent rereads the pages it touched: it settles changes a newer document clearly makes, flags real conflicts to you, creates pages for names that now appear in two or more documents, and lists gaps (a document that's referred to but wasn't read) as suggestions.
 - Say "check the wiki" for a full checkup, or "finish the wiki pages" to write the pages of documents that were read without one (an interrupted run, or documents read before the wiki existed).
 
