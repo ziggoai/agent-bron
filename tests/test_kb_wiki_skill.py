@@ -60,3 +60,14 @@ def test_the_skill_quotes_aliases_and_keeps_pages_current(vault):
     assert "Put every alias in double quotes" in text
     assert "check that the page's `summary` still holds" in text
     assert "delete the question" in text
+
+
+def test_the_skill_keeps_growing_pages_short_and_uses_readers_well(vault):
+    text = SKILL.read_text(encoding="utf-8")
+    assert "own topic page" in text  # long lists move out of a page
+    assert "from the readers' notes" in text
+    assert "sleep" in text  # never wait with sleep
+    assert "stop a background run" not in text  # the old, wrong shell claim
+    assert "Claude Code can't check" not in text
+    reader = (REPO / "core" / "Helpers" / "reader.md").read_text(encoding="utf-8")
+    assert "=====" in reader

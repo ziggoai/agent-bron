@@ -19,7 +19,7 @@ Read `Knowledge/Schema.md` first. Then take each document `bron kb add` printed 
 2. **See what the wiki already knows.** Note the organisations, people, topics and other documents it mentions. For each name run `.bron/bin/bron kb search '<name>' --pages-only` and open the pages it finds. Read every page you are going to change before you change it.
 3. **Write the document page** in `Knowledge/Documents/` (format below): what the document is, its key facts each with its page number, the parties, and what it changes or contradicts in the wiki.
 4. **Update the pages it touches.** A rich document often touches 10–15 pages. For each organisation, person or topic that has a page, or now needs one (see "When a page is created"), add what this document says under the right heading, each fact with its citation. Add what's new; don't repeat what's there.
-   Put each fact on the page it is most about. A person or organisation that appears in many documents (someone who signs most of them, a law firm, the user's own company) gets their roles, relationships and changes, not a line per document. **Never add a "signed …", "attended …" or "party to …" line to their page:** who signed what stays under the document page's Parties, and a role they already have gets the new document as one more citation on its line. A page that lists many things of one kind (contracts, projects, holdings) keeps one short line each, linking to the thing's own page, where the detail goes; when a topic page already lists them, link the topic instead of repeating it.
+   Put each fact on the page it is most about. A person or organisation that appears in many documents (someone who signs most of them, a law firm, the user's own company) gets their roles, relationships and changes, not a line per document. **Never add a "signed …", "attended …" or "party to …" line to their page:** who signed what stays under the document page's Parties, and a role they already have gets the new document as one more citation on its line. A page that lists many things of one kind (contracts, projects, holdings) keeps one short line each, linking to the thing's own page, where the detail goes; when a topic page already lists them, link the topic instead of repeating it. When such a list passes about 20 lines, move it to its own topic page ("<Name> <things>", for example "Acme Ltda contracts") with one line per item, and leave one line on the page linking it. The user's own organisation, a person who signs most documents and a firm that serves many clients are the usual cases.
 5. **Handle contradictions.** When this document says something different from a page:
    - if it clearly supersedes the earlier one (newer, an amendment, a correction), update the fact and keep the old one as a short note: "now USD 4,450.00 (see [[Rent increase (2026-01-10)]], p. 1); previously USD 4,200.00 (see [[Office lease (2025-03-01)]], p. 2)";
    - otherwise it's a real conflict: keep both with their citations, mark it **Conflict:** and tell the user. Never decide it yourself.
@@ -33,7 +33,7 @@ When all the documents are done, run `.bron/bin/bron wiki done`. It records the 
 
 Then tell the user, in a few lines: what you learned, what changed or contradicted earlier pages, which pages you created and which you updated, and any document that couldn't be read. Don't paste whole pages.
 
-If `bron kb add` said "A folder is being written into the wiki; I'll add these after it", don't write pages for those documents: the background run will. Never poll `bron kb status` while you wait.
+If `bron kb add` said "A folder is being written into the wiki; I'll add these after it", don't write pages for those documents: the background run will. Never poll `bron kb status` while you wait, and never wait for it with `sleep` or by reading the documents yourself: tell the user it's being written and go on.
 
 ### When a page is created
 
@@ -116,6 +116,8 @@ Whenever a fact on a page changes (a newer document, a correction from the user,
 
 A ticket may ask you to read several documents into the wiki. Do the same as above, document by document. Nobody is waiting, so don't ask questions: note real conflicts and open questions in your final reply. When the documents are done, run the judgement checkup below over the pages you touched, then `.bron/bin/bron wiki done --log 'check | <what the checkup found and fixed>'`. Your final reply is the summary the user reads: what you learned, what changed or contradicted, the pages created and updated, and the documents that couldn't be read.
 
+Reader helpers: give each a few documents and ask for the facts the page needs, with page numbers and exact wording. Write the pages from the readers' notes; open a document yourself only to check a fact you are about to cite. Reading it all again yourself doubles the cost.
+
 ## Judgement checkup
 
 After a folder, and as part of "check the wiki", over the pages you touched and the pages they link to:
@@ -147,7 +149,7 @@ After an answer that combined several documents, offer: "Save this as a page?" O
 
 - download or copy a Drive file, or put a document into `Knowledge/` yourself (only `bron kb add` keeps copies, in `Knowledge/Files/`);
 - save document text in a file outside the vault (`/tmp` and the like): it is left there for anyone on the computer to read, and reading it back needs the user's OK. If you really need a scratch file, use `.bron/tmp/` (`mkdir -p .bron/tmp` first) and leave it there: Bron clears it, and deleting a file needs the user's OK, which stops a background run;
-- write shell commands Claude Code can't check before they run (variables such as `$d`, loops, `cd ..`): in a background run they stop for the user's OK. Run one simple command at a time, and quote separators (`echo '---'`: a bare `=====` fails in zsh);
+- write complicated shell commands (variables such as `$d`, loops, `cd ..`, several commands chained): run one simple command at a time, so it's clear what each does and a conversation doesn't stop for the user's OK; quote separators (`echo '---'`: a bare `=====` fails in zsh);
 - edit `index.md` or `log.md`;
 - poll `bron kb status`;
 - invent a fact, a number or a citation;
