@@ -80,8 +80,9 @@ def test_pages_over_20000_characters_and_documents_over_30000(vault):
         write_page(vault, f"Documents/{name}.md", "word " * words + "[[Beta]]\n", type="document", summary="A lease")
     found = [p.text for p in wiki_check.run(vault) if p.code == "too-long"]
     assert found == ["Longer lease: 30,014 characters; split it into smaller pages.",
-                     "Acme Ltda: 20,019 characters; tidy it: one line per fact (merge lines that repeat it), and move "
-                     "detail to the pages it is about."]
+                     "Acme Ltda: 20,019 characters; tidy it to about 15,000: one line per fact (merge lines that repeat "
+                     "it), roles instead of a line per document, and move lists and detail to the pages they are "
+                     "about."]
 
 
 def test_a_name_two_kinds_of_page_answer_to(vault):
@@ -213,3 +214,34 @@ def test_a_scoped_run_reports_a_document_on_two_pages(vault):
     found = [p for p in wiki_check.run(vault, only={rel}) if p.code == "doc-on-two-pages"]
     assert [p.text for p in found] == ["form-a.pdf (doc %s) is named by [[Form A]] and [[Supplier forms]]; keep it "
                                        "on one page." % a.doc_id]
+
+
+def test_a_long_page_is_told_to_go_well_under_the_limit(vault):
+    org(vault, "Acme Ltda", "- a fact (see [[Lease]], p. 1)\n" * 800)
+    text = next(p.text for p in wiki_check.run(vault) if p.code == "too-long")
+    assert "about 15,000" in text
+
+
+def test_a_summary_too_long_for_the_index(vault):
+    org(vault, "Acme Ltda", "See [[Acme Ltda]].\n", summary="x " * 200)
+    assert ("long-summary", "Knowledge/Organisations/Acme Ltda.md") in codes(vault)
+
+
+def test_worth_a_look(vault):
+    org(vault, "Acme Ltda",
+        "## Timeline\n- 2025-03-01: lease signed\n- 2024-12-20: offer\n\n"
+        "- Total 12192630 and 19389341.05263158 (see [[Lease]], p. 1)\n"
+        "- Amount not yet checked against the ledger\n")
+    got = {p.code for p in wiki_check.review(vault)}
+    assert got == {"timeline-order", "raw-number", "not-checked"}
+    assert not got & {p.code for p in wiki_check.run(vault)}  # never counted as problems
+    out = wiki_check.render_review(wiki_check.review(vault), everything=True)
+    assert out.startswith("Worth a look (fix what's real; these don't block `wiki done`):")
+    assert wiki_check.render_review([], everything=True) == ""
+
+
+def test_numbers_that_are_fine(vault):
+    org(vault, "Acme Ltda", "Founded 2019; reg. no. 12-3456789; price $0.2870586; Section 10.9; "
+                            "call +55 11 912345678; 12,192,630 shares; 2025-03-01.\n")
+    write_page(vault, "Documents/Ledger.md", "Total 12192630 (p. 1)\n", type="document", summary="Ledger")
+    assert [p for p in wiki_check.review(vault) if p.code == "raw-number"] == []

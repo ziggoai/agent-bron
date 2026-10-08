@@ -1,7 +1,7 @@
 """Mechanical checks of the wiki (free: no model). Links to pages that don't exist, pages nothing links to, pages
 missing `type` or `summary`, documents read without a page, pages naming a document Bron doesn't have, probable
-duplicates, two pages answering to one name, pages too long to read in one go, and pages whose properties can't be
-read."""
+duplicates, two pages answering to one name, pages too long to read in one go, summaries too long for index.md and
+pages whose properties can't be read. `review` is a second list that never blocks: things worth a second look."""
 from __future__ import annotations
 
 import os
@@ -15,13 +15,16 @@ from . import store, wiki
 
 MAX_CHARS = 20_000  # a page every later run reads again (an organisation, a person, a topic)
 MAX_DOCUMENT_CHARS = 30_000  # a document page follows one long document
+TIDY_TO = 15_000  # what a page over the limit is told to shrink to: well under it, so it doesn't come straight back
+SUMMARY_MAX = 300  # a summary is one line: index.md and search show it
 SUFFIXES = {"ltda", "llc", "inc", "sa", "lp"}  # folded away when looking for duplicates ("Acme Ltda." = "Acme")
-ORDER = ("bad-properties", "broken-link", "missing-properties", "unknown-doc", "doc-on-two-pages", "no-page-yet",
+ORDER = ("bad-properties", "broken-link", "missing-properties", "long-summary", "unknown-doc", "doc-on-two-pages", "no-page-yet",
          "duplicate", "same-name", "orphan", "too-long")
 TITLES = {
     "bad-properties": "Pages whose properties can't be read",
     "broken-link": "Links to pages that don't exist",
     "missing-properties": "Pages missing type or summary",
+    "long-summary": "Summaries too long to list",
     "unknown-doc": "Document pages whose document Bron doesn't have",
     "doc-on-two-pages": "Documents claimed by two pages",
     "no-page-yet": "Documents read but no page yet",
@@ -30,6 +33,21 @@ TITLES = {
     "orphan": "Pages nothing links to",
     "too-long": "Pages over 20,000 characters (document pages 30,000)",
 }
+
+
+REVIEW_ORDER = ("not-checked", "raw-number", "timeline-order")
+REVIEW_TITLES = {
+    "not-checked": "Notes saying something isn't checked yet",
+    "raw-number": "Numbers in spreadsheet form",
+    "timeline-order": "Timelines out of order",
+}
+NOT_CHECKED = re.compile(r"\b(not (yet )?(checked|compared|verified|confirmed)|to (be )?confirm(ed)?"
+                         r"|pending (check|confirmation))\b", re.IGNORECASE)
+BLANKED = re.compile(r"\[\[.*?\]\]|`[^`\n]*`|\d{4}-\d{2}-\d{2}|\+\d[\d\s().-]{6,}\d")
+WHOLE_NUMBER = re.compile(r"(?<![\w.,/-])\d{7,}(?![\w,/-]|\.\d)")
+LONG_DECIMAL = re.compile(r"(?<![\w.,/-])\d{4,}\.\d{3,}(?!\w)")
+IDENTIFIER = re.compile(r"(no\.|number|#|\bid)\W{0,3}$", re.IGNORECASE)
+DATED_LINE = re.compile(r"^\s*[-*]\s*\[?(\d{4}-\d{2}-\d{2})\b")
 
 
 @dataclass
@@ -138,6 +156,10 @@ def run(vault: Vault, *, only: set[str] | None = None, pages: list[wiki.Page] | 
         if missing:
             out.append(Problem("missing-properties", page.rel,
                                f"{page.title}: no {' or '.join(missing)} in its properties."))
+        summary = wiki.property_text(page.meta.get("summary"))
+        if len(summary) > SUMMARY_MAX:
+            out.append(Problem("long-summary", page.rel, f"{page.title}: its summary is {len(summary)} characters; "
+                                                         "keep it to one line under 300."))
         for doc_id in page.doc_ids:
             if not store.exists(vault, doc_id):
                 out.append(Problem("unknown-doc", page.rel, f"{page.title}: its doc {doc_id} isn't in the knowledge "
@@ -147,8 +169,9 @@ def run(vault: Vault, *, only: set[str] | None = None, pages: list[wiki.Page] | 
                                f"{page.title}: {len(page.body):,} characters; split it into smaller pages."))
         elif not page.is_document and len(page.body) > MAX_CHARS:
             out.append(Problem("too-long", page.rel,
-                               f"{page.title}: {len(page.body):,} characters; tidy it: one line per fact (merge lines "
-                               "that repeat it), and move detail to the pages it is about."))
+                               f"{page.title}: {len(page.body):,} characters; tidy it to about {TIDY_TO:,}: one "
+                               "line per fact (merge lines that repeat it), roles instead of a line per document, "
+                               "and move lists and detail to the pages they are about."))
         if not (linked.get(wiki.name_of(page.title), set()) - {page.rel}):
             out.append(Problem("orphan", page.rel, f"{page.title}: no other page links to it."))
     out += _duplicates(good, mine)
@@ -182,6 +205,73 @@ def render(problems: list[Problem], *, everything: bool) -> str:
             continue
         shown = found if everything else found[:3]
         lines.append(f"{TITLES[code]} ({len(found)}):")
+        lines += [f"- {p.text}" for p in shown]
+        if len(found) > len(shown):
+            lines.append(f"- …and {len(found) - len(shown)} more; run `.bron/bin/bron wiki check --all`.")
+    return "\n".join(lines)
+
+
+def _raw_numbers(body: str) -> list[str]:
+    """Numbers written the way a spreadsheet stores them (12192630, 19389341.05263158), not identifiers or prices."""
+    found: list[str] = []
+    for line in body.splitlines():
+        blank = BLANKED.sub(lambda m: " " * len(m.group()), line)
+        for pattern in (WHOLE_NUMBER, LONG_DECIMAL):
+            for m in pattern.finditer(blank):
+                if not IDENTIFIER.search(blank[max(0, m.start() - 12):m.start()]) and m.group() not in found:
+                    found.append(m.group())
+    return found
+
+
+def _timeline_order(body: str) -> tuple[str, str] | None:
+    """The first full date in a Timeline section that comes before the one above it: (later, earlier)."""
+    in_timeline, previous = False, ""
+    for line in body.splitlines():
+        if line.startswith("#"):
+            in_timeline, previous = "timeline" in line.casefold(), ""
+            continue
+        m = DATED_LINE.match(line) if in_timeline else None
+        if not m:
+            continue
+        if previous and m.group(1) < previous:
+            return previous, m.group(1)
+        previous = m.group(1)
+    return None
+
+
+def review(vault: Vault, *, only: set[str] | None = None, pages: list[wiki.Page] | None = None) -> list[Problem]:
+    """Things worth a second look: often a false alarm, never a reason to hold `wiki done`."""
+    pages = wiki.all_pages(vault) if pages is None else pages
+    out: list[Problem] = []
+    for page in pages:
+        if page.error or page.is_document or (only is not None and page.rel not in only):
+            continue
+        for line in page.body.splitlines():
+            if m := NOT_CHECKED.search(line):
+                snippet = line.strip()
+                snippet = snippet if len(snippet) <= 80 else snippet[:79].rstrip() + "…"
+                out.append(Problem("not-checked", page.rel, f"{page.title}: says something isn't checked yet "
+                                                            f"(\"{snippet}\"); if it has been since, update it."))
+        if examples := _raw_numbers(page.body)[:3]:
+            out.append(Problem("raw-number", page.rel, f"{page.title}: numbers written as a spreadsheet stores them "
+                                                       f"({', '.join(examples)}); write them the way the schema says."))
+        if bad := _timeline_order(page.body):
+            out.append(Problem("timeline-order", page.rel, f"{page.title}: its timeline is out of date order "
+                                                           f"({bad[1]} comes before {bad[0]})."))
+    return sorted(out, key=lambda p: (REVIEW_ORDER.index(p.code), p.where, p.text))
+
+
+def render_review(items: list[Problem], *, everything: bool) -> str:
+    """The same grouping as `render`, under its own header; empty when there is nothing to look at."""
+    if not items:
+        return ""
+    lines = ["Worth a look (fix what's real; these don't block `wiki done`):"]
+    for code in REVIEW_ORDER:
+        found = [p for p in items if p.code == code]
+        if not found:
+            continue
+        shown = found if everything else found[:3]
+        lines.append(f"{REVIEW_TITLES[code]} ({len(found)}):")
         lines += [f"- {p.text}" for p in shown]
         if len(found) > len(shown):
             lines.append(f"- …and {len(found) - len(shown)} more; run `.bron/bin/bron wiki check --all`.")

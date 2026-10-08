@@ -40,6 +40,8 @@ def handle(args, vault) -> int:
             from . import wiki_check
 
             print(wiki_check.render(wiki_check.run(vault), everything=args.all))
+            if args.all and (extra := wiki_check.render_review(wiki_check.review(vault), everything=True)):
+                print("\n" + extra)
             return 0
     except KbError as exc:
         print(exc)

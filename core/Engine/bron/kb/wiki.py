@@ -234,7 +234,7 @@ def index_text(vault: Vault, pages: list[Page] | None = None) -> str:
     return "\n".join(lines) + "\n"
 
 
-INDEX_SUMMARY = 240  # characters of a summary in index.md: a catalogue line, not the page (the page keeps it all)
+INDEX_SUMMARY = 200  # characters of a summary in index.md: a catalogue line, not the page (the page keeps it all)
 
 
 def _short(summary: str) -> str:

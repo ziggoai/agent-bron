@@ -194,3 +194,13 @@ def test_two_wiki_done_runs_take_turns(vault):
     assert result[0] == "Wiki updated: 2 pages (2 new)."
     assert done(vault) == "Nothing changed in the wiki."
     assert log(vault).count("ingest | [[Office lease (2025-03-01)]]") == 1
+
+
+def test_done_shows_what_is_worth_a_look_without_asking_for_another_run(vault):
+    write_page(vault, "Organisations/Harbor Bakery.md", "Total 12192630 (p. 1); [[Corner Shop]]\n",
+               type="organisation", summary="A bakery")
+    write_page(vault, "Organisations/Corner Shop.md", "See [[Harbor Bakery]].\n", type="organisation", summary="A shop")
+    out = done(vault)
+    assert "Worth a look (fix what's real; these don't block `wiki done`):" in out
+    assert "Numbers in spreadsheet form" in out
+    assert "run `.bron/bin/bron wiki done` again" not in out

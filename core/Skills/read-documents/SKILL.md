@@ -110,7 +110,7 @@ Whenever a fact on a page changes (a newer document, a correction from the user,
 - check that the page's `summary` still holds, and fix it if it repeats the old fact: it is what `index.md` and search show;
 - when it answers an open question, put the answer where it belongs on the page, with its source, and delete the question. "Open questions" lists only what is still open;
 - when you check a fact against another source (a system the user connected, the user), update every page that says it hasn't been checked yet: search for the phrase, not just the page in front of you;
-- when a page grows past 20,000 characters (a document page 30,000), tidy it as you go: merge lines that say the same thing (one line, several citations) and move detail to the pages it is about. `wiki done` lists such pages. Every later run reads the page again, so a long page slows every one of them.
+- when a page grows past 20,000 characters (a document page 30,000), tidy it to about 15,000 characters (a document page: split it): merge lines that say the same thing (one line, several citations) and move detail to the pages it is about. `wiki done` lists such pages. Every later run reads the page again, so a long page slows every one of them. Keep `summary` to one line under 300 characters: it's what `index.md` and search show.
 
 ## Background runs
 
@@ -127,7 +127,7 @@ After a folder, and as part of "check the wiki", over the pages you touched and 
 
 ## "Check the wiki" (full checkup)
 
-1. `.bron/bin/bron wiki check --all` lists the mechanical problems: broken links, pages nothing links to, missing `type` or `summary`, documents read without a page, pages whose document was forgotten, probable duplicates, names two pages answer to, pages over 20,000 characters (document pages 30,000).
+1. `.bron/bin/bron wiki check --all` lists the mechanical problems: broken links, pages nothing links to, missing `type` or `summary`, documents read without a page, pages whose document was forgotten, probable duplicates, names two pages answer to, pages over 20,000 characters (document pages 30,000), summaries over 300 characters. It also prints a "worth a look" list (notes saying something isn't checked yet, numbers in spreadsheet form, timelines out of order); each item may be a false alarm, so check before changing anything.
 2. Fix them: create or relink missing pages; add properties; merge duplicates (keep one page, move the facts with their citations, list the other names under `aliases`, point the links to the page you kept); keep a shared name on one page only; tidy long pages (one line per fact, detail on the pages it is about) and split a long document page by heading. Ask the user before deleting a page.
 3. Documents "read but no page yet": write their pages as in the ingest steps. This is also what "finish the wiki pages" means.
 4. Run the judgement checkup over the whole wiki, one type folder at a time.

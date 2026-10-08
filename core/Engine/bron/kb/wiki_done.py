@@ -97,13 +97,15 @@ def _done(vault: Vault, log_text: str) -> str:
     names = {wiki.name_of(p.title) for p in changed} | {wiki.name_of(Path(rel).stem) for rel in removed}
     scope |= {p.rel for p in pages if not p.error and any(wiki.name_of(t) in names for t in p.links())}
     problems = wiki_check.run(vault, only=scope, pages=pages) if scope else []
+    looks = wiki_check.render_review(wiki_check.review(vault, only=scope, pages=pages), everything=False) if scope else ""
     docs = {i: _read_stamp(vault, i) for p in pages if not p.error for i in p.doc_ids if store.exists(vault, i)}
     statefile.write_json(_state_path(vault), {"pages": now, "docs": docs})
     if not changed and not removed:
         head = "Nothing changed in the wiki" + ("; the log line is recorded." if log_text.strip() and not notes else ".")
     else:
         head = f"Wiki updated: {_plural(len(changed), 'page')} ({len(new)} new)."
+    extra = [looks] if looks else []
     if not problems:
-        return "\n".join([head, *notes])
+        return "\n".join([head, *notes, *extra])
     return "\n".join([head, *notes, *[f"- {p.text}" for p in problems],
-                      "Fix these, then run `.bron/bin/bron wiki done` again."])
+                      "Fix these, then run `.bron/bin/bron wiki done` again.", *extra])
